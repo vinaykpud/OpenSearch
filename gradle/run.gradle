@@ -31,7 +31,7 @@ import org.opensearch.gradle.testclusters.RunTask
 
 apply plugin: 'opensearch.testclusters'
 
-def numNodes = findProperty('numNodes') as Integer ?: 1
+def numNodes = 2//findProperty('numNodes') as Integer ?: 1
 def numZones = findProperty('numZones') as Integer ?: 1
 
 testClusters {
@@ -45,6 +45,10 @@ testClusters {
         plugin('plugins:'.concat(p))
       }
     }
+    setting 'opensearch.experimental.feature.read.write.split.enabled', 'true'
+//    setting 'path.repo', '/Users/pudyodu/snapshots/1'
+//    setting 'path.data', '/Users/pudyodu/data'
+    setting 'node.max_local_storage_nodes', '3'
   }
 }
 

@@ -8,12 +8,11 @@
 
 package org.opensearch.action.admin.indices.replication;
 
-import org.opensearch.common.Nullable;
 import org.opensearch.core.common.io.stream.StreamInput;
 import org.opensearch.core.common.io.stream.StreamOutput;
 import org.opensearch.core.common.io.stream.Writeable;
-import org.opensearch.index.SegmentReplicationPerGroupStats;
-import org.opensearch.indices.replication.SegmentReplicationState;
+import org.opensearch.core.index.shard.ShardId;
+import org.opensearch.index.SegmentReplicationShardStats;
 
 import java.io.IOException;
 
@@ -25,43 +24,47 @@ import java.io.IOException;
  */
 public class SegmentReplicationShardStatsResponse implements Writeable {
 
-    @Nullable
-    private final SegmentReplicationPerGroupStats primaryStats;
+    private final ShardId shardId;
 
-    @Nullable
-    private final SegmentReplicationState replicaStats;
+    private final boolean isPrimary;
+
+    private final SegmentReplicationShardStats replicaStats;
 
     public SegmentReplicationShardStatsResponse(StreamInput in) throws IOException {
-        this.primaryStats = in.readOptionalWriteable(SegmentReplicationPerGroupStats::new);
-        this.replicaStats = in.readOptionalWriteable(SegmentReplicationState::new);
+        this.shardId = new ShardId(in);
+        this.isPrimary = in.readBoolean();
+        this.replicaStats = in.readOptionalWriteable(SegmentReplicationShardStats::new);
     }
 
-    public SegmentReplicationShardStatsResponse(SegmentReplicationPerGroupStats primaryStats) {
-        this.primaryStats = primaryStats;
-        this.replicaStats = null;
-    }
-
-    public SegmentReplicationShardStatsResponse(SegmentReplicationState replicaStats) {
+    public SegmentReplicationShardStatsResponse(ShardId shardId,
+                                                boolean isPrimary,
+                                                SegmentReplicationShardStats replicaStats) {
+        this.shardId = shardId;
+        this.isPrimary = isPrimary;
         this.replicaStats = replicaStats;
-        this.primaryStats = null;
     }
 
-    public SegmentReplicationPerGroupStats getPrimaryStats() {
-        return primaryStats;
+    public ShardId getShardId() {
+        return shardId;
     }
 
-    public SegmentReplicationState getReplicaStats() {
+    public SegmentReplicationShardStats getReplicaStats() {
         return replicaStats;
+    }
+
+    public boolean isPrimary() {
+        return isPrimary;
     }
 
     @Override
     public void writeTo(StreamOutput out) throws IOException {
-        out.writeOptionalWriteable(primaryStats);
+        shardId.writeTo(out);
+        out.writeBoolean(isPrimary);
         out.writeOptionalWriteable(replicaStats);
     }
 
     @Override
     public String toString() {
-        return "SegmentReplicationShardStatsResponse{" + "primaryStats=" + primaryStats + ", replicaStats=" + replicaStats + '}';
+        return "SegmentReplicationShardStatsResponse{" + "shardId=" + shardId + ", replicaStats=" + replicaStats + '}';
     }
 }

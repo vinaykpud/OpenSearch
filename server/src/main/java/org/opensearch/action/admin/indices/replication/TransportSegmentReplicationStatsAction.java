@@ -26,18 +26,21 @@ import org.opensearch.index.SegmentReplicationPerGroupStats;
 import org.opensearch.index.SegmentReplicationPressureService;
 import org.opensearch.index.SegmentReplicationShardStats;
 import org.opensearch.index.shard.IndexShard;
+import org.opensearch.index.store.Store;
+import org.opensearch.index.store.StoreFileMetadata;
 import org.opensearch.indices.IndicesService;
 import org.opensearch.indices.replication.SegmentReplicationState;
 import org.opensearch.indices.replication.SegmentReplicationTargetService;
+import org.opensearch.indices.replication.checkpoint.ReplicationCheckpoint;
 import org.opensearch.threadpool.ThreadPool;
 import org.opensearch.transport.TransportService;
 
 import java.io.IOException;
-import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -94,47 +97,39 @@ public class TransportSegmentReplicationStatsAction extends TransportBroadcastBy
         List<DefaultShardOperationFailedException> shardFailures,
         ClusterState clusterState
     ) {
-        String[] shards = request.shards();
-        final List<Integer> shardsToFetch = Arrays.stream(shards).map(Integer::valueOf).collect(Collectors.toList());
 
-        // organize replica responses by allocationId.
-        final Map<String, SegmentReplicationState> replicaStats = new HashMap<>();
-        // map of index name to list of replication group stats.
-        final Map<String, List<SegmentReplicationPerGroupStats>> primaryStats = new HashMap<>();
-        for (SegmentReplicationShardStatsResponse response : responses) {
-            if (response != null) {
-                if (response.getReplicaStats() != null) {
-                    final ShardRouting shardRouting = response.getReplicaStats().getShardRouting();
-                    if (shardsToFetch.isEmpty() || shardsToFetch.contains(shardRouting.shardId().getId())) {
-                        replicaStats.putIfAbsent(shardRouting.allocationId().getId(), response.getReplicaStats());
-                    }
-                }
-                if (response.getPrimaryStats() != null) {
-                    final ShardId shardId = response.getPrimaryStats().getShardId();
-                    if (shardsToFetch.isEmpty() || shardsToFetch.contains(shardId.getId())) {
-                        primaryStats.compute(shardId.getIndexName(), (k, v) -> {
-                            if (v == null) {
-                                final ArrayList<SegmentReplicationPerGroupStats> list = new ArrayList<>();
-                                list.add(response.getPrimaryStats());
-                                return list;
-                            } else {
-                                v.add(response.getPrimaryStats());
-                                return v;
-                            }
-                        });
-                    }
-                }
-            }
-        }
-        // combine the replica stats to the shard stat entry in each group.
-        for (Map.Entry<String, List<SegmentReplicationPerGroupStats>> entry : primaryStats.entrySet()) {
-            for (SegmentReplicationPerGroupStats group : entry.getValue()) {
-                for (SegmentReplicationShardStats replicaStat : group.getReplicaStats()) {
-                    replicaStat.setCurrentReplicationState(replicaStats.getOrDefault(replicaStat.getAllocationId(), null));
-                }
-            }
-        }
-        return new SegmentReplicationStatsResponse(totalShards, successfulShards, failedShards, primaryStats, shardFailures);
+        final List<Integer> shardsToFetch = Arrays.stream(request.shards()).map(Integer::valueOf).collect(Collectors.toList());
+
+        final Map<String, Set<SegmentReplicationShardStats>> replicaStats = responses.stream()
+            .filter(Objects::nonNull)
+            .filter(response -> !response.isPrimary() && response.getReplicaStats() != null)
+            .filter(response -> shardsToFetch.isEmpty() || shardsToFetch.contains(response.getShardId().getId()))
+            .collect(Collectors.groupingBy(
+                response -> response.getShardId().getIndexName(),
+                Collectors.mapping(
+                    SegmentReplicationShardStatsResponse::getReplicaStats,
+                    Collectors.toSet()
+                )
+            ));
+
+
+        final Map<String, List<SegmentReplicationPerGroupStats>> segRepStats = responses.stream()
+            .filter(Objects::nonNull)
+            .filter(response -> !response.isPrimary() && response.getReplicaStats() != null)
+            .filter(response -> shardsToFetch.isEmpty() || shardsToFetch.contains(response.getShardId().getId()))
+            .collect(Collectors.groupingBy(
+                response -> response.getShardId().getIndexName(),
+                Collectors.mapping(
+                    response -> new SegmentReplicationPerGroupStats(
+                        response.getShardId(),
+                        replicaStats.get(response.getShardId().getIndexName()),
+                        0
+                    ),
+                    Collectors.toList()
+                )
+            ));
+
+        return new SegmentReplicationStatsResponse(totalShards, successfulShards, failedShards, segRepStats, shardFailures);
     }
 
     @Override
@@ -152,15 +147,42 @@ public class TransportSegmentReplicationStatsAction extends TransportBroadcastBy
             return null;
         }
 
-        if (shardRouting.primary()) {
-            return new SegmentReplicationShardStatsResponse(pressureService.getStatsForShard(indexShard));
-        }
+        //StateObject exist but no checkpoint set, then treat 0, ie no update
 
-        // return information about only on-going segment replication events.
-        if (request.activeOnly()) {
-            return new SegmentReplicationShardStatsResponse(targetService.getOngoingEventSegmentReplicationState(shardId));
+        ReplicationCheckpoint indexReplicationCheckpoint = indexShard.getLatestReplicationCheckpoint();
+//        ReplicationCheckpoint latestReplicationCheckpointReceived = targetService.getLatestReceivedCheckpoint().get(shardId);
+        SegmentReplicationState segmentReplicationState = targetService.getSegmentReplicationState(shardId);
+        if(segmentReplicationState != null) {
+            ReplicationCheckpoint latestReplicationCheckpointReceived = segmentReplicationState.getLatestReplicationCheckpoint();
+            long checkpointsBehindCount = calculateCheckpointsBehind(indexReplicationCheckpoint, latestReplicationCheckpointReceived);
+            long bytesBehindCount = calculateBytesBehind(indexReplicationCheckpoint, latestReplicationCheckpointReceived);
+            long currentReplicationLag = calculateCurrentReplicationLag(shardId);
+            long lastCompletedReplicationLag = request.activeOnly() ? 0 : getLastCompletedReplicationLag(shardId);
+
+            SegmentReplicationShardStats segmentReplicationShardStats = new SegmentReplicationShardStats(
+                shardRouting.allocationId().getId(),
+                checkpointsBehindCount,
+                bytesBehindCount,
+                0,
+                currentReplicationLag,
+                lastCompletedReplicationLag
+            );
+
+            segmentReplicationShardStats.setCurrentReplicationState(segmentReplicationState);
+            return new SegmentReplicationShardStatsResponse(shardId, shardRouting.primary(), segmentReplicationShardStats);
+        } else {
+            SegmentReplicationShardStats segmentReplicationShardStats = new SegmentReplicationShardStats(
+                shardRouting.allocationId().getId(),
+                0,
+                0,
+                0,
+                0,
+                0
+            );
+
+            segmentReplicationShardStats.setCurrentReplicationState(segmentReplicationState);
+            return new SegmentReplicationShardStatsResponse(shardId, shardRouting.primary(), segmentReplicationShardStats);
         }
-        return new SegmentReplicationShardStatsResponse(targetService.getSegmentReplicationState(shardId));
     }
 
     @Override
@@ -180,5 +202,39 @@ public class TransportSegmentReplicationStatsAction extends TransportBroadcastBy
         String[] concreteIndices
     ) {
         return state.blocks().indicesBlockedException(ClusterBlockLevel.METADATA_READ, concreteIndices);
+    }
+
+    private long calculateCheckpointsBehind(
+        ReplicationCheckpoint indexReplicationCheckpoint,
+        ReplicationCheckpoint latestReplicationCheckpointReceived
+    ) {
+        if (latestReplicationCheckpointReceived != null) {
+            return latestReplicationCheckpointReceived.getSegmentInfosVersion() - indexReplicationCheckpoint.getSegmentInfosVersion();
+        }
+        return 0;
+    }
+
+    private long calculateBytesBehind(
+        ReplicationCheckpoint indexReplicationCheckpoint,
+        ReplicationCheckpoint latestReplicationCheckpointReceived
+    ) {
+        if (latestReplicationCheckpointReceived != null) {
+            Store.RecoveryDiff diff = Store.segmentReplicationDiff(
+                latestReplicationCheckpointReceived.getMetadataMap(),
+                indexReplicationCheckpoint.getMetadataMap()
+            );
+            return diff.missing.stream().mapToLong(StoreFileMetadata::length).sum();
+        }
+        return 0;
+    }
+
+    private long calculateCurrentReplicationLag(ShardId shardId) {
+        SegmentReplicationState ongoingEventSegmentReplicationState = targetService.getOngoingEventSegmentReplicationState(shardId);
+        return ongoingEventSegmentReplicationState != null ? ongoingEventSegmentReplicationState.getTimer().time() : 0;
+    }
+
+    private long getLastCompletedReplicationLag(ShardId shardId) {
+        SegmentReplicationState lastCompletedSegmentReplicationState = targetService.getlatestCompletedEventSegmentReplicationState(shardId);
+        return lastCompletedSegmentReplicationState != null ? lastCompletedSegmentReplicationState.getTimer().time() : 0;
     }
 }
