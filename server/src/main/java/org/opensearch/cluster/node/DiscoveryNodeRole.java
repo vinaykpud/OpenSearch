@@ -323,8 +323,6 @@ public abstract class DiscoveryNodeRole implements Comparable<DiscoveryNodeRole>
 
         @Override
         public void validateRole(List<DiscoveryNodeRole> roles) {
-            System.out.println("ValidateRole");
-            System.out.println(roles);
             for (DiscoveryNodeRole role : roles) {
                 if (!role.equals(DiscoveryNodeRole.SEARCH_ROLE)) {
                     throw new IllegalArgumentException(
