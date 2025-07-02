@@ -449,6 +449,9 @@ public abstract class InternalTerms<A extends InternalTerms<A, B>, B extends Int
         return reducedBuckets;
     }
 
+    /*
+    I think this aggregations contains all the data which are collected from all the shards: Test this by having a replica
+     */
     public InternalAggregation reduce(List<InternalAggregation> aggregations, ReduceContext reduceContext) {
         LocalBucketCountThresholds localBucketCountThresholds = reduceContext.asLocalBucketCountThresholds(bucketCountThresholds);
         long sumDocCountError = 0;
