@@ -457,6 +457,7 @@ public abstract class InternalTerms<A extends InternalTerms<A, B>, B extends Int
         long sumDocCountError = 0;
         long otherDocCount = 0;
         InternalTerms<A, B> referenceTerms = null;
+        System.out.println("--> reduce");
         for (InternalAggregation aggregation : aggregations) {
             @SuppressWarnings("unchecked")
             InternalTerms<A, B> terms = (InternalTerms<A, B>) aggregation;
@@ -520,8 +521,11 @@ public abstract class InternalTerms<A extends InternalTerms<A, B>, B extends Int
         }
         final B[] list;
         if (reduceContext.isFinalReduce() || reduceContext.isSliceLevel()) {
+            System.out.println("reduced buckets: " + reducedBuckets.size());
+            System.out.println("localBucketCountThresholds: " + localBucketCountThresholds.getRequiredSize());
             final int size = Math.min(localBucketCountThresholds.getRequiredSize(), reducedBuckets.size());
             if (size < reducedBuckets.size()) {
+                System.out.println("--> QuickSelect");
                 Comparator<MultiBucketsAggregation.Bucket> cmp = order.comparator();
                 B[] reducedBucketsArr  = createBucketsArray(reducedBuckets.size());;
                 for (int i = 0; i < reducedBuckets.size(); i++) {
