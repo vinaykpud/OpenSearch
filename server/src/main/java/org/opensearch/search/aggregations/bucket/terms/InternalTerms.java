@@ -458,21 +458,15 @@ public abstract class InternalTerms<A extends InternalTerms<A, B>, B extends Int
         }
         final B[] list;
         if (reduceContext.isFinalReduce() || reduceContext.isSliceLevel()) {
+            B[] reducedBucketsArr = createBucketsArray(reducedBuckets.size());
+            for (int i = 0; i < reducedBuckets.size(); i++) {
+                reducedBucketsArr[i] = reducedBuckets.get(i);
+            }
             final int size = Math.min(localBucketCountThresholds.getRequiredSize(), reducedBuckets.size());
+            final Comparator<MultiBucketsAggregation.Bucket> cmp = order.comparator();
             if (size < reducedBuckets.size()) {
-                Comparator<MultiBucketsAggregation.Bucket> cmp = order.comparator();
-                B[] reducedBucketsArr  = createBucketsArray(reducedBuckets.size());;
-                for (int i = 0; i < reducedBuckets.size(); i++) {
-                    reducedBucketsArr[i] = reducedBuckets.get(i);
-                }
-                ArrayUtil.select(
-                    reducedBucketsArr,
-                    0,
-                    reducedBuckets.size(),
-                    size,
-                    cmp
-                );
-                int sz = 0;
+                ArrayUtil.select(reducedBucketsArr, 0, reducedBuckets.size(), size, cmp);
+                int selectedSize = 0;
                 for (B bucket : reducedBucketsArr) {
                     if (sumDocCountError == -1) {
                         bucket.setDocCountError(-1);
@@ -481,24 +475,24 @@ public abstract class InternalTerms<A extends InternalTerms<A, B>, B extends Int
                         bucket.setDocCountError(docCountError -> docCountError + finalSumDocCountError);
                     }
                     if (bucket.getDocCount() >= localBucketCountThresholds.getMinDocCount()) {
-                        B removed = ((sz == size) ? bucket : null);
+                        B removed = ((selectedSize == size) ? bucket : null);
                         if (removed != null) {
                             otherDocCount += removed.getDocCount();
                             reduceContext.consumeBucketsAndMaybeBreak(-countInnerBucket(removed));
                         } else {
-                            sz++;
+                            selectedSize++;
                             reduceContext.consumeBucketsAndMaybeBreak(1);
                         }
                     } else {
                         reduceContext.consumeBucketsAndMaybeBreak(-countInnerBucket(bucket));
                     }
                 }
-                list = createBucketsArray(sz);
-                if (sz >= 0) System.arraycopy(reducedBucketsArr, 0, list, 0, sz);
-                Arrays.sort(list, cmp);
+                list = createBucketsArray(selectedSize);
+                System.arraycopy(reducedBucketsArr, 0, list, 0, selectedSize);
             } else {
-                final BucketPriorityQueue<B> ordered = new BucketPriorityQueue<>(size, order.comparator());
-                for (B bucket : reducedBuckets) {
+                // since only else case possible is size == reducedBuckets.size() we can use the entire list of reduced buckets
+                list = reducedBucketsArr;
+                for (B bucket : reducedBucketsArr) {
                     if (sumDocCountError == -1) {
                         bucket.setDocCountError(-1);
                     } else {
@@ -506,22 +500,13 @@ public abstract class InternalTerms<A extends InternalTerms<A, B>, B extends Int
                         bucket.setDocCountError(docCountError -> docCountError + finalSumDocCountError);
                     }
                     if (bucket.getDocCount() >= localBucketCountThresholds.getMinDocCount()) {
-                        B removed = ordered.insertWithOverflow(bucket);
-                        if (removed != null) {
-                            otherDocCount += removed.getDocCount();
-                            reduceContext.consumeBucketsAndMaybeBreak(-countInnerBucket(removed));
-                        } else {
-                            reduceContext.consumeBucketsAndMaybeBreak(1);
-                        }
+                        reduceContext.consumeBucketsAndMaybeBreak(1);
                     } else {
                         reduceContext.consumeBucketsAndMaybeBreak(-countInnerBucket(bucket));
                     }
                 }
-                list = createBucketsArray(ordered.size());
-                for (int i = ordered.size() - 1; i >= 0; i--) {
-                    list[i] = ordered.pop();
-                }
             }
+            Arrays.sort(list, cmp);
         } else {
             // we can prune the list on partial reduce if the aggregation is ordered by key
             // and not filtered (minDocCount == 0)
