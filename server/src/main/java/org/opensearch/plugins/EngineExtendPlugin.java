@@ -15,8 +15,8 @@ package org.opensearch.plugins;
 public interface EngineExtendPlugin {
     /**
      * Execute engine extension operations.
-     * 
-     * @param relNode the relation node to process
+     *
+     * @param queryPlanIR queryPlan Intermediate Representation
      */
-    default void execute(String relNode) {}
+    default void execute(byte[] queryPlanIR) {}
 }

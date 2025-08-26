@@ -313,7 +313,7 @@ public class TransportSearchAction extends HandledTransportAction<SearchRequest,
         // cancellation. There may be other top level requests like AsyncSearch which is using SearchRequest internally and has it's own
         // cancellation mechanism. For such cases, the SearchRequest when created can override the createTask and set the
         // cancelAfterTimeInterval to NO_TIMEOUT and bypass this mechanism
-        engineExtendPlugin.execute(searchRequest.relNodeString());
+        engineExtendPlugin.execute(searchRequest.queryPlanIR());
 
         if (task instanceof CancellableTask) {
             listener = TimeoutTaskCancellationUtility.wrapWithCancellationListener(

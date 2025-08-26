@@ -714,16 +714,16 @@ public class SearchRequest extends ActionRequest implements IndicesRequest.Repla
         return pipeline;
     }
 
-    public SearchRequest relNodeString(String relNodeString) {
+    public SearchRequest queryPlanIR(byte[] queryPlanIR) {
         if (this.source == null) {
             this.source = new SearchSourceBuilder();
         }
-        this.source.relNodeString(relNodeString);
+        this.source.queryPlanIR(queryPlanIR);
         return this;
     }
 
-    public String relNodeString() {
-        return this.source != null ? this.source.relNodeString() : null;
+    public byte[] queryPlanIR() {
+        return this.source != null ? this.source.queryPlanIR() : null;
     }
 
     @Override

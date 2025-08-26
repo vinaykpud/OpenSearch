@@ -59,9 +59,16 @@ public class DataFusionPlugin extends Plugin implements ActionPlugin, EngineExte
     }
 
     @Override
-    public void execute(String relNode) {
+    public void execute(byte[] queryPlanIR) {
         // TODO: Implement actual execution logic
-        LogManager.getLogger(DataFusionPlugin.class).info("Executing relNode: {}", relNode);
+        LogManager.getLogger(DataFusionPlugin.class).info("Executing queryPlanIR: {}", queryPlanIR);
+        LogManager.getLogger(DataFusionPlugin.class).info("Substrait plan serialized to " + queryPlanIR.length + " bytes");
+        try {
+            io.substrait.proto.Plan planFromBytes = io.substrait.proto.Plan.parseFrom(queryPlanIR);
+            LogManager.getLogger(DataFusionPlugin.class).info("Successfully converted back from bytes: " + (planFromBytes != null));
+        } catch (Exception exception) {
+            LogManager.getLogger(DataFusionPlugin.class).info("Failed to convert back from bytes", exception);
+        }
     }
 
     @Override

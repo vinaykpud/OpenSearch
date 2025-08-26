@@ -42,6 +42,8 @@ import org.opensearch.common.unit.TimeValue;
 import org.opensearch.core.ParseField;
 import org.opensearch.core.common.ParsingException;
 import org.opensearch.core.common.Strings;
+import org.opensearch.core.common.bytes.BytesArray;
+import org.opensearch.core.common.bytes.BytesReference;
 import org.opensearch.core.common.io.stream.StreamInput;
 import org.opensearch.core.common.io.stream.StreamOutput;
 import org.opensearch.core.common.io.stream.Writeable;
@@ -78,6 +80,7 @@ import org.opensearch.search.suggest.SuggestBuilder;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -137,7 +140,7 @@ public final class SearchSourceBuilder implements Writeable, ToXContentObject, R
     public static final ParseField POINT_IN_TIME = new ParseField("pit");
     public static final ParseField SEARCH_PIPELINE = new ParseField("search_pipeline");
     public static final ParseField VERBOSE_SEARCH_PIPELINE = new ParseField("verbose_pipeline");
-    public static final ParseField REL_NODE_STRING = new ParseField("rel_node_string");
+    public static final ParseField QUERY_PLAN_IR = new ParseField("query_plan_ir");
 
     public static SearchSourceBuilder fromXContent(XContentParser parser) throws IOException {
         return fromXContent(parser, true);
@@ -230,7 +233,7 @@ public final class SearchSourceBuilder implements Writeable, ToXContentObject, R
 
     private boolean verbosePipeline = false;
 
-    private String relNodeString;
+    private byte[] queryPlanIR;
 
     /**
      * Constructs a new search source builder.
@@ -312,7 +315,8 @@ public final class SearchSourceBuilder implements Writeable, ToXContentObject, R
             verbosePipeline = in.readBoolean();
         }
         if (in.getVersion().onOrAfter(Version.V_3_0_0)) {
-            relNodeString = in.readOptionalString();
+            BytesReference bytesRef = in.readOptionalBytesReference();
+            queryPlanIR = bytesRef != null ? BytesReference.toBytes(bytesRef) : null;
         }
     }
 
@@ -401,7 +405,7 @@ public final class SearchSourceBuilder implements Writeable, ToXContentObject, R
             out.writeBoolean(verbosePipeline);
         }
         if (out.getVersion().onOrAfter(Version.V_3_0_0)) {
-            out.writeOptionalString(relNodeString);
+            out.writeOptionalBytesReference(queryPlanIR != null ? new BytesArray(queryPlanIR) : null);
         }
     }
 
@@ -1181,18 +1185,18 @@ public final class SearchSourceBuilder implements Writeable, ToXContentObject, R
     }
 
     /**
-     * Sets the rel node string parameter for this search request.
+     * Sets the query plan intermediate representation for this search request.
      */
-    public SearchSourceBuilder relNodeString(String relNodeString) {
-        this.relNodeString = relNodeString;
+    public SearchSourceBuilder queryPlanIR(byte[] queryPlanIR) {
+        this.queryPlanIR = queryPlanIR;
         return this;
     }
 
     /**
-     * Gets the rel node string parameter for this search request.
+     * Gets the query plan intermediate representation for this search request.
      */
-    public String relNodeString() {
-        return relNodeString;
+    public byte[] queryPlanIR() {
+        return queryPlanIR;
     }
 
     /**
@@ -1294,7 +1298,7 @@ public final class SearchSourceBuilder implements Writeable, ToXContentObject, R
         rewrittenBuilder.derivedFields = derivedFields;
         rewrittenBuilder.searchPipeline = searchPipeline;
         rewrittenBuilder.verbosePipeline = verbosePipeline;
-        rewrittenBuilder.relNodeString = relNodeString;
+        rewrittenBuilder.queryPlanIR = queryPlanIR;
         return rewrittenBuilder;
     }
 
@@ -1366,8 +1370,8 @@ public final class SearchSourceBuilder implements Writeable, ToXContentObject, R
                     searchPipeline = parser.text();
                 } else if (VERBOSE_SEARCH_PIPELINE.match(currentFieldName, parser.getDeprecationHandler())) {
                     verbosePipeline = parser.booleanValue();
-                } else if (REL_NODE_STRING.match(currentFieldName, parser.getDeprecationHandler())) {
-                    relNodeString = parser.text();
+                } else if (QUERY_PLAN_IR.match(currentFieldName, parser.getDeprecationHandler())) {
+                    queryPlanIR = parser.binaryValue();
                 } else {
                     throw new ParsingException(
                         parser.getTokenLocation(),
@@ -1705,8 +1709,8 @@ public final class SearchSourceBuilder implements Writeable, ToXContentObject, R
             builder.field(VERBOSE_SEARCH_PIPELINE.getPreferredName(), verbosePipeline);
         }
 
-        if (relNodeString != null) {
-            builder.field(REL_NODE_STRING.getPreferredName(), relNodeString);
+        if (queryPlanIR != null) {
+            builder.field(QUERY_PLAN_IR.getPreferredName(), queryPlanIR);
         }
 
         return builder;
@@ -1989,7 +1993,7 @@ public final class SearchSourceBuilder implements Writeable, ToXContentObject, R
             derivedFields,
             searchPipeline,
             verbosePipeline,
-            relNodeString
+            Arrays.hashCode(queryPlanIR)
         );
     }
 
@@ -2037,7 +2041,7 @@ public final class SearchSourceBuilder implements Writeable, ToXContentObject, R
             && Objects.equals(derivedFields, other.derivedFields)
             && Objects.equals(searchPipeline, other.searchPipeline)
             && Objects.equals(verbosePipeline, other.verbosePipeline)
-            && Objects.equals(relNodeString, other.relNodeString);
+            && Arrays.equals(queryPlanIR, other.queryPlanIR);
     }
 
     @Override
