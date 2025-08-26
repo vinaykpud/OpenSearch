@@ -81,4 +81,25 @@ public class DataFusionJNI {
      * @return JSON string with version information
      */
     public static native String getVersion();
+
+    /**
+     * Create a new DataFusion context and register tables
+     * @param parquetFilePath Path to the parquet file to register as a table
+     * @return context ID
+     */
+    public static native long nativeCreateContext(String parquetFilePath);
+
+    /**
+     * Close a DataFusion context
+     * @param contextId the context ID to close
+     */
+    public static native void nativeCloseContext(long contextId);
+
+    /**
+     * Execute a Substrait query plan
+     * @param contextId the DataFusion context ID
+     * @param queryPlanIR the Substrait query plan as bytes
+     * @return JSON result from the query execution
+     */
+    public static native String nativeExecuteSubstraitQueryPlan(long contextId, byte[] queryPlanIR);
 }

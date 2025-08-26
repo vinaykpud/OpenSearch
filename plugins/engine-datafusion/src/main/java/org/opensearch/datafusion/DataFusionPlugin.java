@@ -60,14 +60,27 @@ public class DataFusionPlugin extends Plugin implements ActionPlugin, EngineExte
 
     @Override
     public void execute(byte[] queryPlanIR) {
-        // TODO: Implement actual execution logic
         LogManager.getLogger(DataFusionPlugin.class).info("Executing queryPlanIR: {}", queryPlanIR);
         LogManager.getLogger(DataFusionPlugin.class).info("Substrait plan serialized to " + queryPlanIR.length + " bytes");
+
+        if (dataFusionService == null) {
+            LogManager.getLogger(DataFusionPlugin.class).error("DataFusionService is not initialized");
+            return;
+        }
+
         try {
-            io.substrait.proto.Plan planFromBytes = io.substrait.proto.Plan.parseFrom(queryPlanIR);
-            LogManager.getLogger(DataFusionPlugin.class).info("Successfully converted back from bytes: " + (planFromBytes != null));
+            // Use the default context created at service startup
+            long defaultContextId = dataFusionService.getDefaultContextId();
+            if (defaultContextId == 0) {
+                throw new RuntimeException("No default DataFusion context available");
+            }
+
+            // Execute the Substrait query plan using the existing default context
+            String result = dataFusionService.executeSubstraitQueryPlan(defaultContextId, queryPlanIR);
+            LogManager.getLogger(DataFusionPlugin.class).info("Query execution result: {}", result);
+
         } catch (Exception exception) {
-            LogManager.getLogger(DataFusionPlugin.class).info("Failed to convert back from bytes", exception);
+            LogManager.getLogger(DataFusionPlugin.class).error("Failed to execute Substrait query plan", exception);
         }
     }
 

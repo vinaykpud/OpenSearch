@@ -39,11 +39,6 @@ opensearchplugin {
 dependencies {
     implementation "org.apache.logging.log4j:log4j-api:${versions.log4j}"
     implementation "org.apache.logging.log4j:log4j-core:${versions.log4j}"
-    implementation "org.json:json:20231013"
-
-    // Substrait dependencies
-    implementation 'io.substrait:core:0.62.0'
-    implementation 'io.substrait:isthmus:0.62.0'
 
     testImplementation "junit:junit:${versions.junit}"
     testImplementation "org.hamcrest:hamcrest:${versions.hamcrest}"
@@ -136,33 +131,11 @@ clean {
     delete file('src/main/resources/native')
 }
 
-// Bundle Substrait dependencies
-configurations {
-    substraitLibs
-}
-
-dependencies {
-    substraitLibs('io.substrait:core:0.62.0') {
-        transitive = false  // Exclude transitive dependencies to avoid conflicts
-    }
-}
-
-jar {
-    from configurations.substraitLibs.collect { zipTree(it) }
-    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
-
-}
-
 // Exclude native libraries from pattern checking
 forbiddenPatterns {
     exclude '**/*.dylib'
     exclude '**/*.so'
     exclude '**/*.dll'
-}
-
-tasks.named("dependencyLicenses").configure {
-    mapping from: /json-.*/, to: 'json'
-    mapping from: /substrait-.*/, to: 'substrait'
 }
 
 test {

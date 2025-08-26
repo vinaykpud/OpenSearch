@@ -15,8 +15,6 @@ import org.opensearch.common.util.concurrent.ConcurrentCollections;
 import org.opensearch.common.util.concurrent.ConcurrentMapLong;
 import org.opensearch.datafusion.core.SessionContext;
 
-import java.util.concurrent.atomic.AtomicLong;
-
 /**
  * Service for managing DataFusion contexts and operations - essentially like SearchService
  */
@@ -34,7 +32,8 @@ public class DataFusionService extends AbstractLifecycleComponent {
     // in memory contexts, similar to ReaderContext in SearchService, just a ptr to SessionContext for now.
     private final ConcurrentMapLong<SessionContext> contexts = ConcurrentCollections.newConcurrentMapLongWithAggressiveConcurrency();
 
-    private final AtomicLong idGenerator = new AtomicLong();
+    // Default context created at startup
+    private long defaultContextId = 0;
 
     @Override
     protected void doStart() {
@@ -43,6 +42,13 @@ public class DataFusionService extends AbstractLifecycleComponent {
             // Test that the native library loads correctly
             String version = DataFusionJNI.getVersion();
             logger.info("DataFusion service started successfully. Version info: {}", version);
+
+            // Create a default context with hardcoded parquet file path
+            String parquetFilePath = "/Users/pudyodu/dfpython/accounts.parquet";
+            SessionContext defaultContext = new SessionContext(parquetFilePath);
+            defaultContextId = defaultContext.getContextId();
+            contexts.put(defaultContextId, defaultContext);
+            logger.info("Created default DataFusion context with ID: {}", defaultContextId);
         } catch (Exception e) {
             logger.error("Failed to start DataFusion service", e);
             throw new RuntimeException("Failed to initialize DataFusion JNI", e);
@@ -70,18 +76,6 @@ public class DataFusionService extends AbstractLifecycleComponent {
         doStop();
     }
 
-    /**
-     * Create a new named DataFusion context
-     * @return the context ID
-     */
-    long createContext() {
-        SessionContext ctx = new SessionContext();
-        // just stores the context for now
-        long id = idGenerator.incrementAndGet();
-        SessionContext existing = contexts.put(id, ctx);
-        assert existing == null;
-        return id;
-    }
 
     /**
      * Get a context by id
@@ -98,9 +92,15 @@ public class DataFusionService extends AbstractLifecycleComponent {
      * @return true if the context was found and closed, false otherwise
      */
     public boolean closeContext(long contextId) {
-        try (SessionContext ignored = contexts.remove(contextId)) {
-            // do nothing
+        try {
+            SessionContext ctx = contexts.remove(contextId);
+            if (ctx != null) {
+                DataFusionJNI.nativeCloseContext(contextId);
+                ctx.close();
+                return true;
+            }
         } catch (Exception e) {
+            logger.error("Error closing DataFusion context", e);
             throw new RuntimeException(e);
         }
         return false;
@@ -112,5 +112,23 @@ public class DataFusionService extends AbstractLifecycleComponent {
      */
     public String getVersion() {
         return DataFusionJNI.getVersion();
+    }
+
+    /**
+     * Get the default context ID created at startup
+     * @return the default context ID
+     */
+    public long getDefaultContextId() {
+        return defaultContextId;
+    }
+
+    /**
+     * Execute a Substrait query plan
+     * @param contextId the context ID
+     * @param queryPlanIR the Substrait query plan as bytes
+     * @return JSON result from query execution
+     */
+    public String executeSubstraitQueryPlan(long contextId, byte[] queryPlanIR) {
+        return DataFusionJNI.nativeExecuteSubstraitQueryPlan(contextId, queryPlanIR);
     }
 }
