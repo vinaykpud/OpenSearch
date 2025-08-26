@@ -27,6 +27,9 @@ public class SessionContext implements AutoCloseable {
      */
     public static native void closeContext(long contextId);
 
+    /**
+     * Default constructor for SessionContext.
+     */
     public SessionContext() {
         this.ptr = createContext();
     }
