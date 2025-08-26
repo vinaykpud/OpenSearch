@@ -18,6 +18,16 @@ def projectPath = 'org.opensearch'
 def pathToPlugin = 'datafusion.DataFusionPlugin'
 def pluginClassName = 'DataFusionPlugin'
 
+repositories {
+    maven {
+        url = 'https://aws.oss.sonatype.org/content/repositories/snapshots/'
+    }
+    maven {
+        url = 'https://repo1.maven.org/maven2/'
+    }
+    mavenCentral()
+}
+
 opensearchplugin {
     name = pluginName
     description = pluginDescription
@@ -29,6 +39,8 @@ opensearchplugin {
 dependencies {
     implementation "org.apache.logging.log4j:log4j-api:${versions.log4j}"
     implementation "org.apache.logging.log4j:log4j-core:${versions.log4j}"
+    implementation "org.json:json:20231013"
+
     testImplementation "junit:junit:${versions.junit}"
     testImplementation "org.hamcrest:hamcrest:${versions.hamcrest}"
     testImplementation "org.mockito:mockito-core:${versions.mockito}"
@@ -50,16 +62,16 @@ task buildRustLibrary(type: Exec) {
     def buildType = project.hasProperty('rustRelease') ? 'release' : 'debug'
     def targetDir = "target/${buildType}"
 
-    def cargoArgs = ['cargo', 'build']
+    // Find cargo executable
+    def cargoExec = System.getenv('CARGO_HOME') ? "${System.getenv('CARGO_HOME')}/bin/cargo" :
+                   (System.getProperty('user.home') + '/.cargo/bin/cargo')
+
+    def cargoArgs = [cargoExec, 'build']
     if (buildType == 'release') {
         cargoArgs.add('--release')
     }
 
-    if (osName.contains('windows')) {
-        commandLine cargoArgs
-    } else {
-        commandLine cargoArgs
-    }
+    commandLine cargoArgs
 
     // Set environment variables for cross-compilation if needed
     environment 'CARGO_TARGET_DIR', file('jni/target').absolutePath
@@ -87,6 +99,14 @@ task copyNativeLibrary(type: Copy, dependsOn: buildRustLibrary) {
     rename { filename ->
         "libopensearch_datafusion_jni${libExtension}"
     }
+
+    // Fix file permissions - native libraries shouldn't be executable
+    doLast {
+        def targetFile = file("${destinationDir}/libopensearch_datafusion_jni${libExtension}")
+        targetFile.setExecutable(false, false)  // Remove execute for owner and others
+        targetFile.setReadable(true, false)     // Keep readable for all
+        targetFile.setWritable(true, true)      // Keep writable for owner only
+    }
 }
 
 // Ensure native library is built before Java compilation
@@ -95,10 +115,32 @@ compileJava.dependsOn copyNativeLibrary
 // Ensure processResources depends on copyNativeLibrary
 processResources.dependsOn copyNativeLibrary
 
+// Ensure sourcesJar depends on copyNativeLibrary since it includes resources
+sourcesJar.dependsOn copyNativeLibrary
+
+// Ensure other tasks that use resources depend on copyNativeLibrary
+tasks.withType(org.gradle.api.tasks.bundling.Jar) {
+    dependsOn copyNativeLibrary
+}
+tasks.matching { it.name in ['filepermissions', 'licenseHeaders', 'forbiddenPatterns', 'spotlessJava', 'spotlessJavaCheck'] }.configureEach {
+    dependsOn copyNativeLibrary
+}
+
 // Clean task should also clean Rust artifacts
 clean {
     delete file('jni/target')
     delete file('src/main/resources/native')
+}
+
+// Exclude native libraries from pattern checking
+forbiddenPatterns {
+    exclude '**/*.dylib'
+    exclude '**/*.so'
+    exclude '**/*.dll'
+}
+
+tasks.named("dependencyLicenses").configure {
+    mapping from: /json-.*/, to: 'json'
 }
 
 test {
@@ -108,4 +150,8 @@ test {
 
 yamlRestTest {
     systemProperty 'tests.security.manager', 'false'
+    // Add the native library path for integration tests
+    systemProperty 'java.library.path', file('src/main/resources/native').absolutePath
+    // Disable DataFusion service for integration tests by default
+    systemProperty 'opensearch.experimental.feature.datafusion.enabled', 'false'
 }

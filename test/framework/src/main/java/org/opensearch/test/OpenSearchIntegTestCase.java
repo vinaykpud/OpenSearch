@@ -170,6 +170,7 @@ import org.opensearch.test.disruption.ServiceDisruptionScheme;
 import org.opensearch.test.store.MockFSIndexStore;
 import org.opensearch.test.telemetry.MockTelemetryPlugin;
 import org.opensearch.test.transport.MockTransportService;
+import org.opensearch.test.MockDataFusionService;
 import org.opensearch.transport.TransportInterceptor;
 import org.opensearch.transport.TransportRequest;
 import org.opensearch.transport.TransportRequestHandler;
@@ -2002,7 +2003,18 @@ public abstract class OpenSearchIntegTestCase extends OpenSearchTestCase {
      * Returns a collection of plugins that should be loaded on each node.
      */
     protected Collection<Class<? extends Plugin>> nodePlugins() {
-        return Collections.emptyList();
+        return Arrays.asList(MockDataFusionService.TestPlugin.class);
+    }
+    
+    /**
+     * Helper method to combine base required plugins with test-specific plugins.
+     * Use this method when overriding nodePlugins() in test classes to ensure
+     * required plugins are always included.
+     */
+    protected final Collection<Class<? extends Plugin>> getNodePlugins(Class<? extends Plugin>... additionalPlugins) {
+        List<Class<? extends Plugin>> plugins = new ArrayList<>(Arrays.asList(MockDataFusionService.TestPlugin.class));
+        plugins.addAll(Arrays.asList(additionalPlugins));
+        return plugins;
     }
 
     /**

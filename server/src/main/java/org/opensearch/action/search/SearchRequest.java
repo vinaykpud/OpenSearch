@@ -125,6 +125,7 @@ public class SearchRequest extends ActionRequest implements IndicesRequest.Repla
 
     private Boolean phaseTook = null;
 
+
     public SearchRequest() {
         this.localClusterAlias = null;
         this.absoluteStartMillis = DEFAULT_ABSOLUTE_START_MILLIS;
@@ -711,6 +712,18 @@ public class SearchRequest extends ActionRequest implements IndicesRequest.Repla
 
     public String pipeline() {
         return pipeline;
+    }
+
+    public SearchRequest relNodeString(String relNodeString) {
+        if (this.source == null) {
+            this.source = new SearchSourceBuilder();
+        }
+        this.source.relNodeString(relNodeString);
+        return this;
+    }
+
+    public String relNodeString() {
+        return this.source != null ? this.source.relNodeString() : null;
     }
 
     @Override

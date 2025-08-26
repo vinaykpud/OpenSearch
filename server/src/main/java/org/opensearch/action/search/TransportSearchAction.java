@@ -69,6 +69,7 @@ import org.opensearch.core.index.shard.ShardId;
 import org.opensearch.core.indices.breaker.CircuitBreakerService;
 import org.opensearch.core.tasks.TaskId;
 import org.opensearch.index.query.Rewriteable;
+import org.opensearch.plugins.EngineExtendPlugin;
 import org.opensearch.search.SearchPhaseResult;
 import org.opensearch.search.SearchService;
 import org.opensearch.search.SearchShardTarget;
@@ -176,6 +177,7 @@ public class TransportSearchAction extends HandledTransportAction<SearchRequest,
     private final SearchPipelineService searchPipelineService;
     private final SearchRequestOperationsCompositeListenerFactory searchRequestOperationsCompositeListenerFactory;
     private final Tracer tracer;
+    private final EngineExtendPlugin engineExtendPlugin;
 
     private final MetricsRegistry metricsRegistry;
 
@@ -198,7 +200,8 @@ public class TransportSearchAction extends HandledTransportAction<SearchRequest,
         MetricsRegistry metricsRegistry,
         SearchRequestOperationsCompositeListenerFactory searchRequestOperationsCompositeListenerFactory,
         Tracer tracer,
-        TaskResourceTrackingService taskResourceTrackingService
+        TaskResourceTrackingService taskResourceTrackingService,
+        EngineExtendPlugin engineExtendPlugin
     ) {
         super(SearchAction.NAME, transportService, actionFilters, (Writeable.Reader<SearchRequest>) SearchRequest::new);
         this.client = client;
@@ -217,6 +220,7 @@ public class TransportSearchAction extends HandledTransportAction<SearchRequest,
         this.searchRequestOperationsCompositeListenerFactory = searchRequestOperationsCompositeListenerFactory;
         this.tracer = tracer;
         this.taskResourceTrackingService = taskResourceTrackingService;
+        this.engineExtendPlugin = engineExtendPlugin;
     }
 
     private Map<String, AliasFilter> buildPerIndexAliasFilter(
@@ -309,6 +313,8 @@ public class TransportSearchAction extends HandledTransportAction<SearchRequest,
         // cancellation. There may be other top level requests like AsyncSearch which is using SearchRequest internally and has it's own
         // cancellation mechanism. For such cases, the SearchRequest when created can override the createTask and set the
         // cancelAfterTimeInterval to NO_TIMEOUT and bypass this mechanism
+        engineExtendPlugin.execute(searchRequest.relNodeString());
+
         if (task instanceof CancellableTask) {
             listener = TimeoutTaskCancellationUtility.wrapWithCancellationListener(
                 client,

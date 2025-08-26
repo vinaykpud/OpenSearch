@@ -8,9 +8,12 @@
 
 package org.opensearch.datafusion;
 
+import org.apache.logging.log4j.LogManager;
 import org.opensearch.cluster.metadata.IndexNameExpressionResolver;
 import org.opensearch.cluster.node.DiscoveryNodes;
 import org.opensearch.cluster.service.ClusterService;
+import org.opensearch.common.inject.AbstractModule;
+import org.opensearch.common.inject.Module;
 import org.opensearch.common.settings.ClusterSettings;
 import org.opensearch.common.settings.IndexScopedSettings;
 import org.opensearch.common.settings.Settings;
@@ -23,6 +26,7 @@ import org.opensearch.datafusion.action.TransportNodesDataFusionInfoAction;
 import org.opensearch.env.Environment;
 import org.opensearch.env.NodeEnvironment;
 import org.opensearch.plugins.ActionPlugin;
+import org.opensearch.plugins.EngineExtendPlugin;
 import org.opensearch.plugins.Plugin;
 import org.opensearch.repositories.RepositoriesService;
 import org.opensearch.rest.RestController;
@@ -40,7 +44,7 @@ import java.util.function.Supplier;
 /**
  * Main plugin class for OpenSearch DataFusion integration.
  */
-public class DataFusionPlugin extends Plugin implements ActionPlugin {
+public class DataFusionPlugin extends Plugin implements ActionPlugin, EngineExtendPlugin {
 
     private DataFusionService dataFusionService;
     private final boolean isDataFusionEnabled;
@@ -50,9 +54,24 @@ public class DataFusionPlugin extends Plugin implements ActionPlugin {
      * @param settings The settings for the DataFusionPlugin.
      */
     public DataFusionPlugin(Settings settings) {
-        // For now, DataFusion is always enabled if the plugin is loaded
-        // In the future, this could be controlled by a feature flag
-        this.isDataFusionEnabled = true;
+        // DataFusion can be disabled for integration tests or if native library is not available
+        this.isDataFusionEnabled = Boolean.parseBoolean(System.getProperty("opensearch.experimental.feature.datafusion.enabled", "true"));
+    }
+
+    @Override
+    public void execute(String relNode) {
+        // TODO: Implement actual execution logic
+        LogManager.getLogger(DataFusionPlugin.class).info("Executing relNode: {}", relNode);
+    }
+
+    @Override
+    public Collection<Module> createGuiceModules() {
+        return Collections.singletonList(new AbstractModule() {
+            @Override
+            protected void configure() {
+                bind(EngineExtendPlugin.class).toInstance(DataFusionPlugin.this);
+            }
+        });
     }
 
     /**
@@ -72,17 +91,17 @@ public class DataFusionPlugin extends Plugin implements ActionPlugin {
      */
     @Override
     public Collection<Object> createComponents(
-            Client client,
-            ClusterService clusterService,
-            ThreadPool threadPool,
-            ResourceWatcherService resourceWatcherService,
-            ScriptService scriptService,
-            NamedXContentRegistry xContentRegistry,
-            Environment environment,
-            NodeEnvironment nodeEnvironment,
-            NamedWriteableRegistry namedWriteableRegistry,
-            IndexNameExpressionResolver indexNameExpressionResolver,
-            Supplier<RepositoriesService> repositoriesServiceSupplier
+        Client client,
+        ClusterService clusterService,
+        ThreadPool threadPool,
+        ResourceWatcherService resourceWatcherService,
+        ScriptService scriptService,
+        NamedXContentRegistry xContentRegistry,
+        Environment environment,
+        NodeEnvironment nodeEnvironment,
+        NamedWriteableRegistry namedWriteableRegistry,
+        IndexNameExpressionResolver indexNameExpressionResolver,
+        Supplier<RepositoriesService> repositoriesServiceSupplier
     ) {
         if (!isDataFusionEnabled) {
             return Collections.emptyList();
@@ -105,20 +124,18 @@ public class DataFusionPlugin extends Plugin implements ActionPlugin {
      */
     @Override
     public List<RestHandler> getRestHandlers(
-            Settings settings,
-            RestController restController,
-            ClusterSettings clusterSettings,
-            IndexScopedSettings indexScopedSettings,
-            SettingsFilter settingsFilter,
-            IndexNameExpressionResolver indexNameExpressionResolver,
-            Supplier<DiscoveryNodes> nodesInCluster
+        Settings settings,
+        RestController restController,
+        ClusterSettings clusterSettings,
+        IndexScopedSettings indexScopedSettings,
+        SettingsFilter settingsFilter,
+        IndexNameExpressionResolver indexNameExpressionResolver,
+        Supplier<DiscoveryNodes> nodesInCluster
     ) {
         if (!isDataFusionEnabled) {
             return Collections.emptyList();
         }
-        return List.of(
-            new DataFusionAction()
-        );
+        return List.of(new DataFusionAction());
     }
 
     /**

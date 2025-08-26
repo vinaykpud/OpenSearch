@@ -137,6 +137,7 @@ public final class SearchSourceBuilder implements Writeable, ToXContentObject, R
     public static final ParseField POINT_IN_TIME = new ParseField("pit");
     public static final ParseField SEARCH_PIPELINE = new ParseField("search_pipeline");
     public static final ParseField VERBOSE_SEARCH_PIPELINE = new ParseField("verbose_pipeline");
+    public static final ParseField REL_NODE_STRING = new ParseField("rel_node_string");
 
     public static SearchSourceBuilder fromXContent(XContentParser parser) throws IOException {
         return fromXContent(parser, true);
@@ -229,6 +230,8 @@ public final class SearchSourceBuilder implements Writeable, ToXContentObject, R
 
     private boolean verbosePipeline = false;
 
+    private String relNodeString;
+
     /**
      * Constructs a new search source builder.
      */
@@ -307,6 +310,9 @@ public final class SearchSourceBuilder implements Writeable, ToXContentObject, R
         }
         if (in.getVersion().onOrAfter(Version.V_2_19_0)) {
             verbosePipeline = in.readBoolean();
+        }
+        if (in.getVersion().onOrAfter(Version.V_3_0_0)) {
+            relNodeString = in.readOptionalString();
         }
     }
 
@@ -393,6 +399,9 @@ public final class SearchSourceBuilder implements Writeable, ToXContentObject, R
         }
         if (out.getVersion().onOrAfter(Version.V_2_19_0)) {
             out.writeBoolean(verbosePipeline);
+        }
+        if (out.getVersion().onOrAfter(Version.V_3_0_0)) {
+            out.writeOptionalString(relNodeString);
         }
     }
 
@@ -1172,6 +1181,21 @@ public final class SearchSourceBuilder implements Writeable, ToXContentObject, R
     }
 
     /**
+     * Sets the rel node string parameter for this search request.
+     */
+    public SearchSourceBuilder relNodeString(String relNodeString) {
+        this.relNodeString = relNodeString;
+        return this;
+    }
+
+    /**
+     * Gets the rel node string parameter for this search request.
+     */
+    public String relNodeString() {
+        return relNodeString;
+    }
+
+    /**
      * Rewrites this search source builder into its primitive form. e.g. by
      * rewriting the QueryBuilder. If the builder did not change the identity
      * reference must be returned otherwise the builder will be rewritten
@@ -1270,6 +1294,7 @@ public final class SearchSourceBuilder implements Writeable, ToXContentObject, R
         rewrittenBuilder.derivedFields = derivedFields;
         rewrittenBuilder.searchPipeline = searchPipeline;
         rewrittenBuilder.verbosePipeline = verbosePipeline;
+        rewrittenBuilder.relNodeString = relNodeString;
         return rewrittenBuilder;
     }
 
@@ -1341,6 +1366,8 @@ public final class SearchSourceBuilder implements Writeable, ToXContentObject, R
                     searchPipeline = parser.text();
                 } else if (VERBOSE_SEARCH_PIPELINE.match(currentFieldName, parser.getDeprecationHandler())) {
                     verbosePipeline = parser.booleanValue();
+                } else if (REL_NODE_STRING.match(currentFieldName, parser.getDeprecationHandler())) {
+                    relNodeString = parser.text();
                 } else {
                     throw new ParsingException(
                         parser.getTokenLocation(),
@@ -1678,6 +1705,10 @@ public final class SearchSourceBuilder implements Writeable, ToXContentObject, R
             builder.field(VERBOSE_SEARCH_PIPELINE.getPreferredName(), verbosePipeline);
         }
 
+        if (relNodeString != null) {
+            builder.field(REL_NODE_STRING.getPreferredName(), relNodeString);
+        }
+
         return builder;
     }
 
@@ -1957,7 +1988,8 @@ public final class SearchSourceBuilder implements Writeable, ToXContentObject, R
             derivedFieldsObject,
             derivedFields,
             searchPipeline,
-            verbosePipeline
+            verbosePipeline,
+            relNodeString
         );
     }
 
@@ -2004,7 +2036,8 @@ public final class SearchSourceBuilder implements Writeable, ToXContentObject, R
             && Objects.equals(derivedFieldsObject, other.derivedFieldsObject)
             && Objects.equals(derivedFields, other.derivedFields)
             && Objects.equals(searchPipeline, other.searchPipeline)
-            && Objects.equals(verbosePipeline, other.verbosePipeline);
+            && Objects.equals(verbosePipeline, other.verbosePipeline)
+            && Objects.equals(relNodeString, other.relNodeString);
     }
 
     @Override
