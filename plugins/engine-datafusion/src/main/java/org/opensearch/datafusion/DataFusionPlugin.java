@@ -127,7 +127,7 @@ public class DataFusionPlugin extends Plugin implements ActionPlugin, EngineExte
             return Collections.emptyList();
         }
 
-        dataFusionService = new DataFusionService();
+        dataFusionService = new DataFusionService(environment);
         return Collections.singletonList(dataFusionService);
     }
 

@@ -14,17 +14,24 @@ import org.opensearch.common.lifecycle.AbstractLifecycleComponent;
 import org.opensearch.common.util.concurrent.ConcurrentCollections;
 import org.opensearch.common.util.concurrent.ConcurrentMapLong;
 import org.opensearch.datafusion.core.SessionContext;
+import org.opensearch.env.Environment;
+
+import java.nio.file.Path;
 
 /**
  * Service for managing DataFusion contexts and operations - essentially like SearchService
  */
 public class DataFusionService extends AbstractLifecycleComponent {
 
+    private final Environment environment;
+
     /**
-     * Default constructor for DataFusionService.
+     * Constructor for DataFusionService.
+     * @param environment The OpenSearch environment containing path configurations
      */
-    public DataFusionService() {
+    public DataFusionService(Environment environment) {
         super();
+        this.environment = environment;
     }
 
     private static final Logger logger = LogManager.getLogger(DataFusionService.class);
@@ -43,8 +50,16 @@ public class DataFusionService extends AbstractLifecycleComponent {
             String version = DataFusionJNI.getVersion();
             logger.info("DataFusion service started successfully. Version info: {}", version);
 
-            // Create a default context with hardcoded parquet file path
-            String parquetFilePath = "/Users/pudyodu/dfpython/accounts.parquet";
+            // Create a default context with parquet file path in OpenSearch data directory
+            Path dataPath = environment.binDir(); // Use the first data directory
+            Path parquetFile = dataPath.resolve("hits.parquet");
+            String parquetFilePath = parquetFile.toString();
+
+            // Check if the parquet file exists
+            if (!java.nio.file.Files.exists(parquetFile)) {
+                throw new RuntimeException("Parquet file not found at: " + parquetFilePath +
+                    ". Please place your parquet file in the OpenSearch data directory.");
+            }
             SessionContext defaultContext = new SessionContext(parquetFilePath);
             defaultContextId = defaultContext.getContextId();
             contexts.put(defaultContextId, defaultContext);

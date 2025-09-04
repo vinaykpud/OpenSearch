@@ -9,6 +9,10 @@ license = "Apache-2.0"
 name = "opensearch_datafusion_jni"
 crate-type = ["cdylib"]
 
+[[bin]]
+name = "test_schema"
+path = "src/lib.rs"
+
 [dependencies]
 datafusion = "49.0.0"
 arrow = "55.2"
