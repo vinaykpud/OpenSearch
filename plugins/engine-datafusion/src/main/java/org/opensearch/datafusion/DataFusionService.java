@@ -141,7 +141,7 @@ public class DataFusionService extends AbstractLifecycleComponent {
      * Execute a Substrait query plan
      * @param contextId the context ID
      * @param queryPlanIR the Substrait query plan as bytes
-     * @return JSON result from query execution
+     * @return JSON string containing query results as array of objects
      */
     public String executeSubstraitQueryPlan(long contextId, byte[] queryPlanIR) {
         return DataFusionJNI.nativeExecuteSubstraitQueryPlan(contextId, queryPlanIR);

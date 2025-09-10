@@ -8,6 +8,8 @@
 
 package org.opensearch.datafusion;
 
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.logging.log4j.LogManager;
 import org.opensearch.cluster.metadata.IndexNameExpressionResolver;
 import org.opensearch.cluster.node.DiscoveryNodes;
@@ -36,9 +38,12 @@ import org.opensearch.threadpool.ThreadPool;
 import org.opensearch.transport.client.Client;
 import org.opensearch.watcher.ResourceWatcherService;
 
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.function.Supplier;
 
 /**
@@ -77,7 +82,11 @@ public class DataFusionPlugin extends Plugin implements ActionPlugin, EngineExte
 
             // Execute the Substrait query plan using the existing default context
             String result = dataFusionService.executeSubstraitQueryPlan(defaultContextId, queryPlanIR);
-            LogManager.getLogger(DataFusionPlugin.class).info("Query execution result: {}", result);
+            ObjectMapper mapper = new ObjectMapper();
+            TypeReference<ArrayList<HashMap<String, Object>>> typeRef = new TypeReference<>() {};
+            ArrayList<HashMap<String, Object>> finalRes = mapper.readValue(result, typeRef);
+            LogManager.getLogger(DataFusionPlugin.class).info("Query execution result:");
+            LogManager.getLogger(DataFusionPlugin.class).info(finalRes);
 
         } catch (Exception exception) {
             LogManager.getLogger(DataFusionPlugin.class).error("Failed to execute Substrait query plan", exception);
