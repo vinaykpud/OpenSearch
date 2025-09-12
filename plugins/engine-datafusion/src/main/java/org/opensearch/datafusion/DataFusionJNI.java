@@ -102,4 +102,27 @@ public class DataFusionJNI {
      * @return JSON result from the query execution
      */
     public static native String nativeExecuteSubstraitQueryPlan(long contextId, byte[] queryPlanIR);
+
+    // === NEW STREAMING METHODS ===
+
+    /**
+     * Execute a Substrait query plan and return stream pointer for streaming results
+     * @param contextId the DataFusion context ID
+     * @param queryPlanIR the Substrait query plan as bytes
+     * @return stream pointer as long (0 if error occurred)
+     */
+    public static native long nativeExecuteSubstraitQueryStream(long contextId, byte[] queryPlanIR);
+
+    /**
+     * Get next batch from stream as JSON string
+     * @param streamPointer the stream pointer returned from nativeExecuteSubstraitQueryStream
+     * @return JSON batch data, or null if end of stream or error
+     */
+    public static native String nativeNextBatch(long streamPointer);
+
+    /**
+     * Close and cleanup a stream pointer (important for memory management)
+     * @param streamPointer the stream pointer to cleanup
+     */
+    public static native void nativeCloseStream(long streamPointer);
 }

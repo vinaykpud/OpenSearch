@@ -81,12 +81,31 @@ public class DataFusionPlugin extends Plugin implements ActionPlugin, EngineExte
             }
 
             // Execute the Substrait query plan using the existing default context
-            String result = dataFusionService.executeSubstraitQueryPlan(defaultContextId, queryPlanIR);
-            ObjectMapper mapper = new ObjectMapper();
-            TypeReference<ArrayList<HashMap<String, Object>>> typeRef = new TypeReference<>() {};
-            ArrayList<HashMap<String, Object>> finalRes = mapper.readValue(result, typeRef);
-            LogManager.getLogger(DataFusionPlugin.class).info("Query execution result:");
-            LogManager.getLogger(DataFusionPlugin.class).info(finalRes);
+//            String result = dataFusionService.executeSubstraitQueryPlan(defaultContextId, queryPlanIR);
+//            ObjectMapper mapper = new ObjectMapper();
+//            TypeReference<ArrayList<HashMap<String, Object>>> typeRef = new TypeReference<>() {};
+//            ArrayList<HashMap<String, Object>> finalRes = mapper.readValue(result, typeRef);
+//            LogManager.getLogger(DataFusionPlugin.class).info("Query execution result:");
+//            LogManager.getLogger(DataFusionPlugin.class).info(finalRes);
+
+            long streamPtr = dataFusionService.executeSubstraitQueryStream(defaultContextId, queryPlanIR);
+            if (streamPtr != 0) {
+                try {
+                    // Get results batch by batch
+                    String batch;
+                    while ((batch = dataFusionService.getNextBatch(streamPtr)) != null) {
+                        // Process batch JSON...
+                        System.out.println(batch);
+                        ObjectMapper mapper = new ObjectMapper();
+                        TypeReference<ArrayList<HashMap<String, Object>>> typeRef = new TypeReference<>() {};
+                        ArrayList<HashMap<String, Object>> finalRes = mapper.readValue(batch, typeRef);
+                        LogManager.getLogger(DataFusionPlugin.class).info("Query execution stream result:");
+                        LogManager.getLogger(DataFusionPlugin.class).info(finalRes);
+                    }
+                } finally {
+                    dataFusionService.closeStream(streamPtr);
+                }
+            }
 
         } catch (Exception exception) {
             LogManager.getLogger(DataFusionPlugin.class).error("Failed to execute Substrait query plan", exception);

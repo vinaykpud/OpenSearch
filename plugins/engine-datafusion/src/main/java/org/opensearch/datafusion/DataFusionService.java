@@ -146,4 +146,38 @@ public class DataFusionService extends AbstractLifecycleComponent {
     public String executeSubstraitQueryPlan(long contextId, byte[] queryPlanIR) {
         return DataFusionJNI.nativeExecuteSubstraitQueryPlan(contextId, queryPlanIR);
     }
+
+    // === NEW STREAMING METHODS ===
+
+    /**
+     * Execute a Substrait query plan and return a stream pointer for streaming results.
+     * Use this for large result sets to avoid memory issues.
+     * 
+     * @param contextId the context ID
+     * @param queryPlanIR the Substrait query plan as bytes
+     * @return stream pointer (0 if error occurred)
+     */
+    public long executeSubstraitQueryStream(long contextId, byte[] queryPlanIR) {
+        return DataFusionJNI.nativeExecuteSubstraitQueryStream(contextId, queryPlanIR);
+    }
+
+    /**
+     * Get next batch from stream as JSON string
+     * 
+     * @param streamPointer the stream pointer from executeSubstraitQueryStream
+     * @return JSON batch data, or null if end of stream or error
+     */
+    public String getNextBatch(long streamPointer) {
+        return DataFusionJNI.nativeNextBatch(streamPointer);
+    }
+
+    /**
+     * Close and cleanup a stream pointer. Always call this when done with streaming
+     * to prevent memory leaks.
+     * 
+     * @param streamPointer the stream pointer to cleanup
+     */
+    public void closeStream(long streamPointer) {
+        DataFusionJNI.nativeCloseStream(streamPointer);
+    }
 }

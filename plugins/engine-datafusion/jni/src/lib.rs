@@ -23,10 +23,55 @@ use prost::Message;
 use anyhow::Result;
 use std::sync::Arc;
 use tokio::runtime::Runtime;
+use futures::stream::StreamExt;
+use std::pin::Pin;
 
 struct DataFusionContext {
     context: SessionContext,
     runtime: Arc<Runtime>,
+}
+
+// StreamWrapper to hold the DataFusion stream for JNI pointer pattern
+pub struct StreamWrapper {
+    // Option allows us to take the stream out when it's consumed
+    stream: Option<datafusion::physical_plan::SendableRecordBatchStream>,
+    runtime: Arc<Runtime>,
+}
+
+impl StreamWrapper {
+    fn new(stream: datafusion::physical_plan::SendableRecordBatchStream, runtime: Arc<Runtime>) -> Self {
+        Self {
+            stream: Some(stream),
+            runtime,
+        }
+    }
+
+    // Get next batch as JSON string
+    async fn next_batch_json(&mut self) -> Result<Option<String>> {
+        if let Some(ref mut stream) = self.stream {
+            // Use the same pattern as standalone demo - stream.next() returns Option<Result<RecordBatch, Error>>
+            match stream.next().await {
+                Some(Ok(batch)) => {
+                    // Convert RecordBatch to JSON
+                    let mut buffer = Vec::new();
+                    {
+                        let mut json_writer = arrow_json::ArrayWriter::new(&mut buffer);
+                        json_writer.write_batches(&[&batch])?;
+                        json_writer.finish()?;
+                    }
+                    let json_str = String::from_utf8(buffer)?;
+                    Ok(Some(json_str))
+                }
+                Some(Err(e)) => Err(anyhow::anyhow!("Stream error: {}", e)),
+                None => {
+                    self.stream = None;
+                    Ok(None) // End of stream
+                }
+            }
+        } else {
+            Ok(None) // Stream already consumed
+        }
+    }
 }
 
 /// Create a new DataFusion session context and register a parquet table
@@ -152,6 +197,108 @@ pub extern "system" fn Java_org_opensearch_datafusion_DataFusionJNI_nativeExecut
     }
 }
 
+/// Execute a Substrait query plan and return stream pointer (NEW VERSION)
+#[no_mangle]
+pub extern "system" fn Java_org_opensearch_datafusion_DataFusionJNI_nativeExecuteSubstraitQueryStream(
+    env: JNIEnv,
+    _class: JClass,
+    context_id: jlong,
+    query_plan_bytes: jbyteArray,
+) -> jlong {
+    if context_id == 0 {
+        // Return 0 to indicate error
+        return 0;
+    }
+
+    let df_context = unsafe { &*(context_id as *const DataFusionContext) };
+
+    // Convert Java byte array to Rust Vec<u8>
+    let byte_array = unsafe { JByteArray::from_raw(query_plan_bytes) };
+    let plan_bytes = match env.convert_byte_array(byte_array) {
+        Ok(bytes) => bytes,
+        Err(_) => return 0, // Return 0 on error
+    };
+
+    match execute_substrait_query_stream(&df_context, &plan_bytes) {
+        Ok(stream_ptr) => stream_ptr as jlong, // Return pointer as jlong
+        Err(_) => 0, // Return 0 on error
+    }
+}
+
+/// Get next batch from stream as JSON string
+#[no_mangle]
+pub extern "system" fn Java_org_opensearch_datafusion_DataFusionJNI_nativeNextBatch(
+    env: JNIEnv,
+    _class: JClass,
+    stream_pointer: jlong,
+) -> jstring {
+    if stream_pointer == 0 {
+        return std::ptr::null_mut();
+    }
+
+    let stream_wrapper = unsafe { &mut *(stream_pointer as *mut StreamWrapper) };
+    let runtime = stream_wrapper.runtime.clone();
+
+    match runtime.block_on(async {
+        stream_wrapper.next_batch_json().await
+    }) {
+        Ok(Some(json_str)) => {
+            // Return JSON string
+            match env.new_string(json_str) {
+                Ok(jstr) => jstr.as_raw(),
+                Err(_) => std::ptr::null_mut(),
+            }
+        }
+        Ok(None) => {
+            // End of stream - return null
+            std::ptr::null_mut()
+        }
+        Err(_) => {
+            // Error occurred - return null
+            std::ptr::null_mut()
+        }
+    }
+}
+
+/// Close and cleanup a StreamWrapper (important for memory management)
+#[no_mangle]
+pub extern "system" fn Java_org_opensearch_datafusion_DataFusionJNI_nativeCloseStream(
+    _env: JNIEnv,
+    _class: JClass,
+    stream_pointer: jlong,
+) {
+    if stream_pointer != 0 {
+        // Reclaim ownership and let it drop automatically
+        let _ = unsafe { Box::from_raw(stream_pointer as *mut StreamWrapper) };
+    }
+}
+
+// Modified to return streaming results as a pointer (for JNI pattern)
+fn execute_substrait_query_stream(df_context: &DataFusionContext, plan_bytes: &[u8]) -> Result<*mut StreamWrapper> {
+    let runtime_clone = df_context.runtime.clone();
+
+    let stream_wrapper = df_context.runtime.block_on(async {
+        // Parse the Substrait plan from bytes
+        let substrait_plan = datafusion_substrait::substrait::proto::Plan::decode(plan_bytes)?;
+        println!("Loaded Substrait plan with {} relations", substrait_plan.relations.len());
+
+        // Convert Substrait plan to DataFusion logical plan
+        let logical_plan = from_substrait_plan(&df_context.context.state(), &substrait_plan).await?;
+        println!("Converted to DataFusion logical plan: {:?}", logical_plan);
+
+        // Execute logical plan and get streaming results (instead of collecting all)
+        let dataframe = df_context.context.execute_logical_plan(logical_plan).await?;
+        let stream = dataframe.execute_stream().await?;
+
+        Ok::<StreamWrapper, anyhow::Error>(StreamWrapper::new(stream, runtime_clone))
+    })?;
+
+    // Convert to raw pointer for JNI
+    let boxed = Box::new(stream_wrapper);
+    Ok(Box::into_raw(boxed))
+}
+
+// Keep the original function for backward compatibility if needed
 fn execute_substrait_query(df_context: &DataFusionContext, plan_bytes: &[u8]) -> Result<String> {
     df_context.runtime.block_on(async {
         // Parse the Substrait plan from bytes
@@ -178,6 +325,21 @@ fn execute_substrait_query(df_context: &DataFusionContext, plan_bytes: &[u8]) ->
         Ok(json_str)
     })
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 /// Get version information
 #[no_mangle]
