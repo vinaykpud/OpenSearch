@@ -121,6 +121,13 @@ public class DataFusionJNI {
     public static native String nativeNextBatch(long streamPointer);
 
     /**
+     * Get next batch from stream as arrow RecordBatch
+     * @param streamPointer the stream pointer returned from nativeExecuteSubstraitQueryStream
+     * @return Result<Option<RecordBatch>> - call from Rust directly
+     */
+    public static native long nativeNextBatchArrow(long streamPointer);
+
+    /**
      * Close and cleanup a stream pointer (important for memory management)
      * @param streamPointer the stream pointer to cleanup
      */

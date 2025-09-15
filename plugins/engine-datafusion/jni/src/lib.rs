@@ -25,6 +25,8 @@ use std::sync::Arc;
 use tokio::runtime::Runtime;
 use futures::stream::StreamExt;
 use std::pin::Pin;
+use arrow::record_batch::RecordBatch;
+use arrow_ipc::writer::StreamWriter;
 
 struct DataFusionContext {
     context: SessionContext,
@@ -61,6 +63,25 @@ impl StreamWrapper {
                     }
                     let json_str = String::from_utf8(buffer)?;
                     Ok(Some(json_str))
+                }
+                Some(Err(e)) => Err(anyhow::anyhow!("Stream error: {}", e)),
+                None => {
+                    self.stream = None;
+                    Ok(None) // End of stream
+                }
+            }
+        } else {
+            Ok(None) // Stream already consumed
+        }
+    }
+
+    // Get next batch as RecordBatch (arrow pointer)
+    async fn next_batch_arrow(&mut self) -> Result<Option<datafusion::arrow::record_batch::RecordBatch>> {
+        if let Some(ref mut stream) = self.stream {
+            // Use the same pattern as standalone demo - stream.next() returns Option<Result<RecordBatch, Error>>
+            match stream.next().await {
+                Some(Ok(batch)) => {
+                    Ok(Some(batch))
                 }
                 Some(Err(e)) => Err(anyhow::anyhow!("Stream error: {}", e)),
                 None => {
@@ -258,6 +279,22 @@ pub extern "system" fn Java_org_opensearch_datafusion_DataFusionJNI_nativeNextBa
             std::ptr::null_mut()
         }
     }
+}
+
+/// Get next batch from stream as arrow RecordBatch - returns Result<Option<RecordBatch>>
+pub fn Java_org_opensearch_datafusion_DataFusionJNI_nativeNextBatchArrow(
+    stream_ptr: *mut StreamWrapper
+) -> Result<Option<RecordBatch>> {
+    if stream_ptr.is_null() {
+        return Ok(None);
+    }
+
+    let stream_wrapper = unsafe { &mut *stream_ptr };
+    let runtime = stream_wrapper.runtime.clone();
+
+    runtime.block_on(async {
+        stream_wrapper.next_batch_arrow().await
+    })
 }
 
 /// Close and cleanup a StreamWrapper (important for memory management)

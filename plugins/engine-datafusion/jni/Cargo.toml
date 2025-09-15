@@ -17,6 +17,7 @@ path = "src/lib.rs"
 datafusion = "49.0.0"
 arrow = "55.2"
 arrow-json = "55.2"
+arrow-ipc = "55.2"
 
 # JNI dependencies
 jni = "0.21"
