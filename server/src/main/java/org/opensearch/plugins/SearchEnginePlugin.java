@@ -8,15 +8,23 @@
 
 package org.opensearch.plugins;
 
+import org.opensearch.common.annotation.ExperimentalApi;
+import org.opensearch.index.engine.SearchExecutionEngine;
+
+import java.io.IOException;
+
 /**
  * Plugin interface for extending OpenSearch engine functionality.
  * This interface allows plugins to extend the core engine capabilities.
+ *
+ * @opensearch.internal
  */
-public interface EngineExtendPlugin {
+@ExperimentalApi
+public interface SearchEnginePlugin {
     /**
-     * Execute engine extension operations.
-     *
-     * @param queryPlanIR queryPlan Intermediate Representation
+     * createEngine
+     * @return
+     * @throws IOException
      */
-    default void execute(byte[] queryPlanIR) {}
+    SearchExecutionEngine createEngine() throws IOException;
 }

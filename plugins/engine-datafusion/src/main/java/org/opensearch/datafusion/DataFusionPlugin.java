@@ -8,9 +8,6 @@
 
 package org.opensearch.datafusion;
 
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import org.apache.logging.log4j.LogManager;
 import org.opensearch.cluster.metadata.IndexNameExpressionResolver;
 import org.opensearch.cluster.node.DiscoveryNodes;
 import org.opensearch.cluster.service.ClusterService;
@@ -27,9 +24,10 @@ import org.opensearch.datafusion.action.NodesDataFusionInfoAction;
 import org.opensearch.datafusion.action.TransportNodesDataFusionInfoAction;
 import org.opensearch.env.Environment;
 import org.opensearch.env.NodeEnvironment;
+import org.opensearch.index.engine.SearchExecutionEngine;
 import org.opensearch.plugins.ActionPlugin;
-import org.opensearch.plugins.EngineExtendPlugin;
 import org.opensearch.plugins.Plugin;
+import org.opensearch.plugins.SearchEnginePlugin;
 import org.opensearch.repositories.RepositoriesService;
 import org.opensearch.rest.RestController;
 import org.opensearch.rest.RestHandler;
@@ -38,18 +36,16 @@ import org.opensearch.threadpool.ThreadPool;
 import org.opensearch.transport.client.Client;
 import org.opensearch.watcher.ResourceWatcherService;
 
-import java.util.ArrayList;
+import java.io.IOException;
 import java.util.Collection;
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.function.Supplier;
 
 /**
  * Main plugin class for OpenSearch DataFusion integration.
  */
-public class DataFusionPlugin extends Plugin implements ActionPlugin, EngineExtendPlugin {
+public class DataFusionPlugin extends Plugin implements ActionPlugin, SearchEnginePlugin {
 
     private DataFusionService dataFusionService;
     private final boolean isDataFusionEnabled;
@@ -64,60 +60,11 @@ public class DataFusionPlugin extends Plugin implements ActionPlugin, EngineExte
     }
 
     @Override
-    public void execute(byte[] queryPlanIR) {
-        LogManager.getLogger(DataFusionPlugin.class).info("Executing queryPlanIR: {}", queryPlanIR);
-        LogManager.getLogger(DataFusionPlugin.class).info("Substrait plan serialized to " + queryPlanIR.length + " bytes");
-
-        if (dataFusionService == null) {
-            LogManager.getLogger(DataFusionPlugin.class).error("DataFusionService is not initialized");
-            return;
-        }
-
-        try {
-            // Use the default context created at service startup
-            long defaultContextId = dataFusionService.getDefaultContextId();
-            if (defaultContextId == 0) {
-                throw new RuntimeException("No default DataFusion context available");
-            }
-
-            // Execute the Substrait query plan using the existing default context
-//            String result = dataFusionService.executeSubstraitQueryPlan(defaultContextId, queryPlanIR);
-//            ObjectMapper mapper = new ObjectMapper();
-//            TypeReference<ArrayList<HashMap<String, Object>>> typeRef = new TypeReference<>() {};
-//            ArrayList<HashMap<String, Object>> finalRes = mapper.readValue(result, typeRef);
-//            LogManager.getLogger(DataFusionPlugin.class).info("Query execution result:");
-//            LogManager.getLogger(DataFusionPlugin.class).info(finalRes);
-
-            long streamPtr = dataFusionService.executeSubstraitQueryStream(defaultContextId, queryPlanIR);
-            if (streamPtr != 0) {
-                try {
-                    // Get results batch by batch
-                    String batch;
-                    while ((batch = dataFusionService.getNextBatch(streamPtr)) != null) {
-                        // Process batch JSON...
-                        System.out.println(batch);
-                        ObjectMapper mapper = new ObjectMapper();
-                        TypeReference<ArrayList<HashMap<String, Object>>> typeRef = new TypeReference<>() {};
-                        ArrayList<HashMap<String, Object>> finalRes = mapper.readValue(batch, typeRef);
-                        LogManager.getLogger(DataFusionPlugin.class).info("Query execution stream result:");
-                        LogManager.getLogger(DataFusionPlugin.class).info(finalRes);
-                    }
-                } finally {
-                    dataFusionService.closeStream(streamPtr);
-                }
-            }
-
-        } catch (Exception exception) {
-            LogManager.getLogger(DataFusionPlugin.class).error("Failed to execute Substrait query plan", exception);
-        }
-    }
-
-    @Override
     public Collection<Module> createGuiceModules() {
         return Collections.singletonList(new AbstractModule() {
             @Override
             protected void configure() {
-                bind(EngineExtendPlugin.class).toInstance(DataFusionPlugin.this);
+                bind(SearchEnginePlugin.class).toInstance(DataFusionPlugin.this);
             }
         });
     }
@@ -198,5 +145,10 @@ public class DataFusionPlugin extends Plugin implements ActionPlugin, EngineExte
         return List.of(
             new ActionHandler<>(NodesDataFusionInfoAction.INSTANCE, TransportNodesDataFusionInfoAction.class)
         );
+    }
+
+    @Override
+    public SearchExecutionEngine createEngine() throws IOException {
+        return new DatafusionEngine(dataFusionService);
     }
 }

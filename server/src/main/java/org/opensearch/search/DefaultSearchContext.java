@@ -215,6 +215,7 @@ final class DefaultSearchContext extends SearchContext {
     private final int filterRewriteSegmentThreshold;
     private final int cardinalityAggregationPruningThreshold;
     private final boolean keywordIndexOrDocValuesEnabled;
+    private List<Map<String, Object>> dfResults;
 
     DefaultSearchContext(
         ReaderContext readerContext,
@@ -1206,5 +1207,13 @@ final class DefaultSearchContext extends SearchContext {
             return clusterService.getClusterSettings().get(KEYWORD_INDEX_OR_DOC_VALUES_ENABLED);
         }
         return false;
+    }
+
+    public void setDFResults(List<Map<String, Object>> dfResults) {
+        this.dfResults = dfResults;
+    }
+
+    public List<Map<String, Object>> getDFResults() {
+        return dfResults;
     }
 }
