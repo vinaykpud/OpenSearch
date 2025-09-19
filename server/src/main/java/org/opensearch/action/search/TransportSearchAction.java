@@ -199,7 +199,6 @@ public class TransportSearchAction extends HandledTransportAction<SearchRequest,
         SearchRequestOperationsCompositeListenerFactory searchRequestOperationsCompositeListenerFactory,
         Tracer tracer,
         TaskResourceTrackingService taskResourceTrackingService
-//        EngineExtendPlugin engineExtendPlugin
     ) {
         super(SearchAction.NAME, transportService, actionFilters, (Writeable.Reader<SearchRequest>) SearchRequest::new);
         this.client = client;

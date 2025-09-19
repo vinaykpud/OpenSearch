@@ -221,7 +221,6 @@ import org.opensearch.ingest.SystemIngestPipelineCache;
 import org.opensearch.monitor.StatusInfo;
 import org.opensearch.node.ResponseCollectorService;
 import org.opensearch.node.remotestore.RemoteStoreNodeService;
-import org.opensearch.plugins.EngineExtendPlugin;
 import org.opensearch.plugins.PluginsService;
 import org.opensearch.repositories.RepositoriesService;
 import org.opensearch.repositories.Repository;
