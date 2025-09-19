@@ -10,11 +10,16 @@ package org.opensearch.datafusion;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.apache.arrow.memory.BufferAllocator;
+import org.apache.arrow.memory.RootAllocator;
+import org.apache.arrow.vector.VectorSchemaRoot;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.opensearch.datafusion.core.SessionContext;
 import org.opensearch.index.engine.SearchExecutionEngine;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.Map;
 
 /**
@@ -41,40 +46,16 @@ public class DatafusionEngine implements SearchExecutionEngine {
         logger.info("Substrait plan serialized to " + queryPlanIR.length + " bytes");
         ArrayList<Map<String, Object>> finalRes = new ArrayList<>();
         try {
-            // Use the default context created at service startup
-            long defaultContextId = dataFusionService.getDefaultContextId();
-            if (defaultContextId == 0) {
-                throw new RuntimeException("No default DataFusion context available");
-            }
-
-            // Execute the Substrait query plan using the existing default context
-            String result = dataFusionService.executeSubstraitQueryPlan(defaultContextId, queryPlanIR);
-            logger.info("Query execution result string:");
-            logger.info(result);
-            ObjectMapper mapper = new ObjectMapper();
-            TypeReference<ArrayList<Map<String, Object>>> typeRef = new TypeReference<>() {};
-            finalRes = mapper.readValue(result, typeRef);
-            logger.info("Query execution result:");
-            logger.info(finalRes);
-
-//            long streamPtr = dataFusionService.executeSubstraitQueryStream(defaultContextId, queryPlanIR);
-//            if (streamPtr != 0) {
-//                try {
-//                    // Get results batch by batch
-//                    String batch;
-//                    while ((batch = dataFusionService.getNextBatch(streamPtr)) != null) {
-//                        // Process batch JSON...
-//                        System.out.println(batch);
-//                        ObjectMapper mapper = new ObjectMapper();
-//                        TypeReference<ArrayList<HashMap<String, Object>>> typeRef = new TypeReference<>() {};
-//                        ArrayList<HashMap<String, Object>> finalRes = mapper.readValue(batch, typeRef);
-//                        logger.info("Query execution stream result:");
-//                        logger.info(finalRes);
-//                    }
-//                } finally {
-//                    dataFusionService.closeStream(streamPtr);
-//                }
-//            }
+            SessionContext defaultSessionContext = dataFusionService.getDefaultContext();
+            logger.info("Query execution result stream:");
+            long streamPointer = dataFusionService.executeSubstraitQueryStream(queryPlanIR);
+            RootAllocator allocator = new RootAllocator(Long.MAX_VALUE);
+            RecordBatchStream stream = new RecordBatchStream(defaultSessionContext, streamPointer, allocator);
+            VectorSchemaRoot root = stream.getVectorSchemaRoot();
+            while (stream.loadNextBatch().join()) {
+                System.out.println(root.getSchema());
+                System.out.println(root.getFieldVectors());
+             }
 
         } catch (Exception exception) {
             logger.error("Failed to execute Substrait query plan", exception);

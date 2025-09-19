@@ -5,378 +5,271 @@
  * this file be licensed under the Apache-2.0 license or a
  * compatible open source license.
  */
+mod util;
 
-use jni::objects::{JClass, JString, JByteArray};
+use arrow::ffi::{FFI_ArrowArray, FFI_ArrowSchema};
+use datafusion::physical_plan::SendableRecordBatchStream;
+use jni::objects::{JByteArray, JClass, JObject, JString};
 use jni::sys::{jbyteArray, jlong, jstring};
 use jni::JNIEnv;
 
+use datafusion::datasource::file_format::parquet::ParquetFormat;
+use datafusion::datasource::listing::{ListingOptions, ListingTableUrl};
 use datafusion::execution::context::SessionContext;
 use datafusion::prelude::*;
 use datafusion::DATAFUSION_VERSION;
-use datafusion::datasource::file_format::parquet::ParquetFormat;
-use datafusion::datasource::listing::{ListingOptions, ListingTableUrl};
 
 use datafusion_substrait::logical_plan::consumer::from_substrait_plan;
 use datafusion_substrait::logical_plan::producer::to_substrait_plan;
 use prost::Message;
 
+use crate::util::{set_object_result_error, set_object_result_ok};
 use anyhow::Result;
+use arrow::array::{Array, StructArray};
+use futures::stream::StreamExt;
+use futures::TryStreamExt;
+use std::ptr::addr_of_mut;
 use std::sync::Arc;
 use tokio::runtime::Runtime;
-use futures::stream::StreamExt;
-use std::pin::Pin;
-use arrow::record_batch::RecordBatch;
-use arrow_ipc::writer::StreamWriter;
 
-struct DataFusionContext {
-    context: SessionContext,
-    runtime: Arc<Runtime>,
-}
-
-// StreamWrapper to hold the DataFusion stream for JNI pointer pattern
-pub struct StreamWrapper {
-    // Option allows us to take the stream out when it's consumed
-    stream: Option<datafusion::physical_plan::SendableRecordBatchStream>,
-    runtime: Arc<Runtime>,
-}
-
-impl StreamWrapper {
-    fn new(stream: datafusion::physical_plan::SendableRecordBatchStream, runtime: Arc<Runtime>) -> Self {
-        Self {
-            stream: Some(stream),
-            runtime,
-        }
-    }
-
-    // Get next batch as JSON string
-    async fn next_batch_json(&mut self) -> Result<Option<String>> {
-        if let Some(ref mut stream) = self.stream {
-            // Use the same pattern as standalone demo - stream.next() returns Option<Result<RecordBatch, Error>>
-            match stream.next().await {
-                Some(Ok(batch)) => {
-                    // Convert RecordBatch to JSON
-                    let mut buffer = Vec::new();
-                    {
-                        let mut json_writer = arrow_json::ArrayWriter::new(&mut buffer);
-                        json_writer.write_batches(&[&batch])?;
-                        json_writer.finish()?;
-                    }
-                    let json_str = String::from_utf8(buffer)?;
-                    Ok(Some(json_str))
-                }
-                Some(Err(e)) => Err(anyhow::anyhow!("Stream error: {}", e)),
-                None => {
-                    self.stream = None;
-                    Ok(None) // End of stream
-                }
-            }
-        } else {
-            Ok(None) // Stream already consumed
-        }
-    }
-
-    // Get next batch as RecordBatch (arrow pointer)
-    async fn next_batch_arrow(&mut self) -> Result<Option<datafusion::arrow::record_batch::RecordBatch>> {
-        if let Some(ref mut stream) = self.stream {
-            // Use the same pattern as standalone demo - stream.next() returns Option<Result<RecordBatch, Error>>
-            match stream.next().await {
-                Some(Ok(batch)) => {
-                    Ok(Some(batch))
-                }
-                Some(Err(e)) => Err(anyhow::anyhow!("Stream error: {}", e)),
-                None => {
-                    self.stream = None;
-                    Ok(None) // End of stream
-                }
-            }
-        } else {
-            Ok(None) // Stream already consumed
-        }
-    }
-}
-
-/// Create a new DataFusion session context and register a parquet table
 #[no_mangle]
-pub extern "system" fn Java_org_opensearch_datafusion_DataFusionJNI_nativeCreateContext(
+pub extern "system" fn Java_org_opensearch_datafusion_core_SessionContext_createContext(
+    _env: JNIEnv,
+    _class: JClass,
+) -> jlong {
+    let config = SessionConfig::new().with_repartition_aggregations(true);
+    let context = SessionContext::new_with_config(config);
+    let ctx = Box::into_raw(Box::new(context)) as jlong;
+    ctx
+}
+
+#[no_mangle]
+pub extern "system" fn Java_org_opensearch_datafusion_core_SessionContext_createRuntime(
+    _env: JNIEnv,
+    _class: JClass,
+) -> jlong {
+    if let Ok(runtime) = Runtime::new() {
+        Box::into_raw(Box::new(runtime)) as jlong
+    } else {
+        // TODO error handling
+        -1
+    }
+}
+
+#[no_mangle]
+pub extern "system" fn Java_org_opensearch_datafusion_core_SessionContext_registerParquetTable(
     mut env: JNIEnv,
     _class: JClass,
+    context_id: jlong,
+    runtime_id: jlong,
     parquet_file_path: JString,
+    table_name: JString
 ) -> jlong {
+    if context_id == 0 {
+        let _ = env.throw_new("java/lang/RuntimeException", "Invalid context ID");
+        return 0;
+    }
+
+    if runtime_id == 0 {
+        let _ = env.throw_new("java/lang/RuntimeException", "Invalid runtime ID");
+        return 0;
+    }
+
     let parquet_path: String = match env.get_string(&parquet_file_path) {
         Ok(path) => path.into(),
         Err(e) => {
             let _ = env.throw_new("java/lang/RuntimeException",
-                &format!("Failed to get parquet file path: {}", e));
+                                  &format!("Failed to get parquet file path: {}", e));
             return 0;
         }
     };
 
-    match create_context_with_table(&parquet_path) {
-        Ok(ctx) => {
-            let boxed_ctx = Box::into_raw(Box::new(ctx)) as jlong;
-            boxed_ctx
-        },
+    let table_name_str: String = match env.get_string(&table_name) {
+        Ok(name) => name.into(),
         Err(e) => {
             let _ = env.throw_new("java/lang/RuntimeException",
-                &format!("Failed to create DataFusion context: {}", e));
-            0
+                                  &format!("Failed to get table name: {}", e));
+            return 0;
+        }
+    };
+
+    let context = unsafe { &*(context_id as *const SessionContext) };
+    let runtime = unsafe { &*(runtime_id as *const Runtime) };
+
+    match runtime.block_on(async {
+        if std::path::Path::new(&parquet_path).exists() {
+            context.register_parquet(&table_name_str, &parquet_path, ParquetReadOptions::default()).await
+        } else {
+            Err(datafusion::error::DataFusionError::Execution(
+                format!("Parquet file not found: {}", parquet_path)
+            ))
+        }
+    }) {
+        Ok(_) => 1, // Success
+        Err(e) => {
+            let _ = env.throw_new("java/lang/RuntimeException",
+                                  &format!("Failed to register parquet table: {}", e));
+            0 // Failure
         }
     }
 }
 
-fn create_context_with_table(parquet_path: &str) -> Result<DataFusionContext> {
-    let rt = Arc::new(Runtime::new()?);
-
-    rt.block_on(async {
-        let config = SessionConfig::new().with_repartition_aggregations(true);
-        let context = SessionContext::new_with_config(config);
-
-        // Register the parquet file as a table named "sample_table"
-        if std::path::Path::new(parquet_path).exists() {
-            // Read and print the parquet file schema
-            let table_url = ListingTableUrl::parse(parquet_path)?;
-            let parquet_format = ParquetFormat::default();
-            let listing_options = ListingOptions::new(Arc::new(parquet_format));
-
-            let schema = listing_options
-                .infer_schema(&context.state(), &table_url)
-                .await?;
-
-            println!("Parquet file schema for '{}': {}", parquet_path, schema);
-
-            context.register_parquet("hits", parquet_path, ParquetReadOptions::default()).await?;
-        } else {
-            // For now, just log a warning if the file doesn't exist
-            // In production, this should be handled more gracefully
-            log::warn!("Parquet file not found at: {}, continuing without table registration", parquet_path);
-        }
-
-        Ok(DataFusionContext {
-            context,
-            runtime: rt.clone(),
-        })
-    })
-}
-
 /// Close and cleanup a DataFusion context
 #[no_mangle]
-pub extern "system" fn Java_org_opensearch_datafusion_DataFusionJNI_nativeCloseContext(
+pub extern "system" fn Java_org_opensearch_datafusion_core_SessionContext_closeContext(
     _env: JNIEnv,
     _class: JClass,
     context_id: jlong,
 ) {
     if context_id != 0 {
-        let _ = unsafe { Box::from_raw(context_id as *mut DataFusionContext) };
+        let _ = unsafe { Box::from_raw(context_id as *mut SessionContext) };
     }
 }
 
-/// Execute a Substrait query plan
 #[no_mangle]
-pub extern "system" fn Java_org_opensearch_datafusion_DataFusionJNI_nativeExecuteSubstraitQueryPlan(
-    env: JNIEnv,
+pub extern "system" fn Java_org_opensearch_datafusion_core_SessionContext_closeRuntime(
+    _env: JNIEnv,
     _class: JClass,
-    context_id: jlong,
-    query_plan_bytes: jbyteArray,
-) -> jstring {
-    if context_id == 0 {
-        let error_msg = "Invalid context ID";
-        return match env.new_string(error_msg) {
-            Ok(jstr) => jstr.as_raw(),
-            Err(_) => std::ptr::null_mut(),
-        };
-    }
-
-    let df_context = unsafe { &*(context_id as *const DataFusionContext) };
-
-    // Convert Java byte array to Rust Vec<u8>
-    let byte_array = unsafe { JByteArray::from_raw(query_plan_bytes) };
-    let plan_bytes = match env.convert_byte_array(byte_array) {
-        Ok(bytes) => bytes,
-        Err(e) => {
-            let error_msg = format!("Failed to convert byte array: {}", e);
-            return match env.new_string(error_msg) {
-                Ok(jstr) => jstr.as_raw(),
-                Err(_) => std::ptr::null_mut(),
-            };
-        }
-    };
-
-    match execute_substrait_query(&df_context, &plan_bytes) {
-        Ok(result) => {
-            match env.new_string(result) {
-                Ok(jstr) => jstr.as_raw(),
-                Err(_) => std::ptr::null_mut(),
-            }
-        },
-        Err(e) => {
-            let error_msg = format!("Query execution failed: {}", e);
-            match env.new_string(error_msg) {
-                Ok(jstr) => jstr.as_raw(),
-                Err(_) => std::ptr::null_mut(),
-            }
-        }
+    pointer: jlong,
+) {
+    if pointer != 0 {
+        let _ = unsafe { Box::from_raw(pointer as *mut Runtime) };
     }
 }
 
-/// Execute a Substrait query plan and return stream pointer (NEW VERSION)
+/// Execute a Substrait query plan and return SendableRecordBatchStream as jlong
 #[no_mangle]
-pub extern "system" fn Java_org_opensearch_datafusion_DataFusionJNI_nativeExecuteSubstraitQueryStream(
+pub extern "system" fn Java_org_opensearch_datafusion_DataFusionService_nativeExecuteSubstraitQueryStream(
     env: JNIEnv,
     _class: JClass,
+    runtime_id: jlong,
     context_id: jlong,
     query_plan_bytes: jbyteArray,
 ) -> jlong {
-    if context_id == 0 {
-        // Return 0 to indicate error
+    println!("DataFusionService_nativeExecuteSubstraitQueryStream: Starting execution");
+    println!("runtime_id: {}, context_id: {}", runtime_id, context_id);
+
+    let runtime = unsafe { &*(runtime_id as *const Runtime) };
+    let context = unsafe { &*(context_id as *const SessionContext) };
+    println!("Retrieved runtime and context pointers successfully");
+
+    println!("query_plan_bytes raw pointer: {:?}", query_plan_bytes);
+
+    if query_plan_bytes.is_null() {
+        println!("ERROR: query_plan_bytes is null!");
         return 0;
     }
 
-    let df_context = unsafe { &*(context_id as *const DataFusionContext) };
-
-    // Convert Java byte array to Rust Vec<u8>
     let byte_array = unsafe { JByteArray::from_raw(query_plan_bytes) };
+    println!("Created JByteArray from raw pointer");
+
     let plan_bytes = match env.convert_byte_array(byte_array) {
-        Ok(bytes) => bytes,
-        Err(_) => return 0, // Return 0 on error
+        Ok(bytes) => {
+            println!("Successfully converted byte array, size: {} bytes", bytes.len());
+            bytes
+        },
+        Err(e) => {
+            println!("Failed to convert byte array: {:?}", e);
+            return 0; // Return 0 on error
+        }
     };
 
-    match execute_substrait_query_stream(&df_context, &plan_bytes) {
-        Ok(stream_ptr) => stream_ptr as jlong, // Return pointer as jlong
-        Err(_) => 0, // Return 0 on error
-    }
+    println!("Starting async block execution");
+    runtime.block_on(async {
+        println!("Decoding Substrait plan...");
+        let substrait_plan = datafusion_substrait::substrait::proto::Plan::decode(&plan_bytes[..]).unwrap();
+        println!("Substrait plan decoded successfully, relations: {}", substrait_plan.relations.len());
+
+        println!("Converting Substrait plan to DataFusion logical plan...");
+        let logical_plan = from_substrait_plan(&context.state(), &substrait_plan).await.unwrap();
+        println!("Logical plan created successfully");
+
+        println!("Executing logical plan...");
+        let dataframe = context.execute_logical_plan(logical_plan).await.unwrap();
+        println!("DataFrame created successfully");
+
+        println!("Getting execution stream...");
+        let stream = dataframe.execute_stream().await.unwrap();
+        println!("Stream created successfully");
+
+        let stream_ptr = Box::into_raw(Box::new(stream)) as jlong;
+        println!("Stream pointer created: {}", stream_ptr);
+        stream_ptr
+    })
 }
 
-/// Get next batch from stream as JSON string
 #[no_mangle]
-pub extern "system" fn Java_org_opensearch_datafusion_DataFusionJNI_nativeNextBatch(
-    env: JNIEnv,
+pub extern "system" fn Java_org_opensearch_datafusion_RecordBatchStream_next(
+    mut env: JNIEnv,
     _class: JClass,
-    stream_pointer: jlong,
-) -> jstring {
-    if stream_pointer == 0 {
-        return std::ptr::null_mut();
-    }
-
-    let stream_wrapper = unsafe { &mut *(stream_pointer as *mut StreamWrapper) };
-    let runtime = stream_wrapper.runtime.clone();
-
-    match runtime.block_on(async {
-        stream_wrapper.next_batch_json().await
-    }) {
-        Ok(Some(json_str)) => {
-            // Return JSON string
-            match env.new_string(json_str) {
-                Ok(jstr) => jstr.as_raw(),
-                Err(_) => std::ptr::null_mut(),
+    runtime: jlong,
+    stream: jlong,
+    callback: JObject,
+) {
+    let runtime = unsafe { &mut *(runtime as *mut Runtime) };
+    let stream = unsafe { &mut *(stream as *mut SendableRecordBatchStream) };
+    runtime.block_on(async {
+        let next = stream.try_next().await;
+        match next {
+            Ok(Some(batch)) => {
+                // Convert to struct array for compatibility with FFI
+                let struct_array: StructArray = batch.into();
+                let array_data = struct_array.into_data();
+                let mut ffi_array = FFI_ArrowArray::new(&array_data);
+                // ffi_array must remain alive until after the callback is called
+                set_object_result_ok(&mut env, callback, addr_of_mut!(ffi_array));
+            }
+            Ok(None) => {
+                set_object_result_ok(&mut env, callback, 0 as *mut FFI_ArrowSchema);
+            }
+            Err(err) => {
+                set_object_result_error(&mut env, callback, &err);
             }
         }
-        Ok(None) => {
-            // End of stream - return null
-            std::ptr::null_mut()
-        }
-        Err(_) => {
-            // Error occurred - return null
-            std::ptr::null_mut()
-        }
-    }
+    });
 }
 
-/// Get next batch from stream as arrow RecordBatch - returns Result<Option<RecordBatch>>
-pub fn Java_org_opensearch_datafusion_DataFusionJNI_nativeNextBatchArrow(
-    stream_ptr: *mut StreamWrapper
-) -> Result<Option<RecordBatch>> {
-    if stream_ptr.is_null() {
-        return Ok(None);
-    }
-
-    let stream_wrapper = unsafe { &mut *stream_ptr };
-    let runtime = stream_wrapper.runtime.clone();
-
-    runtime.block_on(async {
-        stream_wrapper.next_batch_arrow().await
-    })
-}
-
-/// Close and cleanup a StreamWrapper (important for memory management)
 #[no_mangle]
-pub extern "system" fn Java_org_opensearch_datafusion_DataFusionJNI_nativeCloseStream(
+pub extern "system" fn Java_org_opensearch_datafusion_RecordBatchStream_getSchema(
+    mut env: JNIEnv,
+    _class: JClass,
+    stream: jlong,
+    callback: JObject,
+) {
+    let stream = unsafe { &mut *(stream as *mut SendableRecordBatchStream) };
+    let schema = stream.schema();
+    // Print field details for debugging
+    for (i, field) in schema.fields().iter().enumerate() {
+        println!("  Field {}: name='{}', type={:?}, nullable={}",
+                 i, field.name(), field.data_type(), field.is_nullable());
+    }
+    let ffi_schema = FFI_ArrowSchema::try_from(&*schema);
+    match ffi_schema {
+        Ok(mut ffi_schema) => {
+            println!("Created FFI schema successfully, about to call Java...");
+            // ffi_schema must remain alive until after the callback is called
+            set_object_result_ok(&mut env, callback, addr_of_mut!(ffi_schema));
+            println!("Returned from Java callback");
+        }
+        Err(err) => {
+            set_object_result_error(&mut env, callback, &err);
+        }
+    }
+    println!("Rust function ending normally");
+}
+
+
+
+#[no_mangle]
+pub extern "system" fn Java_org_opensearch_datafusion_RecordBatchStream_closeStream(
     _env: JNIEnv,
     _class: JClass,
-    stream_pointer: jlong,
+    pointer: jlong,
 ) {
-    if stream_pointer != 0 {
-        // Reclaim ownership and let it drop automatically
-        let _ = unsafe { Box::from_raw(stream_pointer as *mut StreamWrapper) };
+    if pointer != 0 {
+        let _ = unsafe { Box::from_raw(pointer as *mut SendableRecordBatchStream) };
     }
 }
-
-// Modified to return streaming results as a pointer (for JNI pattern)
-fn execute_substrait_query_stream(df_context: &DataFusionContext, plan_bytes: &[u8]) -> Result<*mut StreamWrapper> {
-    let runtime_clone = df_context.runtime.clone();
-
-    let stream_wrapper = df_context.runtime.block_on(async {
-        // Parse the Substrait plan from bytes
-        let substrait_plan = datafusion_substrait::substrait::proto::Plan::decode(plan_bytes)?;
-        println!("Loaded Substrait plan with {} relations", substrait_plan.relations.len());
-
-        // Convert Substrait plan to DataFusion logical plan
-        let logical_plan = from_substrait_plan(&df_context.context.state(), &substrait_plan).await?;
-        println!("Converted to DataFusion logical plan: {:?}", logical_plan);
-
-        // Execute logical plan and get streaming results (instead of collecting all)
-        let dataframe = df_context.context.execute_logical_plan(logical_plan).await?;
-        let stream = dataframe.execute_stream().await?;
-
-        Ok::<StreamWrapper, anyhow::Error>(StreamWrapper::new(stream, runtime_clone))
-    })?;
-
-    // Convert to raw pointer for JNI
-    let boxed = Box::new(stream_wrapper);
-    Ok(Box::into_raw(boxed))
-}
-
-// Keep the original function for backward compatibility if needed
-fn execute_substrait_query(df_context: &DataFusionContext, plan_bytes: &[u8]) -> Result<String> {
-    df_context.runtime.block_on(async {
-        // Parse the Substrait plan from bytes
-        let substrait_plan = datafusion_substrait::substrait::proto::Plan::decode(plan_bytes)?;
-        println!("Loaded Substrait plan with {} relations", substrait_plan.relations.len());
-
-        // Convert Substrait plan to DataFusion logical plan
-        let logical_plan = from_substrait_plan(&df_context.context.state(), &substrait_plan).await?;
-        println!("Converted to DataFusion logical plan: {:?}", logical_plan);
-
-        // Execute logical plan through SessionContext - create DataFrame and collect
-        let dataframe = df_context.context.execute_logical_plan(logical_plan).await?;
-        let batches = dataframe.collect().await?;
-
-        // Convert results to JSON
-        let mut buffer = Vec::new();
-        {
-            let mut json_writer = arrow_json::ArrayWriter::new(&mut buffer);
-            json_writer.write_batches(&batches.iter().collect::<Vec<_>>())?;
-            json_writer.finish()?;
-        }
-
-        let json_str = String::from_utf8(buffer)?;
-        Ok(json_str)
-    })
-}
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 /// Get version information
 #[no_mangle]
@@ -391,7 +284,7 @@ pub extern "system" fn Java_org_opensearch_datafusion_DataFusionJNI_getVersion(
     env.new_string(version_info).expect("Couldn't create Java string").as_raw()
 }
 
-/// Simple function to read and print parquet schema
+////////////////////////////////////////////////////////////////// Simple function to read and print parquet schema
 async fn read_parquet_schema() -> Result<()> {
     let parquet_path = "/Users/pudyodu/clickbench_queries/original_data/hits.parquet";
 

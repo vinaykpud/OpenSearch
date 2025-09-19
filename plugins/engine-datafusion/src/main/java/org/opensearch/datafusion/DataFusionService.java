@@ -24,6 +24,7 @@ import java.nio.file.Path;
 public class DataFusionService extends AbstractLifecycleComponent {
 
     private final Environment environment;
+    private SessionContext defaultSessionContext;
 
     /**
      * Constructor for DataFusionService.
@@ -38,9 +39,6 @@ public class DataFusionService extends AbstractLifecycleComponent {
 
     // in memory contexts, similar to ReaderContext in SearchService, just a ptr to SessionContext for now.
     private final ConcurrentMapLong<SessionContext> contexts = ConcurrentCollections.newConcurrentMapLongWithAggressiveConcurrency();
-
-    // Default context created at startup
-    private long defaultContextId = 0;
 
     @Override
     protected void doStart() {
@@ -60,10 +58,10 @@ public class DataFusionService extends AbstractLifecycleComponent {
                 throw new RuntimeException("Parquet file not found at: " + parquetFilePath +
                     ". Please place your parquet file in the OpenSearch data directory.");
             }
-            SessionContext defaultContext = new SessionContext(parquetFilePath);
-            defaultContextId = defaultContext.getContextId();
-            contexts.put(defaultContextId, defaultContext);
-            logger.info("Created default DataFusion context with ID: {}", defaultContextId);
+
+            defaultSessionContext = new SessionContext(parquetFilePath);
+            contexts.put(defaultSessionContext.getContext(), defaultSessionContext);
+            logger.info("Created default DataFusion context with ID: {}", defaultSessionContext.getContext());
         } catch (Exception e) {
             logger.error("Failed to start DataFusion service", e);
             throw new RuntimeException("Failed to initialize DataFusion JNI", e);
@@ -102,20 +100,22 @@ public class DataFusionService extends AbstractLifecycleComponent {
     }
 
     /**
+     * Get default context
+     * @return default context
+     */
+    SessionContext getDefaultContext() {
+        return defaultSessionContext;
+    }
+
+    /**
      * Close a context
      * @param contextId the context id
      * @return true if the context was found and closed, false otherwise
      */
     public boolean closeContext(long contextId) {
-        try {
-            SessionContext ctx = contexts.remove(contextId);
-            if (ctx != null) {
-                DataFusionJNI.nativeCloseContext(contextId);
-                ctx.close();
-                return true;
-            }
+        try (SessionContext ignored = contexts.remove(contextId)) {
+            // do nothing
         } catch (Exception e) {
-            logger.error("Error closing DataFusion context", e);
             throw new RuntimeException(e);
         }
         return false;
@@ -130,54 +130,22 @@ public class DataFusionService extends AbstractLifecycleComponent {
     }
 
     /**
-     * Get the default context ID created at startup
-     * @return the default context ID
-     */
-    public long getDefaultContextId() {
-        return defaultContextId;
-    }
-
-    /**
-     * Execute a Substrait query plan
-     * @param contextId the context ID
-     * @param queryPlanIR the Substrait query plan as bytes
-     * @return JSON string containing query results as array of objects
-     */
-    public String executeSubstraitQueryPlan(long contextId, byte[] queryPlanIR) {
-        return DataFusionJNI.nativeExecuteSubstraitQueryPlan(contextId, queryPlanIR);
-    }
-
-    // === NEW STREAMING METHODS ===
-
-    /**
      * Execute a Substrait query plan and return a stream pointer for streaming results.
      * Use this for large result sets to avoid memory issues.
-     * 
-     * @param contextId the context ID
+     *
      * @param queryPlanIR the Substrait query plan as bytes
      * @return stream pointer (0 if error occurred)
      */
-    public long executeSubstraitQueryStream(long contextId, byte[] queryPlanIR) {
-        return DataFusionJNI.nativeExecuteSubstraitQueryStream(contextId, queryPlanIR);
+    public long executeSubstraitQueryStream(byte[] queryPlanIR) {
+        return nativeExecuteSubstraitQueryStream(defaultSessionContext.getRuntime(), defaultSessionContext.getContext(), queryPlanIR);
     }
 
     /**
-     * Get next batch from stream as JSON string
-     * 
-     * @param streamPointer the stream pointer from executeSubstraitQueryStream
-     * @return JSON batch data, or null if end of stream or error
+     * Executes a Substrait query plan and returns a stream pointer
+     * @param runTime the DataFusion runtime ID
+     * @param contextId the DataFusion context ID
+     * @param queryPlanIR the Substrait query plan bytes
+     * @return pointer to the result stream
      */
-    public String getNextBatch(long streamPointer) {
-        return DataFusionJNI.nativeNextBatch(streamPointer);
-    }
-
-    /**
-     * Close and cleanup a stream pointer. Always call this when done with streaming
-     * to prevent memory leaks.
-     * 
-     * @param streamPointer the stream pointer to cleanup
-     */
-    public void closeStream(long streamPointer) {
-        DataFusionJNI.nativeCloseStream(streamPointer);
-    }
+    public static native long nativeExecuteSubstraitQueryStream(long runTime, long contextId, byte[] queryPlanIR);
 }
