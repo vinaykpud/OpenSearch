@@ -2374,9 +2374,6 @@ public class SnapshotResiliencyTests extends OpenSearchTestCase {
                     writableRegistry(),
                     searchService::aggReduceContextBuilder
                 );
-
-                EngineExtendPlugin engineExtendPlugin = new EngineExtendPlugin() {};
-
                 SearchRequestOperationsCompositeListenerFactory searchRequestOperationsCompositeListenerFactory =
                     new SearchRequestOperationsCompositeListenerFactory();
                 actions.put(
@@ -2407,8 +2404,7 @@ public class SnapshotResiliencyTests extends OpenSearchTestCase {
                         NoopMetricsRegistry.INSTANCE,
                         searchRequestOperationsCompositeListenerFactory,
                         NoopTracer.INSTANCE,
-                        new TaskResourceTrackingService(settings, clusterSettings, threadPool),
-                        engineExtendPlugin
+                        new TaskResourceTrackingService(settings, clusterSettings, threadPool)
                     )
                 );
                 actions.put(

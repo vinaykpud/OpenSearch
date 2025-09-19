@@ -18,12 +18,13 @@ public class SessionContext implements AutoCloseable {
 
     /**
      * Constructor for SessionContext with custom parquet file.
+     * @param tableName table name
      * @param parquetFilePath Path to the parquet file to register
      */
-    public SessionContext(String parquetFilePath) {
+    public SessionContext(String parquetFilePath, String tableName) {
         this.context = createContext();
         this.runtime = createRuntime(parquetFilePath);
-        registerParquetTable(this.context, this.runtime, parquetFilePath, "hits");
+        registerParquetTable(this.context, this.runtime, parquetFilePath, tableName);
     }
 
     /**

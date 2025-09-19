@@ -38,19 +38,18 @@ public class DataFusionServiceTest {
     public void setUp() throws IOException {
         // Create a temporary directory for test data
         Path tempDataDir = Files.createTempDirectory("opensearch-test-data");
-        
-        // Create test environment with the temp directory
+
+        // Create test environment with the temp directory and path.repo setting
         Settings settings = Settings.builder()
-            .put("path.home", tempDataDir.getParent().toString())
-            .put("path.data", tempDataDir.toString())
+            .put("path.repo", tempDataDir.toString())
             .build();
-        
+
         testEnvironment = new Environment(settings, null);
-        
+
         // Create a dummy parquet file for testing
         Path parquetFile = tempDataDir.resolve("hits_data.parquet");
         Files.createFile(parquetFile);
-        
+
         service = new DataFusionService(testEnvironment);
         service.doStart();
     }
@@ -66,18 +65,20 @@ public class DataFusionServiceTest {
     @Test
     public void testGetDefaultContext() {
         // Test that default context is created
-        long defaultContextId = service.getDefaultContextId();
-        assertTrue(defaultContextId > 0);
+        SessionContext defaultContext = service.getDefaultContext();
+        assertNotNull(defaultContext);
+        assertTrue(defaultContext.getContext() > 0);
 
         // Verify context exists
-        SessionContext context = service.getContext(defaultContextId);
+        SessionContext context = service.getContext(defaultContext.getContext());
         assertNotNull(context);
+        assertEquals(defaultContext.getContext(), context.getContext());
 
         // Close context
-        boolean closed = service.closeContext(defaultContextId);
+        boolean closed = service.closeContext(defaultContext.getContext());
         assertTrue(closed);
 
         // Verify context is gone
-        assertNull(service.getContext(defaultContextId));
+        assertNull(service.getContext(defaultContext.getContext()));
     }
 }

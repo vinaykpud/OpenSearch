@@ -51,13 +51,10 @@ dependencies {
     implementation "org.apache.arrow:arrow-vector:17.0.0"
     implementation "org.apache.arrow:arrow-c-data:17.0.0"
     implementation "org.apache.arrow:arrow-format:17.0.0"
-
     // SLF4J API for Arrow logging compatibility
     implementation "org.slf4j:slf4j-api:1.7.36"
-
     // CheckerFramework annotations required by Arrow 17.0.0
     implementation "org.checkerframework:checker-qual:3.42.0"
-
     // FlatBuffers dependency required by Arrow 17.0.0
     implementation "com.google.flatbuffers:flatbuffers-java:23.5.26"
 

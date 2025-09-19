@@ -16,6 +16,7 @@ import org.opensearch.common.util.concurrent.ConcurrentMapLong;
 import org.opensearch.datafusion.core.SessionContext;
 import org.opensearch.env.Environment;
 
+import java.nio.file.Files;
 import java.nio.file.Path;
 
 /**
@@ -28,7 +29,7 @@ public class DataFusionService extends AbstractLifecycleComponent {
 
     /**
      * Constructor for DataFusionService.
-     * @param environment The OpenSearch environment containing path configurations
+     * @param environment The OpenSearch environment containing path configurations and settings
      */
     public DataFusionService(Environment environment) {
         super();
@@ -48,18 +49,26 @@ public class DataFusionService extends AbstractLifecycleComponent {
             String version = DataFusionJNI.getVersion();
             logger.info("DataFusion service started successfully. Version info: {}", version);
 
-            // Create a default context with parquet file path in OpenSearch data directory
-            Path dataPath = environment.binDir(); // Use the first data directory
-            Path parquetFile = dataPath.resolve("hits.parquet");
-            String parquetFilePath = parquetFile.toString();
+            // Create a default context with parquet file path from path.repo setting
+            String repoPath = environment.settings().get("path.data")
+                .trim().replaceAll("^\\[|]$", "");
+            if (repoPath.isEmpty()) {
+                throw new RuntimeException("path.repo setting is required for DataFusion service. " +
+                    "Please configure it using -PrepoPath when starting OpenSearch.");
+            }
+
+            logger.info("DataFusion service started successfully. Repo path: {}", repoPath);
+
+            Path dataPath = Path.of(repoPath);
+            Path parquetFile = dataPath.resolve("hits_data.parquet");
 
             // Check if the parquet file exists
-            if (!java.nio.file.Files.exists(parquetFile)) {
-                throw new RuntimeException("Parquet file not found at: " + parquetFilePath +
+            if (!Files.exists(parquetFile)) {
+                throw new RuntimeException("Parquet file not found at: " + parquetFile +
                     ". Please place your parquet file in the OpenSearch data directory.");
             }
 
-            defaultSessionContext = new SessionContext(parquetFilePath);
+            defaultSessionContext = new SessionContext(parquetFile.toString(), "hits");
             contexts.put(defaultSessionContext.getContext(), defaultSessionContext);
             logger.info("Created default DataFusion context with ID: {}", defaultSessionContext.getContext());
         } catch (Exception e) {
