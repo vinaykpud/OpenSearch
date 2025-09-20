@@ -542,10 +542,10 @@ public abstract class SearchContext implements Releasable {
         return false;
     }
 
-    public void setDFResults(List<Map<String, Object>> dfResults) {
+    public void setDFResults(Map<String, Object[]> dfResults) {
     }
 
-    public List<Map<String, Object>> getDFResults() {
-        return Collections.emptyList();
+    public Map<String, Object[]> getDFResults() {
+        return Collections.emptyMap();
     }
 }

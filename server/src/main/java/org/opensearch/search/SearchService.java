@@ -738,9 +738,7 @@ public class SearchService extends AbstractLifecycleComponent implements IndexEv
                 byte[] substraitQuery = request.source().queryPlanIR();
                 if (substraitQuery != null) {
                     SearchExecutionEngine searchExecutionEngine = readerContext.indexShard().getSearchExecutionEngine();
-                    ArrayList<Map<String, Object>> result = searchExecutionEngine.execute(substraitQuery);
-                    logger.info("Result at executeQueryPhase:");
-                    logger.info(result);
+                    Map<String, Object[]> result = searchExecutionEngine.execute(substraitQuery);
                     context.setDFResults(result);
                 }
 

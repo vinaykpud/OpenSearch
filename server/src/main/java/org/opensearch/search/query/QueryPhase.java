@@ -180,16 +180,15 @@ public class QueryPhase {
 
         // Create a list to store the InternalValueCount objects
         List<InternalAggregation> internalAggList = new ArrayList<>();
-        for (Map<String, Object> map : searchContext.getDFResults()) {
-            for (Map.Entry<String, Object> entry : map.entrySet()) {
-                String key = entry.getKey();
-                Object value = entry.getValue();
-                // SUM, Count will work with integer casting, but  (Integer) value casting may not work well for avg
-                InternalValueCount ivc = new InternalValueCount(key, (Integer) value, null);
-                internalAggList.add(ivc);
-            }
+        Map<String, Object[]> map = searchContext.getDFResults();
+        for (Map.Entry<String, Object[]> entry : map.entrySet()) {
+            String key = entry.getKey();
+            Object[] value = entry.getValue();
+            // SUM, Count will work with integer casting, but  (Integer) value casting may not work well for avg
+            InternalValueCount ivc = new InternalValueCount(key, (long) value[0], null);
+            internalAggList.add(ivc);
         }
-//        final List<InternalAggregation> internals = List.of(new InternalValueCount("count()", 350, null));
+
         final InternalAggregations internalAggregations = InternalAggregations.from(internalAggList);
         QuerySearchResult querySearchResult = searchContext.queryResult();
         querySearchResult.aggregations(internalAggregations);

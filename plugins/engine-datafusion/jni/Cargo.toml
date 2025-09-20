@@ -9,15 +9,10 @@ license = "Apache-2.0"
 name = "opensearch_datafusion_jni"
 crate-type = ["cdylib"]
 
-[[bin]]
-name = "test_schema"
-path = "src/lib.rs"
-
 [dependencies]
 datafusion = "49.0.0"
 arrow = { version = "55.2", features = ["ffi", "ipc_compression"] }
 arrow-json = "55.2"
-arrow-ipc = "55.2"
 
 # JNI dependencies
 jni = "0.21"

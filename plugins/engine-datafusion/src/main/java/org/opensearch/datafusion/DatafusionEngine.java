@@ -8,17 +8,16 @@
 
 package org.opensearch.datafusion;
 
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import org.apache.arrow.memory.BufferAllocator;
 import org.apache.arrow.memory.RootAllocator;
+import org.apache.arrow.vector.FieldVector;
 import org.apache.arrow.vector.VectorSchemaRoot;
+import org.apache.arrow.vector.types.pojo.Field;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.opensearch.datafusion.core.SessionContext;
 import org.opensearch.index.engine.SearchExecutionEngine;
+import org.opensearch.search.aggregations.SearchResultsCollector;
 
-import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -41,21 +40,41 @@ public class DatafusionEngine implements SearchExecutionEngine {
     }
 
     @Override
-    public ArrayList<Map<String, Object>> execute(byte[] queryPlanIR) {
-        logger.info("Executing queryPlanIR: {}", queryPlanIR);
-        logger.info("Substrait plan serialized to " + queryPlanIR.length + " bytes");
-        ArrayList<Map<String, Object>> finalRes = new ArrayList<>();
+    public Map<String, Object[]> execute(byte[] queryPlanIR) {
+        Map<String, Object[]> finalRes = new HashMap<>();
         try {
             SessionContext defaultSessionContext = dataFusionService.getDefaultContext();
-            logger.info("Query execution result stream:");
             long streamPointer = dataFusionService.executeSubstraitQueryStream(queryPlanIR);
             RootAllocator allocator = new RootAllocator(Long.MAX_VALUE);
             RecordBatchStream stream = new RecordBatchStream(defaultSessionContext, streamPointer, allocator);
-            VectorSchemaRoot root = stream.getVectorSchemaRoot();
+
+            // We can have some collectors passed like this which can collect the results and convert to InternalAggregation
+            // Is the possible? need to check
+            SearchResultsCollector<RecordBatchStream> collector = new SearchResultsCollector<RecordBatchStream>() {
+                @Override
+                public void collect(RecordBatchStream value) {
+                    VectorSchemaRoot root = value.getVectorSchemaRoot();
+                    for(Field field : root.getSchema().getFields()) {
+                        String filedName = field.getName();
+                        FieldVector fieldVector = root.getVector(filedName);
+                        Object[] fieldValues = new Object[fieldVector.getValueCount()];
+                        for (int i = 0; i < fieldVector.getValueCount(); i++) {
+                            fieldValues[i] = fieldVector.getObject(i);
+                        }
+                        finalRes.put(filedName, fieldValues);
+                    }
+                }
+            };
+
             while (stream.loadNextBatch().join()) {
-                System.out.println(root.getSchema());
-                System.out.println(root.getFieldVectors());
+                collector.collect(stream);
              }
+
+             System.out.println("Final Results:");
+             for (Map.Entry<String, Object[]> entry : finalRes.entrySet()) {
+                 System.out.println(entry.getKey() + ": " + java.util.Arrays.toString(entry.getValue()));
+             }
+
 
         } catch (Exception exception) {
             logger.error("Failed to execute Substrait query plan", exception);

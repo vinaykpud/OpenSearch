@@ -24,5 +24,5 @@ public interface SearchExecutionEngine {
      * @param queryPlanIR
      * @return
      */
-    ArrayList<Map<String, Object>> execute(byte[] queryPlanIR);
+    Map<String, Object[]> execute(byte[] queryPlanIR);
 }

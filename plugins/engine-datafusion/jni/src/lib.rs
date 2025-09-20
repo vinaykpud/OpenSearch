@@ -13,23 +13,18 @@ use jni::objects::{JByteArray, JClass, JObject, JString};
 use jni::sys::{jbyteArray, jlong, jstring};
 use jni::JNIEnv;
 
-use datafusion::datasource::file_format::parquet::ParquetFormat;
-use datafusion::datasource::listing::{ListingOptions, ListingTableUrl};
 use datafusion::execution::context::SessionContext;
 use datafusion::prelude::*;
 use datafusion::DATAFUSION_VERSION;
 
 use datafusion_substrait::logical_plan::consumer::from_substrait_plan;
-use datafusion_substrait::logical_plan::producer::to_substrait_plan;
 use prost::Message;
 
 use crate::util::{set_object_result_error, set_object_result_ok};
-use anyhow::Result;
 use arrow::array::{Array, StructArray};
 use futures::stream::StreamExt;
 use futures::TryStreamExt;
 use std::ptr::addr_of_mut;
-use std::sync::Arc;
 use tokio::runtime::Runtime;
 
 #[no_mangle]
