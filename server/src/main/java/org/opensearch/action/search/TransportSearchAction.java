@@ -104,6 +104,8 @@ import org.opensearch.transport.client.Client;
 import org.opensearch.transport.client.OriginSettingClient;
 import org.opensearch.transport.client.node.NodeClient;
 import org.opensearch.wlm.WorkloadGroupTask;
+import org.opensearch.plugins.DslConverterPlugin;
+import org.opensearch.plugins.PluginsService;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -112,6 +114,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.ServiceLoader;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
@@ -181,6 +184,8 @@ public class TransportSearchAction extends HandledTransportAction<SearchRequest,
     private final MetricsRegistry metricsRegistry;
 
     private TaskResourceTrackingService taskResourceTrackingService;
+    
+    private final PluginsService pluginsService;
 
     @Inject
     public TransportSearchAction(
@@ -199,7 +204,8 @@ public class TransportSearchAction extends HandledTransportAction<SearchRequest,
         MetricsRegistry metricsRegistry,
         SearchRequestOperationsCompositeListenerFactory searchRequestOperationsCompositeListenerFactory,
         Tracer tracer,
-        TaskResourceTrackingService taskResourceTrackingService
+        TaskResourceTrackingService taskResourceTrackingService,
+        PluginsService pluginsService
     ) {
         super(SearchAction.NAME, transportService, actionFilters, (Writeable.Reader<SearchRequest>) SearchRequest::new);
         this.client = client;
@@ -222,6 +228,7 @@ public class TransportSearchAction extends HandledTransportAction<SearchRequest,
         this.searchRequestOperationsCompositeListenerFactory = searchRequestOperationsCompositeListenerFactory;
         this.tracer = tracer;
         this.taskResourceTrackingService = taskResourceTrackingService;
+        this.pluginsService = pluginsService;
     }
 
     private Map<String, AliasFilter> buildPerIndexAliasFilter(
@@ -324,7 +331,46 @@ public class TransportSearchAction extends HandledTransportAction<SearchRequest,
             );
         }
         executeRequest(task, searchRequest, this::searchAsyncAction, listener);
-        //logger.info("Search request received is {}", searchRequest.source());
+
+        // POC: Call DSL converters from plugins
+        logger.info("[DSL-Calcite POC] Search request received - source: {}, indices: {}",
+            searchRequest.source(),
+            searchRequest.indices() != null ? String.join(",", searchRequest.indices()) : "null");
+
+        if (searchRequest.source() != null) {
+            try {
+                // Get the first index name (for POC, just use the first one)
+                String indexName = searchRequest.indices() != null && searchRequest.indices().length > 0
+                    ? searchRequest.indices()[0]
+                    : "unknown";
+
+                logger.info("[DSL-Calcite POC] Looking for DSL converter plugins...");
+
+                // Get converters using PluginsService (standard OpenSearch pattern)
+                List<DslConverterPlugin> converters = pluginsService.filterPlugins(DslConverterPlugin.class);
+
+                if (converters.isEmpty()) {
+                    logger.info("[DSL-Calcite POC] No DSL converter plugins found");
+                } else {
+                    for (DslConverterPlugin converter : converters) {
+                        logger.info("[DSL-Calcite POC] Found converter: {}", converter.getConverterName());
+
+                        try {
+                            String result = converter.convertDsl(searchRequest.source(), indexName);
+                            logger.info("[DSL-Calcite POC] Converted DSL query to RelNode: {}", result);
+                        } catch (Exception e) {
+                            logger.warn("[DSL-Calcite POC] Converter {} failed", converter.getConverterName(), e);
+                        }
+                    }
+                }
+
+            } catch (Exception e) {
+                // Catch-all for any unexpected errors
+                logger.warn("[DSL-Calcite POC] Error discovering or calling DSL converters", e);
+            }
+        } else {
+            logger.info("[DSL-Calcite POC] Skipping conversion - searchRequest.source() is null");
+        }
     }
 
     /**
