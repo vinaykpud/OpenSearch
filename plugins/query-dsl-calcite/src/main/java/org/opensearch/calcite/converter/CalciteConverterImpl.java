@@ -125,14 +125,15 @@ public class CalciteConverterImpl implements CalciteConverter {
 
         // Step 4: Apply aggregations if they exist
         if (searchSource.aggregations() != null && !searchSource.aggregations().getAggregatorFactories().isEmpty()) {
-            RelDataType rowType = relNode.getRowType();
-            
+            // Get the input schema (before aggregation) for field lookups
+            RelDataType inputRowType = relNode.getRowType();
+
             // Extract GROUP BY fields from bucket aggregations (terms)
-            ImmutableBitSet groupBy = extractGroupByFields(searchSource, rowType);
-            
+            ImmutableBitSet groupBy = extractGroupByFields(searchSource, inputRowType);
+
             // Build metric aggregations (avg, sum, etc.)
-            List<AggregateCall> aggregateCalls = buildAggregations(searchSource, rowType);
-            
+            List<AggregateCall> aggregateCalls = buildAggregations(searchSource, inputRowType);
+
             // Create LogicalAggregate with GROUP BY fields and aggregate calls
             relNode = LogicalAggregate.create(
                 relNode,
@@ -148,8 +149,8 @@ public class CalciteConverterImpl implements CalciteConverter {
             relNode = buildProjection(relNode, searchSource.fetchSource(), rowType);
         }
 
-        // Future steps:
-        // Step 6: Apply pagination (task 9)
+        // Step 6: Apply pagination (from/size)
+        relNode = buildPagination(relNode, searchSource);
 
         return relNode;
     }
@@ -256,16 +257,16 @@ public class CalciteConverterImpl implements CalciteConverter {
      * @return List of AggregateCall objects (metric aggregations only)
      * @throws ConversionException if aggregation conversion fails
      */
-    private List<AggregateCall> buildAggregations(SearchSourceBuilder searchSource, RelDataType rowType) 
+    private List<AggregateCall> buildAggregations(SearchSourceBuilder searchSource, RelDataType rowType)
             throws ConversionException {
         List<AggregateCall> aggregateCalls = new ArrayList<>();
-        
+
         // Create visitor for converting aggregations
         AggregateCallVisitor visitor = new AggregateCallVisitor(rowType);
-        
+
         // Get aggregation factories from search source
         AggregatorFactories.Builder aggregations = searchSource.aggregations();
-        
+
         // Iterate through all aggregations
         for (AggregationBuilder aggregation : aggregations.getAggregatorFactories()) {
             // Dispatch to appropriate visitor method based on aggregation type
@@ -281,14 +282,14 @@ public class CalciteConverterImpl implements CalciteConverter {
                 );
             }
         }
-        
+
         return aggregateCalls;
     }
 
     /**
      * Extracts GROUP BY fields from bucket aggregations (terms aggregations).
-     * 
-     * Per Requirement 20.1: "WHEN the Converter processes a terms aggregation 
+     *
+     * Per Requirement 20.1: "WHEN the Converter processes a terms aggregation
      * THEN the Converter SHALL produce a LogicalAggregate with GROUP BY on the specified field"
      *
      * @param searchSource The SearchSourceBuilder containing aggregations
@@ -296,36 +297,36 @@ public class CalciteConverterImpl implements CalciteConverter {
      * @return ImmutableBitSet of field indices to group by
      * @throws ConversionException if field lookup fails
      */
-    private ImmutableBitSet extractGroupByFields(SearchSourceBuilder searchSource, RelDataType rowType) 
+    private ImmutableBitSet extractGroupByFields(SearchSourceBuilder searchSource, RelDataType rowType)
             throws ConversionException {
         List<Integer> groupByIndices = new ArrayList<>();
-        
+
         // Get aggregation factories from search source
         AggregatorFactories.Builder aggregations = searchSource.aggregations();
-        
+
         // Iterate through all aggregations to find bucket aggregations
         for (AggregationBuilder aggregation : aggregations.getAggregatorFactories()) {
             if (aggregation instanceof TermsAggregationBuilder) {
                 TermsAggregationBuilder termsAgg = (TermsAggregationBuilder) aggregation;
                 String fieldName = termsAgg.field();
-                
+
                 // Find the field index in the row type
                 int fieldIndex = findFieldIndex(fieldName, rowType);
                 groupByIndices.add(fieldIndex);
             }
         }
-        
+
         // Convert list to ImmutableBitSet
         return ImmutableBitSet.of(groupByIndices);
     }
 
     /**
      * Builds a LogicalSort node from OpenSearch sort builders.
-     * 
-     * Per Requirement 13.1: "WHEN the Converter processes a sort clause 
+     *
+     * Per Requirement 13.1: "WHEN the Converter processes a sort clause
      * THEN the Converter SHALL produce a LogicalSort with the specified field and direction"
-     * 
-     * Per Requirement 13.2: "WHEN the Converter processes multiple sort fields 
+     *
+     * Per Requirement 13.2: "WHEN the Converter processes multiple sort fields
      * THEN the Converter SHALL preserve the sort order priority"
      *
      * @param input The input RelNode to apply sorting to
@@ -334,19 +335,19 @@ public class CalciteConverterImpl implements CalciteConverter {
      * @return LogicalSort node with collation
      * @throws ConversionException if sort conversion fails
      */
-    private RelNode buildSort(RelNode input, SearchSourceBuilder searchSource, RelDataType rowType) 
+    private RelNode buildSort(RelNode input, SearchSourceBuilder searchSource, RelDataType rowType)
             throws ConversionException {
         List<RelFieldCollation> fieldCollations = new ArrayList<>();
-        
+
         // Iterate through all sort builders
         for (SortBuilder<?> sortBuilder : searchSource.sorts()) {
             if (sortBuilder instanceof FieldSortBuilder) {
                 FieldSortBuilder fieldSort = (FieldSortBuilder) sortBuilder;
                 String fieldName = fieldSort.getFieldName();
-                
+
                 // Find the field index in the row type
                 int fieldIndex = findFieldIndex(fieldName, rowType);
-                
+
                 // Convert OpenSearch SortOrder to Calcite Direction
                 RelFieldCollation.Direction direction;
                 if (fieldSort.order() == SortOrder.ASC) {
@@ -354,7 +355,7 @@ public class CalciteConverterImpl implements CalciteConverter {
                 } else {
                     direction = RelFieldCollation.Direction.DESCENDING;
                 }
-                
+
                 // Handle null ordering
                 // OpenSearch default: nulls last for ASC, nulls first for DESC
                 RelFieldCollation.NullDirection nullDirection;
@@ -363,14 +364,14 @@ public class CalciteConverterImpl implements CalciteConverter {
                 } else {
                     nullDirection = RelFieldCollation.NullDirection.FIRST;
                 }
-                
+
                 // Create RelFieldCollation
                 RelFieldCollation fieldCollation = new RelFieldCollation(
                     fieldIndex,
                     direction,
                     nullDirection
                 );
-                
+
                 fieldCollations.add(fieldCollation);
             } else {
                 throw new UnsupportedOperationException(
@@ -378,10 +379,10 @@ public class CalciteConverterImpl implements CalciteConverter {
                 );
             }
         }
-        
+
         // Create RelCollation from field collations
         RelCollation collation = RelCollations.of(fieldCollations);
-        
+
         // Create LogicalSort with collation (no offset/fetch yet - that's task 9)
         return LogicalSort.create(input, collation, null, null);
     }
@@ -409,14 +410,14 @@ public class CalciteConverterImpl implements CalciteConverter {
 
     /**
      * Builds a LogicalProject node from OpenSearch _source filtering.
-     * 
-     * Per Requirement 15.1: "WHEN the Converter processes a _source parameter with includes 
+     *
+     * Per Requirement 15.1: "WHEN the Converter processes a _source parameter with includes
      * THEN the Converter SHALL produce a LogicalProject with only the specified fields"
-     * 
-     * Per Requirement 15.2: "WHEN the Converter processes _source: false 
+     *
+     * Per Requirement 15.2: "WHEN the Converter processes _source: false
      * THEN the Converter SHALL produce a LogicalProject with no fields"
-     * 
-     * Per Requirement 15.3: "WHEN the Converter processes _source with wildcard patterns 
+     *
+     * Per Requirement 15.3: "WHEN the Converter processes _source with wildcard patterns
      * THEN the Converter SHALL expand the patterns to matching fields"
      *
      * @param input The input RelNode to apply projection to
@@ -425,34 +426,34 @@ public class CalciteConverterImpl implements CalciteConverter {
      * @return LogicalProject node with selected fields
      * @throws ConversionException if projection conversion fails
      */
-    private RelNode buildProjection(RelNode input, FetchSourceContext fetchSource, RelDataType rowType) 
+    private RelNode buildProjection(RelNode input, FetchSourceContext fetchSource, RelDataType rowType)
             throws ConversionException {
         List<RexNode> projects = new ArrayList<>();
         List<String> fieldNames = new ArrayList<>();
-        
+
         // Handle _source: false (no fields)
         if (!fetchSource.fetchSource()) {
             // Return empty projection (no fields)
             return LogicalProject.create(input, List.of(), projects, fieldNames);
         }
-        
+
         // Get includes array
         String[] includes = fetchSource.includes();
-        
+
         // If no includes specified, return all fields (skip projection)
         if (includes == null || includes.length == 0) {
             return input;
         }
-        
+
         // Build list of field indices to project
         List<RelDataTypeField> allFields = rowType.getFieldList();
-        
+
         for (String includePattern : includes) {
             // Check if pattern contains wildcard
             if (includePattern.contains("*")) {
                 // Expand wildcard pattern
                 String regex = includePattern.replace(".", "\\.").replace("*", ".*");
-                
+
                 for (RelDataTypeField field : allFields) {
                     if (field.getName().matches(regex)) {
                         // Add field to projection
@@ -464,14 +465,62 @@ public class CalciteConverterImpl implements CalciteConverter {
                 // Exact field name match
                 int fieldIndex = findFieldIndex(includePattern, rowType);
                 RelDataTypeField field = allFields.get(fieldIndex);
-                
+
                 // Add field to projection
                 projects.add(rexBuilder.makeInputRef(field.getType(), fieldIndex));
                 fieldNames.add(field.getName());
             }
         }
-        
+
         // Create LogicalProject with selected fields
         return LogicalProject.create(input, List.of(), projects, fieldNames);
+    }
+
+    /**
+     * Builds pagination (LIMIT/OFFSET) from OpenSearch from/size parameters.
+     *
+     * Per Requirement 14.1: "WHEN the Converter processes a from parameter
+     * THEN the Converter SHALL produce a LogicalSort with offset"
+     *
+     * Per Requirement 14.2: "WHEN the Converter processes a size parameter
+     * THEN the Converter SHALL produce a LogicalSort with fetch"
+     *
+     * Per Requirement 14.3: "WHEN the Converter processes both from and size
+     * THEN the Converter SHALL produce a LogicalSort with both offset and fetch"
+     *
+     * Note: This method is called at the END of the pipeline, after all other operations.
+     * If there's an existing LogicalSort from Step 3 (pre-aggregation sort), we should NOT
+     * try to update it because:
+     * 1. The schema has changed after aggregation
+     * 2. The sort was on the input documents, not the aggregated results
+     * 3. We need a NEW sort node on the current (post-aggregation) schema
+     *
+     * @param input The input RelNode to apply pagination to
+     * @param searchSource The SearchSourceBuilder containing from/size parameters
+     * @return LogicalSort node with offset and/or fetch, or original input if no pagination
+     */
+    private RelNode buildPagination(RelNode input, SearchSourceBuilder searchSource) {
+        // Get from and size parameters
+        // OpenSearch defaults: from=0, size=10
+        int from = searchSource.from() != -1 ? searchSource.from() : 0;
+        int size = searchSource.size() != -1 ? searchSource.size() : 10;
+
+        // Only create pagination if we have non-default values
+        if (from == 0 && size == 10) {
+            return input;  // No pagination needed
+        }
+
+        // Create RexLiteral for offset and fetch
+        RexNode offset = from > 0 ? rexBuilder.makeLiteral(from, cluster.getTypeFactory().createSqlType(SqlTypeName.INTEGER), false) : null;
+        RexNode fetch = rexBuilder.makeLiteral(size, cluster.getTypeFactory().createSqlType(SqlTypeName.INTEGER), false);
+
+        // Always create a NEW LogicalSort for pagination at the end of the pipeline
+        // This ensures it operates on the correct schema (post-aggregation if applicable)
+        return LogicalSort.create(
+            input,
+            RelCollations.EMPTY,  // No sorting in pagination node, just LIMIT/OFFSET
+            offset,
+            fetch
+        );
     }
 }
