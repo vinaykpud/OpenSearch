@@ -24,6 +24,10 @@ import org.apache.calcite.schema.SchemaPlus;
 import org.apache.calcite.schema.Table;
 import org.apache.calcite.schema.impl.AbstractTable;
 import org.apache.calcite.sql.type.SqlTypeName;
+import org.opensearch.calcite.exception.ConversionException;
+import org.opensearch.calcite.mapping.IndexMappingClient;
+import org.opensearch.calcite.mapping.OpenSearchTypeMapper;
+import org.opensearch.transport.client.Client;
 import org.opensearch.index.query.BoolQueryBuilder;
 import org.opensearch.index.query.MatchAllQueryBuilder;
 import org.opensearch.index.query.MatchQueryBuilder;
@@ -33,6 +37,7 @@ import org.opensearch.index.query.TermQueryBuilder;
 import org.opensearch.search.builder.SearchSourceBuilder;
 
 import java.util.List;
+import java.util.Map;
 
 /**
  * Implementation of CalciteConverter that converts OpenSearch DSL to Calcite RelNode.
@@ -49,14 +54,20 @@ public class CalciteConverterImpl implements CalciteConverter {
     private final SchemaPlus schema;
     private final RelOptCluster cluster;
     private final RexBuilder rexBuilder;
+    private final IndexMappingClient mappingClient;
+    private final Map<String, RelDataType> schemaCache;
 
     /**
      * Constructor for CalciteConverterImpl.
      *
      * @param schema The Calcite schema
+     * @param client The OpenSearch client for retrieving index mappings
+     * @param schemaCache Cache for storing discovered schemas
      */
-    public CalciteConverterImpl(SchemaPlus schema) {
+    public CalciteConverterImpl(SchemaPlus schema, Client client, Map<String, RelDataType> schemaCache) {
         this.schema = schema;
+        this.mappingClient = new IndexMappingClient(client);
+        this.schemaCache = schemaCache;
 
         // Create type factory
         RelDataTypeFactory typeFactory = new JavaTypeFactoryImpl();
@@ -97,43 +108,67 @@ public class CalciteConverterImpl implements CalciteConverter {
     }
 
     /**
-     * Creates a LogicalTableScan for the specified index.
+     * Creates a LogicalTableScan for the specified index with dynamic schema discovery.
      *
      * @param indexName The name of the index
      * @return LogicalTableScan node
+     * @throws ConversionException if schema discovery fails
      */
-    private RelNode createTableScan(String indexName) {
-        // Create a simple table with some default fields for POC
-        // In a real implementation, this would query OpenSearch for the index mapping
-        Table table = new AbstractTable() {
-            @Override
-            public RelDataType getRowType(RelDataTypeFactory typeFactory) {
-                RelDataTypeFactory.Builder builder = typeFactory.builder();
+    private RelNode createTableScan(String indexName) throws ConversionException {
+        try {
+            // Check if schema is already cached
+            RelDataType cachedSchema = schemaCache.get(indexName);
 
-                // Add some common fields for POC
-                builder.add("title", SqlTypeName.VARCHAR);
-                builder.add("category", SqlTypeName.VARCHAR);
-                builder.add("price", SqlTypeName.DECIMAL);
-                builder.add("brand", SqlTypeName.VARCHAR);
-                builder.add("description", SqlTypeName.VARCHAR);
+            if (cachedSchema == null) {
+                // Retrieve index mappings from OpenSearch
+                Map<String, Object> properties = mappingClient.getMappings(indexName);
 
-                return builder.build();
+                // Flatten nested fields
+                Map<String, String> flattenedFields = mappingClient.flattenFields(properties);
+
+                // Build RelDataType from flattened fields
+                RelDataTypeFactory.Builder builder = cluster.getTypeFactory().builder();
+
+                for (Map.Entry<String, String> entry : flattenedFields.entrySet()) {
+                    String fieldName = entry.getKey();
+                    String fieldType = entry.getValue();
+
+                    // Convert OpenSearch type to Calcite type
+                    SqlTypeName calciteType = OpenSearchTypeMapper.toCalciteType(fieldType);
+                    builder.add(fieldName, calciteType);
+                }
+
+                cachedSchema = builder.build();
+
+                // Cache the schema
+                schemaCache.put(indexName, cachedSchema);
             }
-        };
 
-        // Register table in schema
-        schema.add(indexName, table);
+            // Create table with discovered schema
+            final RelDataType finalSchema = cachedSchema;
+            Table table = new AbstractTable() {
+                @Override
+                public RelDataType getRowType(RelDataTypeFactory typeFactory) {
+                    return finalSchema;
+                }
+            };
 
-        // Create table scan
-        RelOptTable relOptTable = RelOptTableImpl.create(
-            null,  // RelOptSchema
-            table.getRowType(cluster.getTypeFactory()),
-            List.of(indexName),
-            table,
-            (org.apache.calcite.linq4j.tree.Expression) null  // Expression
-        );
+            // Register table in schema
+            schema.add(indexName, table);
 
-        return LogicalTableScan.create(cluster, relOptTable, List.of());
+            // Create table scan
+            RelOptTable relOptTable = RelOptTableImpl.create(
+                null,  // RelOptSchema
+                table.getRowType(cluster.getTypeFactory()),
+                List.of(indexName),
+                table,
+                (org.apache.calcite.linq4j.tree.Expression) null  // Expression
+            );
+
+            return LogicalTableScan.create(cluster, relOptTable, List.of());
+        } catch (Exception e) {
+            throw new ConversionException(null, "Failed to create table scan for index: " + indexName, e);
+        }
     }
 
     /**

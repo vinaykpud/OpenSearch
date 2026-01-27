@@ -80,7 +80,8 @@ public class DslCalcitePlugin extends Plugin implements DslConverterPlugin {
         IndexNameExpressionResolver indexNameExpressionResolver,
         Supplier<RepositoriesService> repositoriesServiceSupplier
     ) {
-        converterService = new CalciteConverterService();
+        // Pass client to CalciteConverterService for index mapping retrieval
+        converterService = new CalciteConverterService(client);
 
         // No need to register - PluginsService automatically discovers plugins implementing DslConverterPlugin
 
