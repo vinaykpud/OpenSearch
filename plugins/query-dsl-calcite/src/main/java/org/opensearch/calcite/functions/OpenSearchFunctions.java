@@ -13,42 +13,41 @@ import org.apache.calcite.sql.SqlFunctionCategory;
 import org.apache.calcite.sql.SqlKind;
 import org.apache.calcite.sql.type.OperandTypes;
 import org.apache.calcite.sql.type.ReturnTypes;
-import org.apache.calcite.sql.type.SqlTypeFamily;
 
 /**
- * Custom SQL functions for OpenSearch-specific operations in Calcite.
+ * Utility class containing custom Calcite functions for OpenSearch-specific operations.
  * 
- * These functions represent OpenSearch query capabilities that don't have
- * direct SQL equivalents, such as full-text search.
+ * This class defines custom SQL functions that represent OpenSearch-specific query
+ * capabilities that don't have direct Calcite equivalents.
  */
 public class OpenSearchFunctions {
-    
+
     /**
-     * Private constructor to prevent instantiation of utility class.
-     */
-    private OpenSearchFunctions() {
-        // Utility class - no instantiation
-    }
-    
-    /**
-     * MATCH_QUERY(field, text, operator) - Full-text match query.
+     * MATCH_QUERY function for full-text search.
      * 
-     * This function represents OpenSearch's match query, which performs
-     * full-text search with analysis and scoring.
+     * Signature: MATCH_QUERY(field, text, operator)
+     * - field: The field to search in
+     * - text: The search text
+     * - operator: The match operator (AND/OR)
      * 
-     * Parameters:
-     * - field: The field name to search (STRING)
-     * - text: The text to search for (STRING)
-     * - operator: The operator ("AND" or "OR") (STRING)
+     * Returns: BOOLEAN indicating if the document matches
      * 
-     * Returns: BOOLEAN (true if document matches)
+     * This function represents OpenSearch's match query, which performs full-text
+     * search with analysis and relevance scoring.
      */
     public static final SqlFunction MATCH_QUERY = new SqlFunction(
         "MATCH_QUERY",
         SqlKind.OTHER_FUNCTION,
         ReturnTypes.BOOLEAN,
         null,
-        OperandTypes.family(SqlTypeFamily.STRING, SqlTypeFamily.STRING, SqlTypeFamily.STRING),
+        OperandTypes.STRING_STRING_STRING,  // field, text, operator
         SqlFunctionCategory.USER_DEFINED_FUNCTION
     );
+
+    /**
+     * Private constructor to prevent instantiation of utility class.
+     */
+    private OpenSearchFunctions() {
+        throw new UnsupportedOperationException("Utility class cannot be instantiated");
+    }
 }

@@ -184,7 +184,7 @@ public class TransportSearchAction extends HandledTransportAction<SearchRequest,
     private final MetricsRegistry metricsRegistry;
 
     private TaskResourceTrackingService taskResourceTrackingService;
-    
+
     private final PluginsService pluginsService;
 
     @Inject
@@ -357,7 +357,7 @@ public class TransportSearchAction extends HandledTransportAction<SearchRequest,
 
                         try {
                             String result = converter.convertDsl(searchRequest.source(), indexName);
-                            logger.info("[DSL-Calcite POC] Converted DSL query to RelNode: {}", result);
+                            System.out.println(result);
                         } catch (Exception e) {
                             logger.warn("[DSL-Calcite POC] Converter {} failed", converter.getConverterName(), e);
                         }

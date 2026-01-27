@@ -113,7 +113,7 @@ public class DslCalcitePlugin extends Plugin implements DslConverterPlugin {
             RelNode relNode = converter.convert(source, indexName);
 
             // Handle null RelNode (POC returns null for now)
-            return (relNode != null) ? relNode.toString() : "null (POC - converter not yet implemented)";
+            return (relNode != null) ? relNode.explain() : "null (POC - converter not yet implemented)";
         } catch (Exception e) {
             return "Error: " + e.getMessage();
         }

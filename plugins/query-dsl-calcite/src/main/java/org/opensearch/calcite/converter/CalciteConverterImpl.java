@@ -14,16 +14,20 @@ import org.apache.calcite.plan.RelOptTable;
 import org.apache.calcite.plan.volcano.VolcanoPlanner;
 import org.apache.calcite.prepare.RelOptTableImpl;
 import org.apache.calcite.rel.RelNode;
+import org.apache.calcite.rel.core.AggregateCall;
+import org.apache.calcite.rel.logical.LogicalAggregate;
 import org.apache.calcite.rel.logical.LogicalFilter;
 import org.apache.calcite.rel.logical.LogicalTableScan;
 import org.apache.calcite.rel.type.RelDataType;
 import org.apache.calcite.rel.type.RelDataTypeFactory;
+import org.apache.calcite.rel.type.RelDataTypeField;
 import org.apache.calcite.rex.RexBuilder;
 import org.apache.calcite.rex.RexNode;
 import org.apache.calcite.schema.SchemaPlus;
 import org.apache.calcite.schema.Table;
 import org.apache.calcite.schema.impl.AbstractTable;
 import org.apache.calcite.sql.type.SqlTypeName;
+import org.apache.calcite.util.ImmutableBitSet;
 import org.opensearch.calcite.exception.ConversionException;
 import org.opensearch.calcite.mapping.IndexMappingClient;
 import org.opensearch.calcite.mapping.OpenSearchTypeMapper;
@@ -34,8 +38,13 @@ import org.opensearch.index.query.MatchQueryBuilder;
 import org.opensearch.index.query.QueryBuilder;
 import org.opensearch.index.query.RangeQueryBuilder;
 import org.opensearch.index.query.TermQueryBuilder;
+import org.opensearch.search.aggregations.AggregationBuilder;
+import org.opensearch.search.aggregations.AggregatorFactories;
+import org.opensearch.search.aggregations.bucket.terms.TermsAggregationBuilder;
+import org.opensearch.search.aggregations.metrics.AvgAggregationBuilder;
 import org.opensearch.search.builder.SearchSourceBuilder;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -90,21 +99,39 @@ public class CalciteConverterImpl implements CalciteConverter {
     @Override
     public RelNode convert(SearchSourceBuilder searchSource, String indexName) throws Exception {
         // Step 1: Create table scan for the index
-        RelNode tableScan = createTableScan(indexName);
+        RelNode relNode = createTableScan(indexName);
 
         // Step 2: Apply filter if query exists
         if (searchSource.query() != null) {
-            RelDataType rowType = tableScan.getRowType();
+            RelDataType rowType = relNode.getRowType();
             RexNode condition = buildFilter(searchSource.query(), rowType);
-            tableScan = LogicalFilter.create(tableScan, condition);
+            relNode = LogicalFilter.create(relNode, condition);
+        }
+
+        // Step 3: Apply aggregations if they exist
+        if (searchSource.aggregations() != null && !searchSource.aggregations().getAggregatorFactories().isEmpty()) {
+            RelDataType rowType = relNode.getRowType();
+            
+            // Extract GROUP BY fields from bucket aggregations (terms)
+            ImmutableBitSet groupBy = extractGroupByFields(searchSource, rowType);
+            
+            // Build metric aggregations (avg, sum, etc.)
+            List<AggregateCall> aggregateCalls = buildAggregations(searchSource, rowType);
+            
+            // Create LogicalAggregate with GROUP BY fields and aggregate calls
+            relNode = LogicalAggregate.create(
+                relNode,
+                groupBy,  // GROUP BY fields from terms aggregations
+                null,  // no groupSets
+                aggregateCalls  // metric aggregations
+            );
         }
 
         // Future steps:
-        // Step 3: Apply aggregations (task 7)
         // Step 4: Apply sort and pagination (task 8)
         // Step 5: Apply projection (task 9)
 
-        return tableScan;
+        return relNode;
     }
 
     /**
@@ -197,5 +224,99 @@ public class CalciteConverterImpl implements CalciteConverter {
                 "Query type not supported: " + query.getClass().getSimpleName()
             );
         }
+    }
+
+    /**
+     * Builds a list of AggregateCall objects from OpenSearch aggregations.
+     * Note: Terms aggregations are handled separately in extractGroupByFields()
+     * and do not produce AggregateCall objects.
+     *
+     * @param searchSource The SearchSourceBuilder containing aggregations
+     * @param rowType The row type for field references
+     * @return List of AggregateCall objects (metric aggregations only)
+     * @throws ConversionException if aggregation conversion fails
+     */
+    private List<AggregateCall> buildAggregations(SearchSourceBuilder searchSource, RelDataType rowType) 
+            throws ConversionException {
+        List<AggregateCall> aggregateCalls = new ArrayList<>();
+        
+        // Create visitor for converting aggregations
+        AggregateCallVisitor visitor = new AggregateCallVisitor(rowType);
+        
+        // Get aggregation factories from search source
+        AggregatorFactories.Builder aggregations = searchSource.aggregations();
+        
+        // Iterate through all aggregations
+        for (AggregationBuilder aggregation : aggregations.getAggregatorFactories()) {
+            // Dispatch to appropriate visitor method based on aggregation type
+            if (aggregation instanceof AvgAggregationBuilder) {
+                aggregateCalls.add(visitor.visitAvgAggregation((AvgAggregationBuilder) aggregation));
+            } else if (aggregation instanceof TermsAggregationBuilder) {
+                // Terms aggregations are handled in extractGroupByFields() for GROUP BY
+                // They do not produce AggregateCall objects
+                continue;
+            } else {
+                throw new UnsupportedOperationException(
+                    "Aggregation type not supported: " + aggregation.getClass().getSimpleName()
+                );
+            }
+        }
+        
+        return aggregateCalls;
+    }
+
+    /**
+     * Extracts GROUP BY fields from bucket aggregations (terms aggregations).
+     * 
+     * Per Requirement 20.1: "WHEN the Converter processes a terms aggregation 
+     * THEN the Converter SHALL produce a LogicalAggregate with GROUP BY on the specified field"
+     *
+     * @param searchSource The SearchSourceBuilder containing aggregations
+     * @param rowType The row type for field references
+     * @return ImmutableBitSet of field indices to group by
+     * @throws ConversionException if field lookup fails
+     */
+    private ImmutableBitSet extractGroupByFields(SearchSourceBuilder searchSource, RelDataType rowType) 
+            throws ConversionException {
+        List<Integer> groupByIndices = new ArrayList<>();
+        
+        // Get aggregation factories from search source
+        AggregatorFactories.Builder aggregations = searchSource.aggregations();
+        
+        // Iterate through all aggregations to find bucket aggregations
+        for (AggregationBuilder aggregation : aggregations.getAggregatorFactories()) {
+            if (aggregation instanceof TermsAggregationBuilder) {
+                TermsAggregationBuilder termsAgg = (TermsAggregationBuilder) aggregation;
+                String fieldName = termsAgg.field();
+                
+                // Find the field index in the row type
+                int fieldIndex = findFieldIndex(fieldName, rowType);
+                groupByIndices.add(fieldIndex);
+            }
+        }
+        
+        // Convert list to ImmutableBitSet
+        return ImmutableBitSet.of(groupByIndices);
+    }
+
+    /**
+     * Finds the index of a field in the row type.
+     *
+     * @param fieldName The name of the field to find
+     * @param rowType The row type containing field definitions
+     * @return The index of the field in the row type
+     * @throws ConversionException if the field is not found
+     */
+    private int findFieldIndex(String fieldName, RelDataType rowType) throws ConversionException {
+        List<RelDataTypeField> fields = rowType.getFieldList();
+
+        for (int i = 0; i < fields.size(); i++) {
+            if (fields.get(i).getName().equals(fieldName)) {
+                return i;
+            }
+        }
+
+        // Field not found - throw exception
+        throw ConversionException.invalidField(fieldName);
     }
 }
