@@ -20,6 +20,7 @@ import org.apache.calcite.rel.RelNode;
 import org.apache.calcite.rel.core.AggregateCall;
 import org.apache.calcite.rel.logical.LogicalAggregate;
 import org.apache.calcite.rel.logical.LogicalFilter;
+import org.apache.calcite.rel.logical.LogicalProject;
 import org.apache.calcite.rel.logical.LogicalSort;
 import org.apache.calcite.rel.logical.LogicalTableScan;
 import org.apache.calcite.rel.type.RelDataType;
@@ -47,6 +48,7 @@ import org.opensearch.search.aggregations.AggregatorFactories;
 import org.opensearch.search.aggregations.bucket.terms.TermsAggregationBuilder;
 import org.opensearch.search.aggregations.metrics.AvgAggregationBuilder;
 import org.opensearch.search.builder.SearchSourceBuilder;
+import org.opensearch.search.fetch.subphase.FetchSourceContext;
 import org.opensearch.search.sort.FieldSortBuilder;
 import org.opensearch.search.sort.SortBuilder;
 import org.opensearch.search.sort.SortOrder;
@@ -140,9 +142,14 @@ public class CalciteConverterImpl implements CalciteConverter {
             );
         }
 
+        // Step 5: Apply projection if _source filtering exists
+        if (searchSource.fetchSource() != null) {
+            RelDataType rowType = relNode.getRowType();
+            relNode = buildProjection(relNode, searchSource.fetchSource(), rowType);
+        }
+
         // Future steps:
-        // Step 5: Apply pagination (task 9)
-        // Step 6: Apply projection (task 10)
+        // Step 6: Apply pagination (task 9)
 
         return relNode;
     }
@@ -398,5 +405,73 @@ public class CalciteConverterImpl implements CalciteConverter {
 
         // Field not found - throw exception
         throw ConversionException.invalidField(fieldName);
+    }
+
+    /**
+     * Builds a LogicalProject node from OpenSearch _source filtering.
+     * 
+     * Per Requirement 15.1: "WHEN the Converter processes a _source parameter with includes 
+     * THEN the Converter SHALL produce a LogicalProject with only the specified fields"
+     * 
+     * Per Requirement 15.2: "WHEN the Converter processes _source: false 
+     * THEN the Converter SHALL produce a LogicalProject with no fields"
+     * 
+     * Per Requirement 15.3: "WHEN the Converter processes _source with wildcard patterns 
+     * THEN the Converter SHALL expand the patterns to matching fields"
+     *
+     * @param input The input RelNode to apply projection to
+     * @param fetchSource The FetchSourceContext containing _source filtering
+     * @param rowType The row type for field references
+     * @return LogicalProject node with selected fields
+     * @throws ConversionException if projection conversion fails
+     */
+    private RelNode buildProjection(RelNode input, FetchSourceContext fetchSource, RelDataType rowType) 
+            throws ConversionException {
+        List<RexNode> projects = new ArrayList<>();
+        List<String> fieldNames = new ArrayList<>();
+        
+        // Handle _source: false (no fields)
+        if (!fetchSource.fetchSource()) {
+            // Return empty projection (no fields)
+            return LogicalProject.create(input, List.of(), projects, fieldNames);
+        }
+        
+        // Get includes array
+        String[] includes = fetchSource.includes();
+        
+        // If no includes specified, return all fields (skip projection)
+        if (includes == null || includes.length == 0) {
+            return input;
+        }
+        
+        // Build list of field indices to project
+        List<RelDataTypeField> allFields = rowType.getFieldList();
+        
+        for (String includePattern : includes) {
+            // Check if pattern contains wildcard
+            if (includePattern.contains("*")) {
+                // Expand wildcard pattern
+                String regex = includePattern.replace(".", "\\.").replace("*", ".*");
+                
+                for (RelDataTypeField field : allFields) {
+                    if (field.getName().matches(regex)) {
+                        // Add field to projection
+                        projects.add(rexBuilder.makeInputRef(field.getType(), field.getIndex()));
+                        fieldNames.add(field.getName());
+                    }
+                }
+            } else {
+                // Exact field name match
+                int fieldIndex = findFieldIndex(includePattern, rowType);
+                RelDataTypeField field = allFields.get(fieldIndex);
+                
+                // Add field to projection
+                projects.add(rexBuilder.makeInputRef(field.getType(), fieldIndex));
+                fieldNames.add(field.getName());
+            }
+        }
+        
+        // Create LogicalProject with selected fields
+        return LogicalProject.create(input, List.of(), projects, fieldNames);
     }
 }
