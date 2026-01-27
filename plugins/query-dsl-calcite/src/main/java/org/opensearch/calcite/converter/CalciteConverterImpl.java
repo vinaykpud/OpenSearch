@@ -13,10 +13,14 @@ import org.apache.calcite.plan.RelOptCluster;
 import org.apache.calcite.plan.RelOptTable;
 import org.apache.calcite.plan.volcano.VolcanoPlanner;
 import org.apache.calcite.prepare.RelOptTableImpl;
+import org.apache.calcite.rel.RelCollation;
+import org.apache.calcite.rel.RelCollations;
+import org.apache.calcite.rel.RelFieldCollation;
 import org.apache.calcite.rel.RelNode;
 import org.apache.calcite.rel.core.AggregateCall;
 import org.apache.calcite.rel.logical.LogicalAggregate;
 import org.apache.calcite.rel.logical.LogicalFilter;
+import org.apache.calcite.rel.logical.LogicalSort;
 import org.apache.calcite.rel.logical.LogicalTableScan;
 import org.apache.calcite.rel.type.RelDataType;
 import org.apache.calcite.rel.type.RelDataTypeFactory;
@@ -43,6 +47,9 @@ import org.opensearch.search.aggregations.AggregatorFactories;
 import org.opensearch.search.aggregations.bucket.terms.TermsAggregationBuilder;
 import org.opensearch.search.aggregations.metrics.AvgAggregationBuilder;
 import org.opensearch.search.builder.SearchSourceBuilder;
+import org.opensearch.search.sort.FieldSortBuilder;
+import org.opensearch.search.sort.SortBuilder;
+import org.opensearch.search.sort.SortOrder;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -108,7 +115,13 @@ public class CalciteConverterImpl implements CalciteConverter {
             relNode = LogicalFilter.create(relNode, condition);
         }
 
-        // Step 3: Apply aggregations if they exist
+        // Step 3: Apply sort if it exists (before aggregation)
+        if (searchSource.sorts() != null && !searchSource.sorts().isEmpty()) {
+            RelDataType rowType = relNode.getRowType();
+            relNode = buildSort(relNode, searchSource, rowType);
+        }
+
+        // Step 4: Apply aggregations if they exist
         if (searchSource.aggregations() != null && !searchSource.aggregations().getAggregatorFactories().isEmpty()) {
             RelDataType rowType = relNode.getRowType();
             
@@ -128,8 +141,8 @@ public class CalciteConverterImpl implements CalciteConverter {
         }
 
         // Future steps:
-        // Step 4: Apply sort and pagination (task 8)
-        // Step 5: Apply projection (task 9)
+        // Step 5: Apply pagination (task 9)
+        // Step 6: Apply projection (task 10)
 
         return relNode;
     }
@@ -297,6 +310,73 @@ public class CalciteConverterImpl implements CalciteConverter {
         
         // Convert list to ImmutableBitSet
         return ImmutableBitSet.of(groupByIndices);
+    }
+
+    /**
+     * Builds a LogicalSort node from OpenSearch sort builders.
+     * 
+     * Per Requirement 13.1: "WHEN the Converter processes a sort clause 
+     * THEN the Converter SHALL produce a LogicalSort with the specified field and direction"
+     * 
+     * Per Requirement 13.2: "WHEN the Converter processes multiple sort fields 
+     * THEN the Converter SHALL preserve the sort order priority"
+     *
+     * @param input The input RelNode to apply sorting to
+     * @param searchSource The SearchSourceBuilder containing sort information
+     * @param rowType The row type for field references
+     * @return LogicalSort node with collation
+     * @throws ConversionException if sort conversion fails
+     */
+    private RelNode buildSort(RelNode input, SearchSourceBuilder searchSource, RelDataType rowType) 
+            throws ConversionException {
+        List<RelFieldCollation> fieldCollations = new ArrayList<>();
+        
+        // Iterate through all sort builders
+        for (SortBuilder<?> sortBuilder : searchSource.sorts()) {
+            if (sortBuilder instanceof FieldSortBuilder) {
+                FieldSortBuilder fieldSort = (FieldSortBuilder) sortBuilder;
+                String fieldName = fieldSort.getFieldName();
+                
+                // Find the field index in the row type
+                int fieldIndex = findFieldIndex(fieldName, rowType);
+                
+                // Convert OpenSearch SortOrder to Calcite Direction
+                RelFieldCollation.Direction direction;
+                if (fieldSort.order() == SortOrder.ASC) {
+                    direction = RelFieldCollation.Direction.ASCENDING;
+                } else {
+                    direction = RelFieldCollation.Direction.DESCENDING;
+                }
+                
+                // Handle null ordering
+                // OpenSearch default: nulls last for ASC, nulls first for DESC
+                RelFieldCollation.NullDirection nullDirection;
+                if (fieldSort.order() == SortOrder.ASC) {
+                    nullDirection = RelFieldCollation.NullDirection.LAST;
+                } else {
+                    nullDirection = RelFieldCollation.NullDirection.FIRST;
+                }
+                
+                // Create RelFieldCollation
+                RelFieldCollation fieldCollation = new RelFieldCollation(
+                    fieldIndex,
+                    direction,
+                    nullDirection
+                );
+                
+                fieldCollations.add(fieldCollation);
+            } else {
+                throw new UnsupportedOperationException(
+                    "Sort type not supported: " + sortBuilder.getClass().getSimpleName()
+                );
+            }
+        }
+        
+        // Create RelCollation from field collations
+        RelCollation collation = RelCollations.of(fieldCollations);
+        
+        // Create LogicalSort with collation (no offset/fetch yet - that's task 9)
+        return LogicalSort.create(input, collation, null, null);
     }
 
     /**
