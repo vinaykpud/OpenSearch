@@ -28,7 +28,7 @@ import java.util.List;
 
 /**
  * Implementation of QueryBuilderVisitor that converts OpenSearch queries to Calcite RexNode.
- * 
+ *
  * RexNode represents row expressions in Calcite's logical plan, including:
  * - Field references
  * - Literals
@@ -37,13 +37,13 @@ import java.util.List;
  * - Comparison operations (=, &lt;, &gt;, &lt;=, &gt;=)
  */
 public class RexNodeQueryVisitor implements QueryBuilderVisitor<RexNode> {
-    
+
     private final RexBuilder rexBuilder;
     private final RelDataType rowType;
-    
+
     /**
      * Creates a new RexNodeQueryVisitor.
-     * 
+     *
      * @param rexBuilder The RexBuilder for creating RexNode instances
      * @param rowType The row type containing field definitions
      */
@@ -51,70 +51,70 @@ public class RexNodeQueryVisitor implements QueryBuilderVisitor<RexNode> {
         this.rexBuilder = rexBuilder;
         this.rowType = rowType;
     }
-    
+
     @Override
     public RexNode visitTermQuery(TermQueryBuilder query) {
         // Get field name and value
         String fieldName = query.fieldName();
         Object value = query.value();
-        
+
         // Find field in row type
         RelDataTypeField field = rowType.getField(fieldName, false, false);
         if (field == null) {
             throw new RuntimeException("Field '" + fieldName + "' not found in schema");
         }
-        
+
         // Create field reference
         RexNode fieldRef = rexBuilder.makeInputRef(field.getType(), field.getIndex());
-        
+
         // Create literal for the value
         RexNode literal = rexBuilder.makeLiteral(value, field.getType(), true);
-        
+
         // Create equality condition: field = value
         return rexBuilder.makeCall(SqlStdOperatorTable.EQUALS, fieldRef, literal);
     }
-    
+
     @Override
     public RexNode visitRangeQuery(RangeQueryBuilder query) {
         // Get field name
         String fieldName = query.fieldName();
-        
+
         // Find field in row type
         RelDataTypeField field = rowType.getField(fieldName, false, false);
         if (field == null) {
             throw new RuntimeException("Field '" + fieldName + "' not found in schema");
         }
-        
+
         // Create field reference
         RexNode fieldRef = rexBuilder.makeInputRef(field.getType(), field.getIndex());
-        
+
         // Build conditions based on range parameters
         List<RexNode> conditions = new ArrayList<>();
-        
+
         // Handle gte (greater than or equal)
         if (query.from() != null && query.includeLower()) {
             RexNode literal = rexBuilder.makeLiteral(query.from(), field.getType(), true);
             conditions.add(rexBuilder.makeCall(SqlStdOperatorTable.GREATER_THAN_OR_EQUAL, fieldRef, literal));
         }
-        
+
         // Handle gt (greater than)
         if (query.from() != null && !query.includeLower()) {
             RexNode literal = rexBuilder.makeLiteral(query.from(), field.getType(), true);
             conditions.add(rexBuilder.makeCall(SqlStdOperatorTable.GREATER_THAN, fieldRef, literal));
         }
-        
+
         // Handle lte (less than or equal)
         if (query.to() != null && query.includeUpper()) {
             RexNode literal = rexBuilder.makeLiteral(query.to(), field.getType(), true);
             conditions.add(rexBuilder.makeCall(SqlStdOperatorTable.LESS_THAN_OR_EQUAL, fieldRef, literal));
         }
-        
+
         // Handle lt (less than)
         if (query.to() != null && !query.includeUpper()) {
             RexNode literal = rexBuilder.makeLiteral(query.to(), field.getType(), true);
             conditions.add(rexBuilder.makeCall(SqlStdOperatorTable.LESS_THAN, fieldRef, literal));
         }
-        
+
         // Combine conditions with AND
         if (conditions.isEmpty()) {
             // No conditions - return TRUE
@@ -126,27 +126,27 @@ public class RexNodeQueryVisitor implements QueryBuilderVisitor<RexNode> {
             return rexBuilder.makeCall(SqlStdOperatorTable.AND, conditions);
         }
     }
-    
+
     @Override
     public RexNode visitMatchQuery(MatchQueryBuilder query) {
         // Get field name and text
         String fieldName = query.fieldName();
         Object text = query.value();
         String operator = query.operator().name(); // "AND" or "OR"
-        
+
         // Find field in row type
         RelDataTypeField field = rowType.getField(fieldName, false, false);
         if (field == null) {
             throw new RuntimeException("Field '" + fieldName + "' not found in schema");
         }
-        
+
         // Create field reference
         RexNode fieldRef = rexBuilder.makeInputRef(field.getType(), field.getIndex());
-        
+
         // Create literals for text and operator
         RexNode textLiteral = rexBuilder.makeLiteral(text.toString());
         RexNode operatorLiteral = rexBuilder.makeLiteral(operator);
-        
+
         // Create MATCH_QUERY function call: MATCH_QUERY(field, text, operator)
         return rexBuilder.makeCall(
             OpenSearchFunctions.MATCH_QUERY,
@@ -155,11 +155,11 @@ public class RexNodeQueryVisitor implements QueryBuilderVisitor<RexNode> {
             operatorLiteral
         );
     }
-    
+
     @Override
     public RexNode visitBoolQuery(BoolQueryBuilder query) {
         List<RexNode> conditions = new ArrayList<>();
-        
+
         // Process must clauses (required, affects scoring)
         // Convert to AND conjunction
         for (QueryBuilder mustClause : query.must()) {
@@ -168,7 +168,7 @@ public class RexNodeQueryVisitor implements QueryBuilderVisitor<RexNode> {
                 conditions.add(condition);
             }
         }
-        
+
         // Process filter clauses (required, no scoring)
         // Convert to AND conjunction
         for (QueryBuilder filterClause : query.filter()) {
@@ -177,7 +177,7 @@ public class RexNodeQueryVisitor implements QueryBuilderVisitor<RexNode> {
                 conditions.add(condition);
             }
         }
-        
+
         // Combine all conditions with AND
         if (conditions.isEmpty()) {
             // No conditions - return TRUE
@@ -189,11 +189,11 @@ public class RexNodeQueryVisitor implements QueryBuilderVisitor<RexNode> {
             return rexBuilder.makeCall(SqlStdOperatorTable.AND, conditions);
         }
     }
-    
+
     /**
      * Dispatches a QueryBuilder to the appropriate visit method.
      * This enables recursive visiting of nested queries.
-     * 
+     *
      * @param query The query to visit
      * @return The converted RexNode
      */
@@ -214,7 +214,7 @@ public class RexNodeQueryVisitor implements QueryBuilderVisitor<RexNode> {
             );
         }
     }
-    
+
     @Override
     public RexNode visitMatchAllQuery(MatchAllQueryBuilder query) {
         // Match all query matches all documents

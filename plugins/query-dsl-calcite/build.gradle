@@ -26,15 +26,38 @@ dependencies {
     // OpenSearch server (provided at runtime)
     compileOnly project(':server')
     
-    // Apache Calcite core
-    implementation "org.apache.calcite:calcite-core:1.35.0"
-    implementation "org.apache.calcite:calcite-linq4j:1.35.0"
+    // Apache Calcite core dependencies
+    // Note: Calcite marks most dependencies as <scope>runtime</scope> in its POM,
+    // which means Gradle won't pull them transitively. We must declare them explicitly.
+    api "org.apache.calcite:calcite-core:1.35.0"
+    api "org.apache.calcite:calcite-linq4j:1.35.0"
+    api "org.apache.calcite.avatica:avatica-core:1.24.0"
     
-    // Required Calcite dependencies
-    // Guava is needed for Calcite but is on OpenSearch's forbidden list
-    // We bundle it with the plugin at runtime
+    // Calcite runtime dependencies (from calcite-core POM with <scope>runtime</scope>)
+    // These are required at runtime but not pulled transitively by Gradle
+    // Using OpenSearch's Jackson version to avoid conflicts
+    api "com.fasterxml.jackson.core:jackson-core:${versions.jackson}"
+    api "com.fasterxml.jackson.core:jackson-databind:${versions.jackson_databind}"
+    api "com.fasterxml.jackson.dataformat:jackson-dataformat-yaml:${versions.jackson}"
+    api "com.jayway.jsonpath:json-path:2.7.0"
+    api "commons-codec:commons-codec:${versions.commonscodec}"
+    api "org.apache.commons:commons-lang3:${versions.commonslang}"
+    api "commons-io:commons-io:${versions.commonsio}"
+    
+    // Janino - Java compiler used by Calcite for code generation
+    api "org.codehaus.janino:janino:3.1.9"
+    api "org.codehaus.janino:commons-compiler:3.1.9"
+    
+    // Guava - required by Calcite but on OpenSearch's forbidden list for compile classpath
+    // We bundle it with the plugin at runtime only
+    // Guava 27.0+ requires failureaccess as a separate dependency
     runtimeOnly "com.google.guava:guava:32.1.3-jre"
-    implementation "org.apache.commons:commons-lang3:3.14.0"
+    runtimeOnly "com.google.guava:failureaccess:1.0.2"
+    
+    // SLF4J - required by Calcite for logging
+    // OpenSearch uses Log4j2, so we use the SLF4J to Log4j2 bridge
+    api "org.apache.logging.log4j:log4j-slf4j2-impl:${versions.log4j}"
+    api "org.slf4j:slf4j-api:${versions.slf4j}"
     
     // Testing
     testImplementation "junit:junit:${versions.junit}"
@@ -44,8 +67,18 @@ dependencies {
 
 tasks.named("dependencyLicenses").configure {
     mapping from: /calcite-.*/, to: 'calcite'
+    mapping from: /avatica-.*/, to: 'avatica'
     mapping from: /guava.*/, to: 'guava'
+    mapping from: /failureaccess.*/, to: 'failureaccess'
     mapping from: /commons-lang3.*/, to: 'commons-lang3'
+    mapping from: /commons-codec.*/, to: 'commons-codec'
+    mapping from: /commons-io.*/, to: 'commons-io'
+    mapping from: /json-path.*/, to: 'json-path'
+    mapping from: /janino.*/, to: 'janino'
+    mapping from: /commons-compiler.*/, to: 'commons-compiler'
+    mapping from: /jackson-.*/, to: 'jackson'
+    mapping from: /slf4j-.*/, to: 'slf4j'
+    mapping from: /log4j-slf4j2-impl.*/, to: 'log4j-slf4j2-impl'
 }
 
 tasks.named('thirdPartyAudit').configure {
@@ -55,7 +88,11 @@ tasks.named('thirdPartyAudit').configure {
         'org.apache.calcite.avatica.*',
         // Checker Framework annotations (optional for Calcite)
         'org.checkerframework.checker.nullness.qual.*',
-        'org.apiguardian.api.*'
+        'org.apiguardian.api.*',
+        // Avatica optional dependencies
+        'com.fasterxml.jackson.*',
+        'org.apache.kerby.*',
+        'org.ietf.jgss.*'
     )
 }
 
