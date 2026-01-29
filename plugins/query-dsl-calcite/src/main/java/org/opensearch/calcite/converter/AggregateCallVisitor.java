@@ -59,7 +59,7 @@ public class AggregateCallVisitor implements AggregationBuilderVisitor {
         String fieldName = aggregation.field();
 
         // Find the field index in the row type
-        int fieldIndex = findFieldIndex(fieldName);
+        int fieldIndex = SchemaUtils.findFieldIndex(fieldName, rowType);
 
         // Get the AVG aggregate function from Calcite's standard operators
         SqlAggFunction avgFunction = SqlStdOperatorTable.AVG;
@@ -78,25 +78,5 @@ public class AggregateCallVisitor implements AggregationBuilderVisitor {
             rowType.getFieldList().get(fieldIndex).getType(),  // return type
             aggregation.getName()  // aggregation name
         );
-    }
-
-    /**
-     * Finds the index of a field in the row type.
-     *
-     * @param fieldName The name of the field to find
-     * @return The index of the field in the row type
-     * @throws ConversionException if the field is not found
-     */
-    private int findFieldIndex(String fieldName) throws ConversionException {
-        List<RelDataTypeField> fields = rowType.getFieldList();
-
-        for (int i = 0; i < fields.size(); i++) {
-            if (fields.get(i).getName().equals(fieldName)) {
-                return i;
-            }
-        }
-
-        // Field not found - throw exception
-        throw ConversionException.invalidField(fieldName);
     }
 }
