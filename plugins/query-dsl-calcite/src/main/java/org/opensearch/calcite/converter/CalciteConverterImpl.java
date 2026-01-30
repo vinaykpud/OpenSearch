@@ -45,6 +45,8 @@ import org.opensearch.index.query.RangeQueryBuilder;
 import org.opensearch.index.query.TermQueryBuilder;
 import org.opensearch.search.aggregations.AggregationBuilder;
 import org.opensearch.search.aggregations.AggregatorFactories;
+import org.opensearch.search.aggregations.BucketOrder;
+import org.opensearch.search.aggregations.InternalOrder;
 import org.opensearch.search.aggregations.bucket.terms.TermsAggregationBuilder;
 import org.opensearch.search.aggregations.metrics.AvgAggregationBuilder;
 import org.opensearch.search.builder.SearchSourceBuilder;
@@ -54,6 +56,7 @@ import org.opensearch.search.sort.SortBuilder;
 import org.opensearch.search.sort.SortOrder;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 
@@ -118,84 +121,61 @@ public class CalciteConverterImpl implements CalciteConverter {
             relNode = LogicalFilter.create(relNode, condition);
         }
 
-        // Step 3: Analyze sorts to determine pre/post aggregation placement
-        SortAnalyzer sortAnalyzer = new SortAnalyzer();
-        SortAnalyzer.SortClassification sortClassification = sortAnalyzer.analyzeSorts(
-            searchSource.sorts(),
-            searchSource.aggregations(),
-            originalSchema
-        );
-
-        // Step 4: Apply pre-aggregation sorts
-        if (!sortClassification.getPreAggSorts().isEmpty()) {
+        // Step 3: Apply pre-aggregation sorts (top-level sorts)
+        if (searchSource.sorts() != null && !searchSource.sorts().isEmpty()) {
             RelDataType rowType = relNode.getRowType();
-            relNode = buildSort(relNode, sortClassification.getPreAggSorts(), rowType);
+            relNode = buildSort(relNode, searchSource.sorts(), rowType);
         }
 
-        // Step 5: Apply aggregations if they exist
+        // Step 4: Apply aggregations if they exist
         AggregationInfo aggInfo = null;
         if (searchSource.aggregations() != null && !searchSource.aggregations().getAggregatorFactories().isEmpty()) {
-            // Get the input schema (before aggregation) for field lookups
             RelDataType inputRowType = relNode.getRowType();
 
-            // Build aggregation metadata
-            aggInfo = AggregationInfo.build(
-                searchSource.aggregations()
-            );
+            aggInfo = AggregationInfo.build(searchSource.aggregations(), inputRowType);
+            ImmutableBitSet groupBy = aggInfo.getGroupByBitSet();
 
-            // Extract GROUP BY fields from bucket aggregations (terms)
-            ImmutableBitSet groupBy = extractGroupByFields(searchSource, inputRowType);
-
-            // Build metric aggregations (avg, sum, etc.)
             List<AggregateCall> aggregateCalls = buildAggregations(searchSource, inputRowType);
 
-            // Add implicit COUNT() aggregate to match AggregationInfo schema
-            // AggregationInfo always includes _count field, so LogicalAggregate must too
             AggregateCall countCall = AggregateCall.create(
                 org.apache.calcite.sql.fun.SqlStdOperatorTable.COUNT,
-                false,  // not distinct
-                false,  // not approximate
-                false,  // not ignoreNulls
-                List.of(),  // no arguments (COUNT(*))
-                -1,  // no filter
-                RelCollations.EMPTY,  // empty collation
-                cluster.getTypeFactory().createSqlType(SqlTypeName.BIGINT),  // return type
-                "_count"  // name
+                false,
+                false,
+                false,
+                List.of(),
+                -1,
+                RelCollations.EMPTY,
+                cluster.getTypeFactory().createSqlType(SqlTypeName.BIGINT),
+                "_count"
             );
             aggregateCalls.add(countCall);
 
-            // Create LogicalAggregate with GROUP BY fields and aggregate calls
             relNode = LogicalAggregate.create(
                 relNode,
-                groupBy,  // GROUP BY fields from terms aggregations
-                null,  // no groupSets
-                aggregateCalls  // metric aggregations + COUNT
+                groupBy,
+                null,
+                aggregateCalls
             );
         }
 
-        // Step 6: Apply post-aggregation sorts
+        // Step 5: Apply post-aggregation sorts (from aggregation order parameters)
         if (aggInfo != null) {
-            // Extract sorts from aggregation order parameters
-            List<SortAnalyzer.AggregationOrderSort> orderSorts = sortAnalyzer.extractAggregationOrderSorts(
+            List<BucketOrder> bucketOrders = extractAggregationOrderSorts(
                 searchSource.aggregations()
             );
 
-            if (!orderSorts.isEmpty()) {
-                PostAggregationSortBuilder postSortBuilder = new PostAggregationSortBuilder(
-                    rexBuilder,
-                    aggInfo
-                );
-                relNode = postSortBuilder.buildPostAggregationSort(relNode, orderSorts);
+            if (!bucketOrders.isEmpty()) {
+                relNode = buildPostAggregationSort(relNode, bucketOrders, aggInfo);
             }
         }
 
-        // Step 7: Apply projection if _source filtering exists
+        // Step 6: Apply projection if _source filtering exists
         if (searchSource.fetchSource() != null) {
             RelDataType rowType = relNode.getRowType();
             relNode = buildProjection(relNode, searchSource.fetchSource(), rowType);
         }
 
-        // Step 8: Apply pagination (from/size)
+        // Step 7: Apply pagination (from/size)
         // Skip pagination if size=0 and aggregations exist (user only wants aggregation results)
         boolean hasAggregations = searchSource.aggregations() != null &&
                                   searchSource.aggregations().getAggregatorFactories() != null &&
@@ -299,7 +279,7 @@ public class CalciteConverterImpl implements CalciteConverter {
 
     /**
      * Builds a list of AggregateCall objects from OpenSearch aggregations.
-     * Note: Terms aggregations are handled separately in extractGroupByFields()
+     * Note: Terms aggregations are handled separately in AggregationInfo.build()
      * and do not produce AggregateCall objects, but their sub-aggregations do.
      *
      * @param searchSource The SearchSourceBuilder containing aggregations
@@ -314,94 +294,46 @@ public class CalciteConverterImpl implements CalciteConverter {
         // Create visitor for converting aggregations
         AggregateCallVisitor visitor = new AggregateCallVisitor(rowType);
 
-        // Get aggregation factories from search source
-        AggregatorFactories.Builder aggregations = searchSource.aggregations();
-
-        // Iterate through all aggregations
-        for (AggregationBuilder aggregation : aggregations.getAggregatorFactories()) {
-            // Dispatch to appropriate visitor method based on aggregation type
-            if (aggregation instanceof AvgAggregationBuilder) {
-                aggregateCalls.add(visitor.visitAvgAggregation((AvgAggregationBuilder) aggregation));
-            } else if (aggregation instanceof TermsAggregationBuilder) {
-                // Terms aggregations are handled in extractGroupByFields() for GROUP BY
-                // They do not produce AggregateCall objects, but we need to process their sub-aggregations
-                TermsAggregationBuilder termsAgg = (TermsAggregationBuilder) aggregation;
-                extractMetricAggregations(termsAgg.getSubAggregations(), visitor, aggregateCalls);
-            } else {
-                throw new UnsupportedOperationException(
-                    "Aggregation type not supported: " + aggregation.getClass().getSimpleName()
-                );
-            }
-        }
+        // Process all aggregations (top-level and nested)
+        processAggregations(searchSource.aggregations().getAggregatorFactories(), visitor, aggregateCalls);
 
         return aggregateCalls;
     }
 
     /**
-     * Recursively extracts metric aggregations from sub-aggregations.
-     * This is needed for queries like Query 32 where avg_price is nested inside a terms aggregation.
+     * Processes aggregations recursively, converting them to AggregateCall objects.
+     * Handles both top-level and nested aggregations.
      *
-     * @param subAggregations Sub-aggregations to extract from
+     * @param aggregations Collection of aggregation builders to process
      * @param visitor Visitor for converting aggregations to AggregateCall
      * @param aggregateCalls List to add AggregateCall objects to
      * @throws ConversionException if aggregation conversion fails
      */
-    private void extractMetricAggregations(
-        java.util.Collection<AggregationBuilder> subAggregations,
+    private void processAggregations(
+        Collection<AggregationBuilder> aggregations,
         AggregateCallVisitor visitor,
         List<AggregateCall> aggregateCalls
     ) throws ConversionException {
-        if (subAggregations == null || subAggregations.isEmpty()) {
+        if (aggregations == null || aggregations.isEmpty()) {
             return;
         }
 
-        for (AggregationBuilder subAgg : subAggregations) {
-            if (subAgg instanceof AvgAggregationBuilder) {
-                aggregateCalls.add(visitor.visitAvgAggregation((AvgAggregationBuilder) subAgg));
-            } else if (subAgg instanceof TermsAggregationBuilder) {
-                // Recursively process nested bucket aggregations
-                TermsAggregationBuilder termsAgg = (TermsAggregationBuilder) subAgg;
-                extractMetricAggregations(termsAgg.getSubAggregations(), visitor, aggregateCalls);
+        for (AggregationBuilder agg : aggregations) {
+            if (agg instanceof AvgAggregationBuilder) {
+                aggregateCalls.add(visitor.visitAvgAggregation((AvgAggregationBuilder) agg));
+            } else if (agg instanceof TermsAggregationBuilder) {
+                // Terms aggregations are handled in AggregationInfo.build() for GROUP BY
+                // Recursively process their sub-aggregations for metric aggregations
+                TermsAggregationBuilder termsAgg = (TermsAggregationBuilder) agg;
+                processAggregations(termsAgg.getSubAggregations(), visitor, aggregateCalls);
             } else {
-                throw new UnsupportedOperationException(
-                    "Sub-aggregation type not supported: " + subAgg.getClass().getSimpleName()
+                throw new ConversionException(
+                    "aggregation-conversion",
+                    "Unsupported aggregation type: " + agg.getClass().getSimpleName() +
+                    " (name: " + agg.getName() + "). "
                 );
             }
         }
-    }
-
-    /**
-     * Extracts GROUP BY fields from bucket aggregations (terms aggregations).
-     *
-     * Per Requirement 20.1: "WHEN the Converter processes a terms aggregation
-     * THEN the Converter SHALL produce a LogicalAggregate with GROUP BY on the specified field"
-     *
-     * @param searchSource The SearchSourceBuilder containing aggregations
-     * @param rowType The row type for field references
-     * @return ImmutableBitSet of field indices to group by
-     * @throws ConversionException if field lookup fails
-     */
-    private ImmutableBitSet extractGroupByFields(SearchSourceBuilder searchSource, RelDataType rowType)
-            throws ConversionException {
-        List<Integer> groupByIndices = new ArrayList<>();
-
-        // Get aggregation factories from search source
-        AggregatorFactories.Builder aggregations = searchSource.aggregations();
-
-        // Iterate through all aggregations to find bucket aggregations
-        for (AggregationBuilder aggregation : aggregations.getAggregatorFactories()) {
-            if (aggregation instanceof TermsAggregationBuilder) {
-                TermsAggregationBuilder termsAgg = (TermsAggregationBuilder) aggregation;
-                String fieldName = termsAgg.field();
-
-                // Find the field index in the row type
-                int fieldIndex = SchemaUtils.findFieldIndex(fieldName, rowType);
-                groupByIndices.add(fieldIndex);
-            }
-        }
-
-        // Convert list to ImmutableBitSet
-        return ImmutableBitSet.of(groupByIndices);
     }
 
     /**
@@ -604,5 +536,100 @@ public class CalciteConverterImpl implements CalciteConverter {
             offset,
             fetch
         );
+    }
+
+    /**
+     * Extracts a flat list of BucketOrder from aggregation order parameters.
+     *
+     * @param aggregations Aggregations from SearchSourceBuilder
+     * @return List of BucketOrder elements (handles compound orders)
+     */
+    private List<BucketOrder> extractAggregationOrderSorts(
+        AggregatorFactories.Builder aggregations
+    ) {
+        if (aggregations == null || aggregations.count() == 0) {
+            return java.util.Collections.emptyList();
+        }
+
+        List<BucketOrder> bucketOrders = new ArrayList<>();
+
+        for (AggregationBuilder agg : aggregations.getAggregatorFactories()) {
+            if (agg instanceof TermsAggregationBuilder terms) {
+                BucketOrder order = terms.order();
+                if (order != null) {
+                    // Handle both simple orders (single element) and compound orders (multiple elements)
+                    if (order instanceof InternalOrder.CompoundOrder compound) {
+                        bucketOrders.addAll(compound.orderElements());
+                    } else {
+                        bucketOrders.add(order);
+                    }
+                }
+            }
+        }
+
+        return bucketOrders;
+    }
+
+    /**
+     * Builds a LogicalSort node for post-aggregation sorting.
+     *
+     * @param input The LogicalAggregate node
+     * @param bucketOrders BucketOrder list from aggregation order parameters
+     * @param aggInfo Aggregation metadata and field mappings
+     * @return LogicalSort node with correct field indices
+     * @throws ConversionException if a sort field is not found in the post-aggregation schema
+     */
+    private RelNode buildPostAggregationSort(
+        RelNode input,
+        List<BucketOrder> bucketOrders,
+        AggregationInfo aggInfo
+    ) throws ConversionException {
+        List<RelFieldCollation> collations = new ArrayList<>();
+
+        for (int i = 0; i < bucketOrders.size(); i++) {
+            BucketOrder bucketOrder = bucketOrders.get(i);
+
+            try {
+                // Extract all order information in one call
+                OrderMetadata metadata = OrderMetadataExtractor.extract(bucketOrder);
+
+                // Map field name to index
+                int fieldIndex = aggInfo.mapSortFieldToIndex(metadata.getFieldName());
+
+                // Create collation with consistent null handling
+                RelFieldCollation collation = createCollation(fieldIndex, metadata.isAscending());
+
+                collations.add(collation);
+
+            } catch (ConversionException e) {
+                throw new ConversionException(
+                    "post-aggregation-sort",
+                    "Failed to process sort order at position " + i + ": " + bucketOrder.toString(),
+                    e
+                );
+            }
+        }
+
+        RelCollation relCollation = RelCollations.of(collations);
+        return LogicalSort.create(input, relCollation, null, null);
+    }
+
+    /**
+     * Creates a RelFieldCollation with consistent null direction handling.
+     *
+     * @param fieldIndex The index of the field to sort by
+     * @param ascending True for ascending order, false for descending
+     * @return RelFieldCollation with appropriate direction and null handling
+     */
+    private RelFieldCollation createCollation(int fieldIndex, boolean ascending) {
+        RelFieldCollation.Direction direction = ascending
+            ? RelFieldCollation.Direction.ASCENDING
+            : RelFieldCollation.Direction.DESCENDING;
+
+        RelFieldCollation.NullDirection nullDirection = ascending
+            ? RelFieldCollation.NullDirection.LAST
+            : RelFieldCollation.NullDirection.FIRST;
+
+        return new RelFieldCollation(fieldIndex, direction, nullDirection);
     }
 }
