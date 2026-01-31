@@ -1,82 +1,108 @@
-/*
- * SPDX-License-Identifier: Apache-2.0
- *
- * The OpenSearch Contributors require contributions made to
- * this file be licensed under the Apache-2.0 license or a
- * compatible open source license.
- */
-
 package org.opensearch.calcite.converter;
 
 import org.apache.calcite.rel.RelCollations;
 import org.apache.calcite.rel.core.AggregateCall;
 import org.apache.calcite.rel.type.RelDataType;
-import org.apache.calcite.rel.type.RelDataTypeField;
 import org.apache.calcite.sql.SqlAggFunction;
 import org.apache.calcite.sql.fun.SqlStdOperatorTable;
 import org.opensearch.calcite.exception.ConversionException;
 import org.opensearch.search.aggregations.metrics.AvgAggregationBuilder;
+import org.opensearch.search.aggregations.metrics.SumAggregationBuilder;
+import org.opensearch.search.aggregations.metrics.MinAggregationBuilder;
+import org.opensearch.search.aggregations.metrics.MaxAggregationBuilder;
 
 import java.util.Collections;
-import java.util.List;
 
 /**
  * Implementation of AggregationBuilderVisitor that converts OpenSearch metric aggregations
  * to Calcite AggregateCall objects.
- *
- * This visitor handles the conversion of OpenSearch metric aggregation builders to their
- * Calcite equivalents, including field reference resolution and type handling.
- * 
- * Note: Bucket aggregations (like terms) are handled separately via GROUP BY in
- * CalciteConverterImpl.extractGroupByFields() and do not produce AggregateCall objects.
  */
 public class AggregateCallVisitor implements AggregationBuilderVisitor {
 
     private final RelDataType rowType;
 
     /**
-     * Constructor for AggregateCallVisitor.
+     * Creates a new AggregateCallVisitor.
      *
-     * @param rowType The row type containing field definitions for reference lookup
+     * @param rowType the row type of the input relation
      */
     public AggregateCallVisitor(RelDataType rowType) {
         this.rowType = rowType;
     }
 
-    /**
-     * Converts an AvgAggregationBuilder to a Calcite AggregateCall with AVG function.
-     *
-     * The avg aggregation computes the average of a numeric field. This is mapped
-     * to Calcite's standard AVG aggregate function.
-     *
-     * @param aggregation The OpenSearch avg aggregation
-     * @return Calcite AggregateCall for AVG function
-     * @throws ConversionException if field lookup fails
-     */
     @Override
     public AggregateCall visitAvgAggregation(AvgAggregationBuilder aggregation) throws ConversionException {
-        // Get the field name from the aggregation
         String fieldName = aggregation.field();
-
-        // Find the field index in the row type
         int fieldIndex = SchemaUtils.findFieldIndex(fieldName, rowType);
-
-        // Get the AVG aggregate function from Calcite's standard operators
         SqlAggFunction avgFunction = SqlStdOperatorTable.AVG;
 
-        // Create the AggregateCall
-        // Arguments: function, distinct flag, approximate flag, ignored nulls flag,
-        //            arg list, filter arg, collation, type, name
         return AggregateCall.create(
             avgFunction,
-            false,  // not distinct
-            false,  // not approximate
-            false,  // don't ignore nulls
-            Collections.singletonList(fieldIndex),  // field to aggregate
-            -1,  // no filter
-            RelCollations.EMPTY,  // empty collation instead of null
-            rowType.getFieldList().get(fieldIndex).getType(),  // return type
-            aggregation.getName()  // aggregation name
+            false,
+            false,
+            false,
+            Collections.singletonList(fieldIndex),
+            -1,
+            RelCollations.EMPTY,
+            rowType.getFieldList().get(fieldIndex).getType(),
+            aggregation.getName()
+        );
+    }
+
+    @Override
+    public AggregateCall visitSumAggregation(SumAggregationBuilder aggregation) throws ConversionException {
+        String fieldName = aggregation.field();
+        int fieldIndex = SchemaUtils.findFieldIndex(fieldName, rowType);
+        SqlAggFunction sumFunction = SqlStdOperatorTable.SUM;
+
+        return AggregateCall.create(
+            sumFunction,
+            false,
+            false,
+            false,
+            Collections.singletonList(fieldIndex),
+            -1,
+            RelCollations.EMPTY,
+            rowType.getFieldList().get(fieldIndex).getType(),
+            aggregation.getName()
+        );
+    }
+
+    @Override
+    public AggregateCall visitMinAggregation(MinAggregationBuilder aggregation) throws ConversionException {
+        String fieldName = aggregation.field();
+        int fieldIndex = SchemaUtils.findFieldIndex(fieldName, rowType);
+        SqlAggFunction minFunction = SqlStdOperatorTable.MIN;
+
+        return AggregateCall.create(
+            minFunction,
+            false,
+            false,
+            false,
+            Collections.singletonList(fieldIndex),
+            -1,
+            RelCollations.EMPTY,
+            rowType.getFieldList().get(fieldIndex).getType(),
+            aggregation.getName()
+        );
+    }
+
+    @Override
+    public AggregateCall visitMaxAggregation(MaxAggregationBuilder aggregation) throws ConversionException {
+        String fieldName = aggregation.field();
+        int fieldIndex = SchemaUtils.findFieldIndex(fieldName, rowType);
+        SqlAggFunction maxFunction = SqlStdOperatorTable.MAX;
+
+        return AggregateCall.create(
+            maxFunction,
+            false,
+            false,
+            false,
+            Collections.singletonList(fieldIndex),
+            -1,
+            RelCollations.EMPTY,
+            rowType.getFieldList().get(fieldIndex).getType(),
+            aggregation.getName()
         );
     }
 }

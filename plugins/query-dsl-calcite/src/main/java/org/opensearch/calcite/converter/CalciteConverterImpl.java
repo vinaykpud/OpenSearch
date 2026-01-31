@@ -49,6 +49,9 @@ import org.opensearch.search.aggregations.BucketOrder;
 import org.opensearch.search.aggregations.InternalOrder;
 import org.opensearch.search.aggregations.bucket.terms.TermsAggregationBuilder;
 import org.opensearch.search.aggregations.metrics.AvgAggregationBuilder;
+import org.opensearch.search.aggregations.metrics.SumAggregationBuilder;
+import org.opensearch.search.aggregations.metrics.MinAggregationBuilder;
+import org.opensearch.search.aggregations.metrics.MaxAggregationBuilder;
 import org.opensearch.search.builder.SearchSourceBuilder;
 import org.opensearch.search.fetch.subphase.FetchSourceContext;
 import org.opensearch.search.sort.FieldSortBuilder;
@@ -321,9 +324,13 @@ public class CalciteConverterImpl implements CalciteConverter {
         for (AggregationBuilder agg : aggregations) {
             if (agg instanceof AvgAggregationBuilder) {
                 aggregateCalls.add(visitor.visitAvgAggregation((AvgAggregationBuilder) agg));
+            } else if (agg instanceof SumAggregationBuilder) {
+                aggregateCalls.add(visitor.visitSumAggregation((SumAggregationBuilder) agg));
+            } else if (agg instanceof MinAggregationBuilder) {
+                aggregateCalls.add(visitor.visitMinAggregation((MinAggregationBuilder) agg));
+            } else if (agg instanceof MaxAggregationBuilder) {
+                aggregateCalls.add(visitor.visitMaxAggregation((MaxAggregationBuilder) agg));
             } else if (agg instanceof TermsAggregationBuilder) {
-                // Terms aggregations are handled in AggregationInfo.build() for GROUP BY
-                // Recursively process their sub-aggregations for metric aggregations
                 TermsAggregationBuilder termsAgg = (TermsAggregationBuilder) agg;
                 processAggregations(termsAgg.getSubAggregations(), visitor, aggregateCalls);
             } else {
