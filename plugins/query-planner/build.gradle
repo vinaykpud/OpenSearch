@@ -1,0 +1,234 @@
+/*
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * The OpenSearch Contributors require contributions made to
+ * this file be licensed under the Apache-2.0 license or a
+ * compatible open source license.
+ */
+
+apply plugin: 'opensearch.yaml-rest-test'
+apply plugin: 'opensearch.internal-cluster-test'
+
+opensearchplugin {
+  description = 'Query planner plugin using Apache Calcite for SQL parsing and optimization with native DataFusion execution.'
+  classname = 'org.opensearch.queryplanner.QueryPlannerPlugin'
+}
+
+// Rust build configuration
+def buildType = project.hasProperty('rustDebug') ? 'debug' : 'release'
+
+// Calcite version for query planning (1.39.0 has better Java 21+ support)
+def calciteVersion = '1.39.0'
+
+dependencies {
+  // Apache Calcite for SQL parsing and query optimization
+  implementation "org.apache.calcite:calcite-core:${calciteVersion}"
+
+  // Calcite dependencies
+  implementation "org.apache.calcite:calcite-linq4j:${calciteVersion}"
+  implementation "org.apache.calcite.avatica:avatica-core:1.26.0"
+
+  // Guava is required at compile time because Calcite's classes use it internally
+  // (e.g., TableScan, RelOptRule use ImmutableList, Predicate)
+  // This is allowed since query-planner is excluded in forbidden-dependencies.gradle
+  implementation "com.google.guava:guava:33.4.0-jre"
+
+  // Guava failureaccess is required at runtime by Calcite
+  runtimeOnly "com.google.guava:failureaccess:1.0.2"
+
+  // Apache Commons Math is required by Calcite
+  runtimeOnly "org.apache.commons:commons-math3:3.6.1"
+
+  // JSON Path library required by Calcite metadata
+  runtimeOnly "com.jayway.jsonpath:json-path:2.9.0"
+
+  // Janino compiler required by Calcite for expression compilation
+  runtimeOnly "org.codehaus.janino:janino:3.1.12"
+  runtimeOnly "org.codehaus.janino:commons-compiler:3.1.12"
+
+  // SLF4J for logging
+  runtimeOnly "org.slf4j:slf4j-api:${versions.slf4j}"
+  runtimeOnly "org.slf4j:slf4j-simple:${versions.slf4j}"
+
+  // Commons Codec required by Calcite
+  runtimeOnly "commons-codec:commons-codec:${versions.commonscodec}"
+
+  // JTS for geometry support (Calcite dependency)
+  runtimeOnly "org.locationtech.jts:jts-core:${versions.jts}"
+
+  // ESRI for spatial (Calcite dependency)
+  runtimeOnly 'com.esri.geometry:esri-geometry-api:2.2.4'
+
+  api "com.fasterxml.jackson.core:jackson-core:${versions.jackson}"
+  api "com.fasterxml.jackson.core:jackson-databind:${versions.jackson_databind}"
+  api "com.fasterxml.jackson.core:jackson-annotations:${versions.jackson_annotations}"
+
+  // Optional annotations that Calcite uses (to suppress warnings)
+  compileOnly 'org.apiguardian:apiguardian-api:1.1.2'
+  compileOnly 'org.checkerframework:checker-qual:3.42.0'
+
+  // Apache Arrow dependencies for native execution results
+  implementation "org.apache.arrow:arrow-memory-core:17.0.0"
+  implementation "org.apache.arrow:arrow-memory-unsafe:17.0.0"
+  implementation "org.apache.arrow:arrow-vector:17.0.0"
+  implementation "org.apache.arrow:arrow-c-data:17.0.0"
+  implementation "org.apache.arrow:arrow-format:17.0.0"
+  // Arrow Dataset for Parquet file reading
+  implementation "org.apache.arrow:arrow-dataset:17.0.0"
+  // FlatBuffers dependency required by Arrow
+  implementation "com.google.flatbuffers:flatbuffers-java:${versions.flatbuffers}"
+
+  // Parquet dependencies for reading Parquet files via Arrow
+  implementation 'org.apache.parquet:parquet-arrow:1.14.4'
+  implementation 'org.apache.parquet:parquet-hadoop:1.14.4'
+  // Hadoop client for Parquet (minimal)
+  implementation 'org.apache.hadoop:hadoop-common:3.4.0'
+  runtimeOnly 'org.apache.hadoop:hadoop-mapreduce-client-core:3.4.0'
+}
+
+// Disable -Werror for this plugin since Calcite generates unavoidable warnings
+tasks.withType(JavaCompile).configureEach {
+  options.compilerArgs.remove('-Werror')
+}
+
+restResources {
+  restApi {
+    includeCore '_common', 'indices', 'index', 'search'
+  }
+}
+
+tasks.named("dependencyLicenses").configure {
+  mapping from: /calcite-.*/, to: 'calcite'
+  mapping from: /jackson-.*/, to: 'jackson'
+}
+
+// Disable thirdPartyAudit for now as Calcite has many transitive dependencies
+thirdPartyAudit.enabled = false
+
+// Task to run the PlannerDemo
+tasks.register('runDemo', JavaExec) {
+  classpath = sourceSets.main.runtimeClasspath
+  mainClass = 'org.opensearch.queryplanner.PlannerDemo'
+}
+
+// Task to run the ExecutionPOC
+tasks.register('runExecutionPOC', JavaExec) {
+  classpath = sourceSets.main.runtimeClasspath
+  mainClass = 'org.opensearch.queryplanner.ExecutionPOC'
+
+  // Arrow requires these JVM flags for Java 9+
+  jvmArgs '--add-opens=java.base/java.nio=ALL-UNNAMED'
+  jvmArgs '--add-opens=java.base/java.lang=ALL-UNNAMED'
+  jvmArgs '--add-opens=java.base/sun.nio.ch=ALL-UNNAMED'
+  jvmArgs '-Darrow.memory.debug.allocator=false'
+}
+
+// =============================================================================
+// Rust JNI Build Configuration
+// =============================================================================
+
+// Task to build the Rust JNI library
+task buildRustLibrary(type: Exec) {
+  description = 'Build the Rust JNI library using Cargo'
+  group = 'build'
+
+  workingDir file('jni')
+
+  // Determine the library name based on OS
+  def osName = System.getProperty('os.name').toLowerCase()
+  def libPrefix = osName.contains('windows') ? '' : 'lib'
+  def libExtension = osName.contains('windows') ? '.dll' : (osName.contains('mac') ? '.dylib' : '.so')
+
+  def targetDir = "target/${buildType}"
+
+  // Find cargo executable
+  def cargoExecutable = 'cargo'
+  def possibleCargoPaths = [
+    System.getenv('HOME') + '/.cargo/bin/cargo',
+    '/usr/local/bin/cargo',
+    'cargo'
+  ]
+
+  for (String path : possibleCargoPaths) {
+    if (new File(path).exists()) {
+      cargoExecutable = path
+      break
+    }
+  }
+
+  def cargoArgs = [cargoExecutable, 'build']
+  if (buildType == 'release') {
+    cargoArgs.add('--release')
+  }
+
+  commandLine cargoArgs
+
+  environment 'CARGO_TARGET_DIR', file('jni/target').absolutePath
+
+  inputs.files fileTree('jni/src')
+  inputs.file 'jni/Cargo.toml'
+  outputs.files file("jni/${targetDir}/${libPrefix}opensearch_query_planner_jni${libExtension}")
+
+  doFirst {
+    logger.lifecycle("Building Rust library in ${buildType} mode")
+  }
+}
+
+// Task to copy the native library to resources
+task copyNativeLibrary(type: Copy, dependsOn: buildRustLibrary) {
+  description = 'Copy the native library to Java resources'
+  group = 'build'
+
+  def osName = System.getProperty('os.name').toLowerCase()
+  def libPrefix = osName.contains('windows') ? '' : 'lib'
+  def libExtension = osName.contains('windows') ? '.dll' : (osName.contains('mac') ? '.dylib' : '.so')
+
+  from file("jni/target/${buildType}/${libPrefix}opensearch_query_planner_jni${libExtension}")
+  into file('src/main/resources/native')
+
+  rename { filename ->
+    "${libPrefix}opensearch_query_planner_jni${libExtension}"
+  }
+
+  filePermissions {
+    unix(0644)
+  }
+}
+
+// Create native resources directory if it doesn't exist
+task createNativeResourcesDir {
+  doLast {
+    file('src/main/resources/native').mkdirs()
+  }
+}
+
+copyNativeLibrary.dependsOn createNativeResourcesDir
+
+// Make native library build optional - only if Rust is available
+gradle.taskGraph.whenReady { graph ->
+  if (graph.hasTask(buildRustLibrary)) {
+    def cargoAvailable = false
+    try {
+      def result = ['which', 'cargo'].execute()
+      result.waitFor()
+      cargoAvailable = (result.exitValue() == 0)
+    } catch (Exception e) {
+      cargoAvailable = false
+    }
+
+    if (!cargoAvailable) {
+      buildRustLibrary.enabled = false
+      copyNativeLibrary.enabled = false
+      logger.warn('Cargo not found - native DataFusion execution will not be available')
+    }
+  }
+}
+
+// Configure test task to include native library path
+tasks.withType(Test).configureEach {
+  // Add JVM arguments for Arrow
+  jvmArgs '--add-opens=java.base/java.nio=ALL-UNNAMED'
+
+  // Set library path for native library
+  systemProperty 'java.library.path', file('src/main/resources/native').absolutePath
+}

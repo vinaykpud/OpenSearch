@@ -1,0 +1,33 @@
+[package]
+name = "opensearch-query-planner-jni"
+version = "0.1.0"
+edition = "2021"
+description = "DataFusion JNI bridge for OpenSearch query planner execution"
+
+[lib]
+name = "opensearch_query_planner_jni"
+crate-type = ["cdylib"]
+
+[dependencies]
+# DataFusion for query execution
+datafusion = "44"
+
+# Arrow for data interchange
+arrow = { version = "54", features = ["ipc"] }
+
+# JNI bindings
+jni = "0.21"
+
+# Async runtime
+tokio = { version = "1", features = ["rt-multi-thread"] }
+
+# Error handling
+thiserror = "1"
+
+# Logging
+log = "0.4"
+env_logger = "0.11"
+
+[profile.release]
+lto = true
+codegen-units = 1

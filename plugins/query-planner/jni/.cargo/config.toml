@@ -1,0 +1,13 @@
+# Cargo configuration for JNI library
+
+[build]
+# Use incremental compilation for faster builds
+incremental = true
+
+[profile.release]
+# Enable link-time optimization for smaller/faster binaries
+lto = true
+# Single codegen unit for better optimization
+codegen-units = 1
+# Strip symbols to reduce binary size
+strip = "symbols"
