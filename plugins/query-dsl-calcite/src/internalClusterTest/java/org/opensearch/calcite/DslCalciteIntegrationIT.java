@@ -1,0 +1,753 @@
+/*
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * The OpenSearch Contributors require contributions made to
+ * this file be licensed under the Apache-2.0 license or a
+ * compatible open source license.
+ */
+
+package org.opensearch.calcite;
+
+import org.opensearch.index.query.QueryBuilders;
+import org.opensearch.search.aggregations.AggregationBuilders;
+import org.opensearch.search.builder.SearchSourceBuilder;
+
+import static org.hamcrest.Matchers.containsString;
+
+/**
+ * Integration tests for DSL to Calcite conversion.
+ * Tests verify that DSL queries are correctly converted to Calcite RelNode structures.
+ */
+public class DslCalciteIntegrationIT extends DslCalciteIntegrationTestBase {
+
+    /**
+     * Test 13.2: Term query conversion
+     * Verifies that a term query is converted to a LogicalFilter with equality condition.
+     * 
+     * DSL Query:
+     * {
+     *   "query": {
+     *     "term": {
+     *       "category": "electronics"
+     *     }
+     *   }
+     * }
+     * 
+     * Expected Calcite Plan:
+     * LogicalFilter(condition=[=($0, 'electronics')])
+     *   LogicalTableScan(table=[[test-term-query]])
+     */
+    public void testTermQueryConversion() throws Exception {
+        // Create index with mapping
+        String indexName = "test-term-query";
+        String mapping = "{"
+            + "\"properties\": {"
+            + "  \"category\": {\"type\": \"keyword\"},"
+            + "  \"price\": {\"type\": \"long\"}"
+            + "}"
+            + "}";
+        client().admin().indices().prepareCreate(indexName)
+            .setMapping(mapping)
+            .get();
+        ensureGreen(indexName);
+
+        // Build SearchSourceBuilder with term query
+        SearchSourceBuilder searchSource = new SearchSourceBuilder();
+        searchSource.query(QueryBuilders.termQuery("category", "electronics"));
+
+        // Get plugin instance and call convertDsl
+        DslCalcitePlugin plugin = getPlugin(DslCalcitePlugin.class);
+        String relNodeString = plugin.convertDsl(searchSource, indexName);
+
+        // Verify RelNode structure
+        assertNotNull("RelNode string should not be null", relNodeString);
+        assertThat("Should contain LogicalFilter", relNodeString, containsString("LogicalFilter"));
+        assertThat("Should contain field reference $0", relNodeString, containsString("$0"));
+        assertThat("Should contain electronics value", relNodeString, containsString("electronics"));
+
+        // Verify it's an equality condition
+        assertThat("Should contain equality operator", relNodeString, containsString("="));
+    }
+
+    /**
+     * Test 13.3: Range query conversion
+     * Verifies that a range query is converted to a LogicalFilter with comparison operators.
+     * 
+     * DSL Query:
+     * {
+     *   "query": {
+     *     "range": {
+     *       "price": {
+     *         "gte": 100,
+     *         "lte": 500
+     *       }
+     *     }
+     *   }
+     * }
+     * 
+     * Expected Calcite Plan:
+     * LogicalFilter(condition=[AND(>=($0, 100), <=($0, 500))])
+     *   LogicalTableScan(table=[[test-range-query]])
+     */
+    public void testRangeQueryConversion() throws Exception {
+        // Create index with mapping
+        String indexName = "test-range-query";
+        String mapping = "{"
+            + "\"properties\": {"
+            + "  \"price\": {\"type\": \"long\"}"
+            + "}"
+            + "}";
+        client().admin().indices().prepareCreate(indexName)
+            .setMapping(mapping)
+            .get();
+        ensureGreen(indexName);
+
+        // Build SearchSourceBuilder with range query
+        SearchSourceBuilder searchSource = new SearchSourceBuilder();
+        searchSource.query(QueryBuilders.rangeQuery("price").gte(100).lte(500));
+
+        // Get plugin instance and call convertDsl
+        DslCalcitePlugin plugin = getPlugin(DslCalcitePlugin.class);
+        String relNodeString = plugin.convertDsl(searchSource, indexName);
+
+        // Verify RelNode structure
+        assertNotNull("RelNode string should not be null", relNodeString);
+        assertThat("Should contain LogicalFilter", relNodeString, containsString("LogicalFilter"));
+        assertThat("Should contain field reference $0", relNodeString, containsString("$0"));
+
+        // Verify comparison operators
+        assertThat("Should contain >= operator", relNodeString, containsString(">="));
+        assertThat("Should contain <= operator", relNodeString, containsString("<="));
+
+        // Verify AND combining the conditions
+        assertThat("Should contain AND operator", relNodeString, containsString("AND"));
+
+        // Verify the values
+        assertThat("Should contain lower bound 100", relNodeString, containsString("100"));
+        assertThat("Should contain upper bound 500", relNodeString, containsString("500"));
+    }
+
+    /**
+     * Test 13.4: Bool query conversion
+     * Verifies that a bool query with must and filter clauses is converted correctly.
+     * 
+     * DSL Query:
+     * {
+     *   "query": {
+     *     "bool": {
+     *       "must": [
+     *         { "term": { "category": "electronics" } }
+     *       ],
+     *       "filter": [
+     *         { "range": { "price": { "gte": 100, "lte": 500 } } }
+     *       ]
+     *     }
+     *   }
+     * }
+     * 
+     * Expected Calcite Plan:
+     * LogicalFilter(condition=[AND(=($0, 'electronics'), >=($1, 100), <=($1, 500))])
+     *   LogicalTableScan(table=[[test-bool-query]])
+     */
+    public void testBoolQueryConversion() throws Exception {
+        // Create index with mapping
+        String indexName = "test-bool-query";
+        String mapping = "{"
+            + "\"properties\": {"
+            + "  \"category\": {\"type\": \"keyword\"},"
+            + "  \"price\": {\"type\": \"long\"}"
+            + "}"
+            + "}";
+        client().admin().indices().prepareCreate(indexName)
+            .setMapping(mapping)
+            .get();
+        ensureGreen(indexName);
+
+        // Build SearchSourceBuilder with bool query
+        SearchSourceBuilder searchSource = new SearchSourceBuilder();
+        searchSource.query(
+            QueryBuilders.boolQuery()
+                .must(QueryBuilders.termQuery("category", "electronics"))
+                .filter(QueryBuilders.rangeQuery("price").gte(100).lte(500))
+        );
+
+        // Get plugin instance and call convertDsl
+        DslCalcitePlugin plugin = getPlugin(DslCalcitePlugin.class);
+        String relNodeString = plugin.convertDsl(searchSource, indexName);
+
+        // Verify RelNode structure
+        assertNotNull("RelNode string should not be null", relNodeString);
+        assertThat("Should contain LogicalFilter", relNodeString, containsString("LogicalFilter"));
+
+        // Verify AND combining must and filter clauses
+        assertThat("Should contain AND operator", relNodeString, containsString("AND"));
+
+        // Verify term query condition (must clause) - field $0 is category
+        assertThat("Should contain field reference $0", relNodeString, containsString("$0"));
+        assertThat("Should contain electronics value", relNodeString, containsString("electronics"));
+
+        // Verify range query condition (filter clause) - field $1 is price
+        assertThat("Should contain field reference $1", relNodeString, containsString("$1"));
+        assertTrue(
+            "Should contain comparison operators",
+            relNodeString.contains(">=") || relNodeString.contains("<=")
+        );
+    }
+
+    /**
+     * Test 13.5: Match query conversion
+     * Verifies that a match query is converted to a LogicalFilter with MATCH_QUERY UDF.
+     * 
+     * DSL Query:
+     * {
+     *   "query": {
+     *     "match": {
+     *       "title": "laptop"
+     *     }
+     *   }
+     * }
+     * 
+     * Expected Calcite Plan:
+     * LogicalFilter(condition=[MATCH_QUERY($0, 'laptop', 'OR')])
+     *   LogicalTableScan(table=[[test-match-query]])
+     */
+    public void testMatchQueryConversion() throws Exception {
+        // Create index with mapping
+        String indexName = "test-match-query";
+        String mapping = "{"
+            + "\"properties\": {"
+            + "  \"title\": {\"type\": \"text\"}"
+            + "}"
+            + "}";
+        client().admin().indices().prepareCreate(indexName)
+            .setMapping(mapping)
+            .get();
+        ensureGreen(indexName);
+
+        // Build SearchSourceBuilder with match query
+        SearchSourceBuilder searchSource = new SearchSourceBuilder();
+        searchSource.query(QueryBuilders.matchQuery("title", "laptop"));
+
+        // Get plugin instance and call convertDsl
+        DslCalcitePlugin plugin = getPlugin(DslCalcitePlugin.class);
+        String relNodeString = plugin.convertDsl(searchSource, indexName);
+
+        // Verify RelNode structure
+        assertNotNull("RelNode string should not be null", relNodeString);
+        assertThat("Should contain LogicalFilter", relNodeString, containsString("LogicalFilter"));
+
+        // Verify MATCH_QUERY UDF call
+        assertThat("Should contain MATCH_QUERY function", relNodeString, containsString("MATCH_QUERY"));
+
+        // Verify field reference and text
+        assertThat("Should contain field reference $0", relNodeString, containsString("$0"));
+        assertThat("Should contain laptop text", relNodeString, containsString("laptop"));
+    }
+
+    /**
+     * Test 13.6: Sort conversion
+     * Verifies that sort is converted to a LogicalSort with correct field and direction.
+     * 
+     * DSL Query:
+     * {
+     *   "sort": [
+     *     { "price": { "order": "asc" } }
+     *   ]
+     * }
+     * 
+     * Expected Calcite Plan:
+     * LogicalSort(sort0=[$0], dir0=[ASC])
+     *   LogicalTableScan(table=[[test-sort]])
+     */
+    public void testSortConversion() throws Exception {
+        // Create index with mapping
+        String indexName = "test-sort";
+        String mapping = "{"
+            + "\"properties\": {"
+            + "  \"price\": {\"type\": \"long\"},"
+            + "  \"name\": {\"type\": \"keyword\"}"
+            + "}"
+            + "}";
+        client().admin().indices().prepareCreate(indexName)
+            .setMapping(mapping)
+            .get();
+        ensureGreen(indexName);
+
+        // Build SearchSourceBuilder with sort
+        SearchSourceBuilder searchSource = new SearchSourceBuilder();
+        searchSource.sort("price", org.opensearch.search.sort.SortOrder.ASC);
+
+        // Get plugin instance and call convertDsl
+        DslCalcitePlugin plugin = getPlugin(DslCalcitePlugin.class);
+        String relNodeString = plugin.convertDsl(searchSource, indexName);
+
+        // Verify RelNode structure
+        assertNotNull("RelNode string should not be null", relNodeString);
+        assertThat("Should contain LogicalSort", relNodeString, containsString("LogicalSort"));
+
+        // Verify sort field - price could be at any index depending on field order
+        // Just verify it contains a sort field reference
+        assertTrue("Should contain sort field reference",
+            relNodeString.contains("sort0=[$0]") || relNodeString.contains("sort0=[$1]"));
+
+        // Verify ascending direction (Calcite uses "ASC" not "ASCENDING")
+        assertThat("Should contain ASC direction", relNodeString, containsString("ASC"));
+    }
+
+    /**
+     * Test 13.7: Pagination conversion
+     * Verifies that from/size parameters are converted to offset/fetch in LogicalSort.
+     * 
+     * DSL Query:
+     * {
+     *   "from": 10,
+     *   "size": 20
+     * }
+     * 
+     * Expected Calcite Plan:
+     * LogicalSort(offset=[10], fetch=[20])
+     *   LogicalTableScan(table=[[test-pagination]])
+     */
+    public void testPaginationConversion() throws Exception {
+        // Create index with mapping
+        String indexName = "test-pagination";
+        String mapping = "{"
+            + "\"properties\": {"
+            + "  \"title\": {\"type\": \"text\"}"
+            + "}"
+            + "}";
+        client().admin().indices().prepareCreate(indexName)
+            .setMapping(mapping)
+            .get();
+        ensureGreen(indexName);
+
+        // Build SearchSourceBuilder with pagination
+        SearchSourceBuilder searchSource = new SearchSourceBuilder();
+        searchSource.from(10);
+        searchSource.size(20);
+
+        // Get plugin instance and call convertDsl
+        DslCalcitePlugin plugin = getPlugin(DslCalcitePlugin.class);
+        String relNodeString = plugin.convertDsl(searchSource, indexName);
+
+        // Verify RelNode structure
+        assertNotNull("RelNode string should not be null", relNodeString);
+        assertThat("Should contain LogicalSort", relNodeString, containsString("LogicalSort"));
+
+        // Verify offset
+        assertThat("Should contain offset=10", relNodeString, containsString("offset=[10]"));
+
+        // Verify fetch
+        assertThat("Should contain fetch=20", relNodeString, containsString("fetch=[20]"));
+    }
+
+    /**
+     * Test 13.8: Source filtering conversion
+     * Verifies that _source includes are converted to LogicalProject.
+     * 
+     * DSL Query:
+     * {
+     *   "_source": ["title", "price"]
+     * }
+     * 
+     * Expected Calcite Plan:
+     * LogicalProject(title=[$0], price=[$1])
+     *   LogicalTableScan(table=[[test-source-filtering]])
+     */
+    public void testSourceFilteringConversion() throws Exception {
+        // Create index with mapping
+        String indexName = "test-source-filtering";
+        String mapping = "{"
+            + "\"properties\": {"
+            + "  \"title\": {\"type\": \"text\"},"
+            + "  \"price\": {\"type\": \"long\"},"
+            + "  \"brand\": {\"type\": \"keyword\"},"
+            + "  \"description\": {\"type\": \"text\"}"
+            + "}"
+            + "}";
+        client().admin().indices().prepareCreate(indexName)
+            .setMapping(mapping)
+            .get();
+        ensureGreen(indexName);
+
+        // Build SearchSourceBuilder with source filtering
+        SearchSourceBuilder searchSource = new SearchSourceBuilder();
+        searchSource.fetchSource(new String[]{"title", "price"}, null);
+
+        // Get plugin instance and call convertDsl
+        DslCalcitePlugin plugin = getPlugin(DslCalcitePlugin.class);
+        String relNodeString = plugin.convertDsl(searchSource, indexName);
+
+        // Verify RelNode structure
+        assertNotNull("RelNode string should not be null", relNodeString);
+        assertThat("Should contain LogicalProject", relNodeString, containsString("LogicalProject"));
+
+        // Verify only title and price fields are projected
+        assertThat("Should contain title field", relNodeString, containsString("title"));
+        assertThat("Should contain price field", relNodeString, containsString("price"));
+
+        // Verify brand and description are NOT in the projection
+        // The projection line should not contain these field names
+        String projectionLine = relNodeString.split("\n")[0]; // First line is the projection
+        assertFalse("Should not contain brand in projection", projectionLine.contains("brand"));
+        assertFalse("Should not contain description in projection", projectionLine.contains("description"));
+    }
+
+    /**
+     * Test 13.9: Metric aggregation conversion
+     * Verifies that metric aggregations are converted to LogicalAggregate.
+     * 
+     * DSL Query:
+     * {
+     *   "aggs": {
+     *     "avg_price": {
+     *       "avg": { "field": "price" }
+     *     }
+     *   },
+     *   "size": 0
+     * }
+     * 
+     * Expected Calcite Plan:
+     * LogicalAggregate(group=[{}], avg_price=[AVG($0)], _count=[COUNT()])
+     *   LogicalTableScan(table=[[test-metric-agg]])
+     */
+    public void testMetricAggregationConversion() throws Exception {
+        // Create index with mapping
+        String indexName = "test-metric-agg";
+        String mapping = "{"
+            + "\"properties\": {"
+            + "  \"price\": {\"type\": \"long\"}"
+            + "}"
+            + "}";
+        client().admin().indices().prepareCreate(indexName)
+            .setMapping(mapping)
+            .get();
+        ensureGreen(indexName);
+
+        // Build SearchSourceBuilder with avg aggregation
+        SearchSourceBuilder searchSource = new SearchSourceBuilder();
+        searchSource.aggregation(AggregationBuilders.avg("avg_price").field("price"));
+        searchSource.size(0); // Only return aggregation results
+
+        // Get plugin instance and call convertDsl
+        DslCalcitePlugin plugin = getPlugin(DslCalcitePlugin.class);
+        String relNodeString = plugin.convertDsl(searchSource, indexName);
+
+        // Verify RelNode structure
+        assertNotNull("RelNode string should not be null", relNodeString);
+        assertThat("Should contain LogicalAggregate", relNodeString, containsString("LogicalAggregate"));
+
+        // Verify AVG aggregate function on price field ($0)
+        assertThat("Should contain AVG function", relNodeString, containsString("AVG"));
+        assertThat("Should contain field reference $0", relNodeString, containsString("$0"));
+
+        // Verify empty group set (no GROUP BY)
+        assertThat("Should contain empty group set", relNodeString, containsString("group=[{}]"));
+    }
+
+    /**
+     * Test 13.10: Terms aggregation with GROUP BY
+     * Verifies that terms aggregations are converted to GROUP BY with metric sub-aggregations.
+     * 
+     * DSL Query:
+     * {
+     *   "aggs": {
+     *     "by_brand": {
+     *       "terms": { "field": "brand" },
+     *       "aggs": {
+     *         "avg_price": {
+     *           "avg": { "field": "price" }
+     *         }
+     *       }
+     *     }
+     *   },
+     *   "size": 0
+     * }
+     * 
+     * Expected Calcite Plan:
+     * LogicalAggregate(group=[{0}], avg_price=[AVG($1)], _count=[COUNT()])
+     *   LogicalTableScan(table=[[test-terms-agg]])
+     */
+    public void testTermsAggregationConversion() throws Exception {
+        // Create index with mapping
+        String indexName = "test-terms-agg";
+        String mapping = "{"
+            + "\"properties\": {"
+            + "  \"brand\": {\"type\": \"keyword\"},"
+            + "  \"price\": {\"type\": \"long\"}"
+            + "}"
+            + "}";
+        client().admin().indices().prepareCreate(indexName)
+            .setMapping(mapping)
+            .get();
+        ensureGreen(indexName);
+
+        // Build SearchSourceBuilder with terms aggregation and sub-aggregation
+        SearchSourceBuilder searchSource = new SearchSourceBuilder();
+        searchSource.aggregation(
+            AggregationBuilders.terms("by_brand")
+                .field("brand")
+                .subAggregation(AggregationBuilders.avg("avg_price").field("price"))
+        );
+        searchSource.size(0); // Only return aggregation results
+
+        // Get plugin instance and call convertDsl
+        DslCalcitePlugin plugin = getPlugin(DslCalcitePlugin.class);
+        String relNodeString = plugin.convertDsl(searchSource, indexName);
+
+        // Verify RelNode structure
+        assertNotNull("RelNode string should not be null", relNodeString);
+        assertThat("Should contain LogicalAggregate", relNodeString, containsString("LogicalAggregate"));
+
+        // Verify GROUP BY on brand field (field index 0)
+        assertThat("Should contain group by brand", relNodeString, containsString("group=[{0}]"));
+
+        // Verify AVG aggregate function
+        assertThat("Should contain AVG function", relNodeString, containsString("AVG"));
+
+        // Verify COUNT aggregate function (implicit)
+        assertThat("Should contain COUNT function", relNodeString, containsString("COUNT"));
+    }
+
+    /**
+     * Test 13.11: Post-aggregation sorting
+     * Verifies that aggregation order parameters are converted to LogicalSort after LogicalAggregate.
+     * 
+     * DSL Query:
+     * {
+     *   "aggs": {
+     *     "by_brand": {
+     *       "terms": {
+     *         "field": "brand",
+     *         "order": { "avg_price": "desc" }
+     *       },
+     *       "aggs": {
+     *         "avg_price": {
+     *           "avg": { "field": "price" }
+     *         }
+     *       }
+     *     }
+     *   },
+     *   "size": 0
+     * }
+     * 
+     * Expected Calcite Plan:
+     * LogicalSort(sort0=[$1], dir0=[DESC])
+     *   LogicalAggregate(group=[{0}], avg_price=[AVG($1)], _count=[COUNT()])
+     *     LogicalTableScan(table=[[test-post-agg-sort]])
+     */
+    public void testPostAggregationSorting() throws Exception {
+        // Create index with mapping
+        String indexName = "test-post-agg-sort";
+        String mapping = "{"
+            + "\"properties\": {"
+            + "  \"brand\": {\"type\": \"keyword\"},"
+            + "  \"price\": {\"type\": \"long\"}"
+            + "}"
+            + "}";
+        client().admin().indices().prepareCreate(indexName)
+            .setMapping(mapping)
+            .get();
+        ensureGreen(indexName);
+
+        // Build SearchSourceBuilder with terms aggregation and order by avg_price desc
+        SearchSourceBuilder searchSource = new SearchSourceBuilder();
+        searchSource.aggregation(
+            AggregationBuilders.terms("by_brand")
+                .field("brand")
+                .order(org.opensearch.search.aggregations.BucketOrder.aggregation("avg_price", false))
+                .subAggregation(AggregationBuilders.avg("avg_price").field("price"))
+        );
+        searchSource.size(0); // Only return aggregation results
+
+        // Get plugin instance and call convertDsl
+        DslCalcitePlugin plugin = getPlugin(DslCalcitePlugin.class);
+        String relNodeString = plugin.convertDsl(searchSource, indexName);
+
+        // Verify RelNode structure
+        assertNotNull("RelNode string should not be null", relNodeString);
+        assertThat("Should contain LogicalAggregate", relNodeString, containsString("LogicalAggregate"));
+        assertThat("Should contain LogicalSort", relNodeString, containsString("LogicalSort"));
+
+        // Verify sort is applied after aggregation
+        // The RelNode string should show LogicalSort wrapping LogicalAggregate
+        int aggregateIndex = relNodeString.indexOf("LogicalAggregate");
+        int sortIndex = relNodeString.indexOf("LogicalSort");
+        assertTrue("LogicalSort should appear before LogicalAggregate in the tree structure",
+            sortIndex < aggregateIndex);
+
+        // Verify sort references aggregate result field (avg_price is at index 1 in post-agg schema)
+        // Post-agg schema: [brand (0), avg_price (1), _count (2)]
+        assertTrue("Should contain sort on aggregate field",
+            relNodeString.contains("sort0=[$1]") && relNodeString.contains("DESC"));
+    }
+
+    /**
+     * Test 13.12: Complex query with all features
+     * Verifies that a complex query combining all features is converted correctly.
+     * 
+     * DSL Query:
+     * {
+     *   "query": {
+     *     "bool": {
+     *       "must": [
+     *         { "match": { "title": "laptop" } }
+     *       ],
+     *       "filter": [
+     *         { "term": { "category": "electronics" } },
+     *         { "range": { "price": { "gte": 500, "lte": 2000 } } }
+     *       ]
+     *     }
+     *   },
+     *   "aggs": {
+     *     "by_brand": {
+     *       "terms": { "field": "brand" },
+     *       "aggs": {
+     *         "avg_price": {
+     *           "avg": { "field": "price" }
+     *         }
+     *       }
+     *     }
+     *   },
+     *   "sort": [
+     *     { "price": { "order": "asc" } }
+     *   ],
+     *   "from": 0,
+     *   "size": 10
+     * }
+     * 
+     * Expected Calcite Plan:
+     * LogicalAggregate(group=[{1}], avg_price=[AVG($2)], _count=[COUNT()])
+     *   LogicalSort(sort0=[$2], dir0=[ASC])
+     *     LogicalFilter(condition=[AND(MATCH_QUERY($3, 'laptop', 'OR'), =($0, 'electronics'), >=($2, 500), <=($2, 2000))])
+     *       LogicalTableScan(table=[[test-complex-query]])
+     * 
+     * Note: Pagination (offset/fetch) is not applied when aggregations are present.
+     * The size parameter controls aggregation bucket count, not document pagination.
+     */
+    public void testComplexQueryConversion() throws Exception {
+        // Create index with mapping
+        String indexName = "test-complex-query";
+        String mapping = "{"
+            + "\"properties\": {"
+            + "  \"category\": {\"type\": \"keyword\"},"
+            + "  \"brand\": {\"type\": \"keyword\"},"
+            + "  \"price\": {\"type\": \"long\"},"
+            + "  \"title\": {\"type\": \"text\"}"
+            + "}"
+            + "}";
+        client().admin().indices().prepareCreate(indexName)
+            .setMapping(mapping)
+            .get();
+        ensureGreen(indexName);
+
+        // Build SearchSourceBuilder with all features (except source filtering to avoid field order issues)
+        SearchSourceBuilder searchSource = new SearchSourceBuilder();
+
+        // Bool query with must, filter clauses
+        searchSource.query(
+            QueryBuilders.boolQuery()
+                .must(QueryBuilders.matchQuery("title", "laptop"))
+                .filter(QueryBuilders.termQuery("category", "electronics"))
+                .filter(QueryBuilders.rangeQuery("price").gte(500).lte(2000))
+        );
+
+        // Terms aggregation with avg sub-aggregation
+        searchSource.aggregation(
+            AggregationBuilders.terms("by_brand")
+                .field("brand")
+                .subAggregation(AggregationBuilders.avg("avg_price").field("price"))
+        );
+
+        // Sort by price ascending
+        searchSource.sort("price", org.opensearch.search.sort.SortOrder.ASC);
+
+        // Pagination
+        searchSource.from(0);
+        searchSource.size(10);
+
+        // Get plugin instance and call convertDsl
+        DslCalcitePlugin plugin = getPlugin(DslCalcitePlugin.class);
+        String relNodeString = plugin.convertDsl(searchSource, indexName);
+
+        // Verify complete RelNode structure
+        assertNotNull("RelNode string should not be null", relNodeString);
+
+        // Verify all layers are present
+        assertThat("Should contain LogicalSort", relNodeString, containsString("LogicalSort"));
+        assertThat("Should contain LogicalAggregate", relNodeString, containsString("LogicalAggregate"));
+        assertThat("Should contain LogicalFilter", relNodeString, containsString("LogicalFilter"));
+        assertThat("Should contain LogicalTableScan", relNodeString, containsString("LogicalTableScan"));
+
+        // Verify filter contains bool query components
+        assertThat("Should contain MATCH_QUERY", relNodeString, containsString("MATCH_QUERY"));
+        assertThat("Should contain electronics", relNodeString, containsString("electronics"));
+        assertThat("Should contain AND operator", relNodeString, containsString("AND"));
+
+        // Verify aggregation
+        assertThat("Should contain GROUP BY", relNodeString, containsString("group=[{"));
+        assertThat("Should contain AVG", relNodeString, containsString("AVG"));
+
+        // Note: Pagination (offset/fetch) is not applied when aggregations are present
+        // The size parameter controls the number of aggregation buckets, not document pagination
+    }
+
+    /**
+     * Test 13.13: Error handling for invalid queries
+     * Verifies that queries with non-existent fields produce appropriate error messages.
+     * 
+     * DSL Query:
+     * {
+     *   "query": {
+     *     "term": {
+     *       "invalid_field": "test_value"
+     *     }
+     *   }
+     * }
+     * 
+     * Expected Result:
+     * ConversionException with message: "Field 'invalid_field' not found in index schema"
+     */
+    public void testInvalidFieldError() throws Exception {
+        // Create index with mapping
+        String indexName = "test-invalid-field";
+        String mapping = "{"
+            + "\"properties\": {"
+            + "  \"price\": {\"type\": \"long\"}"
+            + "}"
+            + "}";
+        client().admin().indices().prepareCreate(indexName)
+            .setMapping(mapping)
+            .get();
+        ensureGreen(indexName);
+
+        // Build SearchSourceBuilder with term query on non-existent field
+        SearchSourceBuilder searchSource = new SearchSourceBuilder();
+        searchSource.query(QueryBuilders.termQuery("invalid_field", "test_value"));
+
+        // Get plugin instance and call convertDsl
+        DslCalcitePlugin plugin = getPlugin(DslCalcitePlugin.class);
+
+        // Expect an exception or error message
+        try {
+            String relNodeString = plugin.convertDsl(searchSource, indexName);
+
+            // If no exception is thrown, check if the result contains an error message
+            // Some implementations may return error strings instead of throwing exceptions
+            if (relNodeString != null) {
+                assertTrue("Should contain error message about field not found",
+                    relNodeString.contains("Field") &&
+                    (relNodeString.contains("not found") || relNodeString.contains("invalid_field")));
+            }
+        } catch (Exception e) {
+            // Verify error message contains appropriate information
+            String errorMessage = e.getMessage();
+            assertNotNull("Error message should not be null", errorMessage);
+            assertTrue("Error message should mention the field",
+                errorMessage.contains("invalid_field") || errorMessage.contains("Field"));
+            assertTrue("Error message should indicate field not found",
+                errorMessage.contains("not found") || errorMessage.contains("does not exist") ||
+                errorMessage.contains("unknown"));
+        }
+    }
+}
