@@ -138,7 +138,8 @@ public class CalciteConverterImpl implements CalciteConverter {
             aggInfo = AggregationInfo.build(searchSource.aggregations(), inputRowType);
             ImmutableBitSet groupBy = aggInfo.getGroupByBitSet();
 
-            List<AggregateCall> aggregateCalls = buildAggregations(searchSource, inputRowType);
+            boolean hasGroupBy = !groupBy.isEmpty();
+            List<AggregateCall> aggregateCalls = buildAggregations(searchSource, inputRowType, hasGroupBy);
 
             AggregateCall countCall = AggregateCall.create(
                 org.apache.calcite.sql.fun.SqlStdOperatorTable.COUNT,
@@ -287,15 +288,16 @@ public class CalciteConverterImpl implements CalciteConverter {
      *
      * @param searchSource The SearchSourceBuilder containing aggregations
      * @param rowType The row type for field references
+     * @param hasGroupBy Whether the query has a GROUP BY clause (non-empty group set)
      * @return List of AggregateCall objects (metric aggregations only)
      * @throws ConversionException if aggregation conversion fails
      */
-    private List<AggregateCall> buildAggregations(SearchSourceBuilder searchSource, RelDataType rowType)
+    private List<AggregateCall> buildAggregations(SearchSourceBuilder searchSource, RelDataType rowType, boolean hasGroupBy)
             throws ConversionException {
         List<AggregateCall> aggregateCalls = new ArrayList<>();
 
         // Create visitor for converting aggregations
-        AggregateCallVisitor visitor = new AggregateCallVisitor(rowType);
+        AggregateCallVisitor visitor = new AggregateCallVisitor(rowType, cluster.getTypeFactory(), hasGroupBy);
 
         // Process all aggregations (top-level and nested)
         processAggregations(searchSource.aggregations().getAggregatorFactories(), visitor, aggregateCalls);

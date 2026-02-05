@@ -8,6 +8,7 @@
 
 apply plugin: 'java'
 apply plugin: 'opensearch.pluginzip'
+apply plugin: 'opensearch.internal-cluster-test'
 
 def pluginName = 'query-dsl-calcite'
 def pluginDescription = 'OpenSearch plugin for converting DSL queries to Apache Calcite logical plans'
@@ -63,6 +64,10 @@ dependencies {
     testImplementation "junit:junit:${versions.junit}"
     testImplementation "org.hamcrest:hamcrest:${versions.hamcrest}"
     testImplementation "org.mockito:mockito-core:${versions.mockito}"
+    
+    // Integration testing
+    internalClusterTestImplementation project(':server')
+    internalClusterTestImplementation project(':test:framework')
 }
 
 tasks.named("dependencyLicenses").configure {

@@ -115,7 +115,21 @@ public class DslCalcitePlugin extends Plugin implements DslConverterPlugin {
             // Handle null RelNode (POC returns null for now)
             return (relNode != null) ? relNode.explain() : "null (POC - converter not yet implemented)";
         } catch (Exception e) {
-            return "Error: " + e.getMessage();
+            // Return full exception details for debugging
+            StringBuilder sb = new StringBuilder();
+            sb.append("Error: ").append(e.getClass().getSimpleName()).append(": ").append(e.getMessage());
+            if (e.getCause() != null) {
+                sb.append("\nCaused by: ").append(e.getCause().getClass().getSimpleName()).append(": ").append(e.getCause().getMessage());
+            }
+            // Add stack trace for debugging
+            sb.append("\nStack trace: ");
+            for (StackTraceElement element : e.getStackTrace()) {
+                if (element.getClassName().startsWith("org.opensearch.calcite") || 
+                    element.getClassName().startsWith("org.apache.calcite")) {
+                    sb.append("\n  at ").append(element);
+                }
+            }
+            return sb.toString();
         }
     }
 

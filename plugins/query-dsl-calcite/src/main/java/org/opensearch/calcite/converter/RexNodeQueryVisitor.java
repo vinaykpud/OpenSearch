@@ -178,16 +178,48 @@ public class RexNodeQueryVisitor implements QueryBuilderVisitor<RexNode> {
             }
         }
 
+        // Flatten nested AND conditions to satisfy Calcite's RexUtil.isFlat requirement
+        List<RexNode> flattenedConditions = flattenAndConditions(conditions);
+
         // Combine all conditions with AND
-        if (conditions.isEmpty()) {
+        if (flattenedConditions.isEmpty()) {
             // No conditions - return TRUE
             return rexBuilder.makeLiteral(true);
-        } else if (conditions.size() == 1) {
-            return conditions.get(0);
+        } else if (flattenedConditions.size() == 1) {
+            return flattenedConditions.get(0);
         } else {
             // Multiple conditions - combine with AND
-            return rexBuilder.makeCall(SqlStdOperatorTable.AND, conditions);
+            return rexBuilder.makeCall(SqlStdOperatorTable.AND, flattenedConditions);
         }
+    }
+
+    /**
+     * Flattens nested AND conditions into a single list.
+     * Calcite requires that AND conditions be "flat" - no nested ANDs.
+     * For example: AND(a, AND(b, c)) should be flattened to AND(a, b, c).
+     *
+     * @param conditions The list of conditions that may contain nested ANDs
+     * @return A flattened list of conditions
+     */
+    private List<RexNode> flattenAndConditions(List<RexNode> conditions) {
+        List<RexNode> flattened = new ArrayList<>();
+        for (RexNode condition : conditions) {
+            // Check if this is an AND call by checking the operator
+            if (condition instanceof org.apache.calcite.rex.RexCall) {
+                org.apache.calcite.rex.RexCall call = (org.apache.calcite.rex.RexCall) condition;
+                if (call.getOperator() == SqlStdOperatorTable.AND) {
+                    // This is an AND node - extract its operands and add them to the flattened list
+                    flattened.addAll(call.getOperands());
+                } else {
+                    // Not an AND node - add it directly
+                    flattened.add(condition);
+                }
+            } else {
+                // Not a RexCall - add it directly
+                flattened.add(condition);
+            }
+        }
+        return flattened;
     }
 
     /**
