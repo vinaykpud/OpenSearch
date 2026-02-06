@@ -1,0 +1,130 @@
+/*
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * The OpenSearch Contributors require contributions made to
+ * this file be licensed under the Apache-2.0 license or a
+ * compatible open source license.
+ */
+
+apply plugin: 'java'
+apply plugin: 'opensearch.pluginzip'
+apply plugin: 'opensearch.internal-cluster-test'
+
+def pluginName = 'query-planner'
+def pluginDescription = 'OpenSearch plugin for query optimization and physical planning with hybrid Lucene/DataFusion execution'
+def projectPath = 'org.opensearch'
+def pathToPlugin = 'planner.QueryPlannerPlugin'
+
+opensearchplugin {
+    name = pluginName
+    description = pluginDescription
+    classname = "${projectPath}.${pathToPlugin}"
+    licenseFile = rootProject.file('LICENSE.txt')
+    noticeFile = rootProject.file('NOTICE.txt')
+}
+
+dependencies {
+    // OpenSearch server (provided at runtime)
+    compileOnly project(':server')
+
+    // Depend on the DSL-to-Calcite plugin for converter
+    compileOnly project(':plugins:query-dsl-calcite')
+
+    // Depend on engine-datafusion plugin for DataFusion execution
+    compileOnly project(':plugins:engine-datafusion')
+
+    // Apache Calcite (transitively from query-dsl-calcite)
+    // We get Calcite dependencies from query-dsl-calcite plugin
+    // No need to redeclare - inherited from dependency
+
+    // Apache Arrow for data transfer between Lucene and DataFusion
+    // Using same version as engine-datafusion plugin to avoid conflicts
+    api "org.apache.arrow:arrow-vector:17.0.0"
+    api "org.apache.arrow:arrow-memory-netty:17.0.0"
+    api "org.apache.arrow:arrow-memory-core:17.0.0"
+
+    // Substrait for DataFusion plan conversion
+    // TODO: Add Substrait dependency in Phase 5 when we implement DataFusion integration
+    // The substrait-java library may need to be built from source or we'll use protobuf directly
+    // api "io.substrait:substrait-java:0.20.0"
+    api "com.google.protobuf:protobuf-java:${versions.protobuf}"
+
+    // Testing
+    testImplementation "junit:junit:${versions.junit}"
+    testImplementation "org.hamcrest:hamcrest:${versions.hamcrest}"
+    testImplementation "org.mockito:mockito-core:${versions.mockito}"
+
+    // Integration testing
+    internalClusterTestImplementation project(':server')
+    internalClusterTestImplementation project(':test:framework')
+    internalClusterTestImplementation project(':plugins:query-dsl-calcite')
+    internalClusterTestImplementation project(':plugins:engine-datafusion')
+}
+
+tasks.named("dependencyLicenses").configure {
+    mapping from: /arrow-.*/, to: 'arrow'
+    mapping from: /protobuf-.*/, to: 'protobuf'
+}
+
+tasks.named('thirdPartyAudit').configure {
+    ignoreMissingClasses(
+        // Netty optional dependencies (used by Arrow)
+        'io.netty.buffer.PooledByteBufAllocatorL',
+        'io.netty.buffer.UnsafeDirectLittleEndian',
+        'io.netty.util.internal.PlatformDependent'
+    )
+    ignoreViolations(
+        // Protobuf uses Unsafe operations
+        'com.google.protobuf.MessageSchema',
+        'com.google.protobuf.UnsafeUtil',
+        'com.google.protobuf.UnsafeUtil$1',
+        'com.google.protobuf.UnsafeUtil$Android32MemoryAccessor',
+        'com.google.protobuf.UnsafeUtil$Android64MemoryAccessor',
+        'com.google.protobuf.UnsafeUtil$JvmMemoryAccessor',
+        'com.google.protobuf.UnsafeUtil$MemoryAccessor',
+        // Apache Arrow internal classes that use Unsafe operations
+        'org.apache.arrow.memory.ArrowBuf',
+        'org.apache.arrow.memory.util.ByteFunctionHelpers',
+        'org.apache.arrow.memory.util.MemoryUtil',
+        'org.apache.arrow.memory.util.MemoryUtil$1',
+        'org.apache.arrow.memory.util.hash.MurmurHasher',
+        'org.apache.arrow.memory.util.hash.SimpleHasher',
+        'org.apache.arrow.vector.BaseFixedWidthVector',
+        'org.apache.arrow.vector.BitVectorHelper',
+        'org.apache.arrow.vector.Decimal256Vector',
+        'org.apache.arrow.vector.DecimalVector',
+        'org.apache.arrow.vector.util.DecimalUtility',
+        'org.apache.arrow.vector.util.VectorAppender'
+    )
+}
+
+// Suppress warnings from Arrow's optional annotation dependencies
+tasks.withType(JavaCompile).configureEach {
+    // Disable treating warnings as errors for this plugin due to Arrow's optional dependencies
+    options.compilerArgs.removeAll { it == '-Werror' }
+    options.compilerArgs += [
+        '-Xlint:-classfile'  // Suppress warnings about missing annotation classes
+    ]
+}
+
+// Configure Javadoc to be lenient with Arrow's optional dependencies
+tasks.withType(Javadoc).configureEach {
+    // Disable -Werror for javadoc due to Arrow's optional annotation dependencies
+    options.addStringOption('Xdoclint:all,-missing', '-quiet')
+    // Remove -Xwerror if it was added by parent build
+    options.encoding = 'UTF8'
+}
+
+// Disable failOnJavadocWarning for this plugin
+project.ext.failOnJavadocWarning = false
+
+// Configure Javadoc to skip package documentation requirements
+missingJavadoc {
+    javadocMissingIgnore = [
+        'org.opensearch.planner',
+        'org.opensearch.planner.optimizer',
+        'org.opensearch.planner.physical',
+        'org.opensearch.planner.execution',
+        'org.opensearch.planner.rest'
+    ]
+}
