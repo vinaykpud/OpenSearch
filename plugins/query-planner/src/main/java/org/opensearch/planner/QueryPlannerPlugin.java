@@ -16,6 +16,9 @@ import org.opensearch.common.settings.IndexScopedSettings;
 import org.opensearch.common.settings.Settings;
 import org.opensearch.common.settings.SettingsFilter;
 import org.opensearch.core.action.ActionResponse;
+import org.opensearch.planner.action.QSearchAction;
+import org.opensearch.planner.action.TransportQSearchAction;
+import org.opensearch.planner.rest.RestQSearchAction;
 import org.opensearch.plugins.ActionPlugin;
 import org.opensearch.plugins.Plugin;
 import org.opensearch.rest.RestController;
@@ -75,8 +78,7 @@ public class QueryPlannerPlugin extends Plugin implements ActionPlugin {
         IndexNameExpressionResolver indexNameExpressionResolver,
         Supplier<DiscoveryNodes> nodesInCluster
     ) {
-        // TODO: Add RestQSearchAction in Task 1.2
-        return Collections.emptyList();
+        return Collections.singletonList(new RestQSearchAction());
     }
 
     /**
@@ -88,7 +90,6 @@ public class QueryPlannerPlugin extends Plugin implements ActionPlugin {
      */
     @Override
     public List<ActionHandler<? extends ActionRequest, ? extends ActionResponse>> getActions() {
-        // TODO: Add QSearchAction in Task 1.2
-        return Collections.emptyList();
+        return Collections.singletonList(new ActionHandler<>(QSearchAction.INSTANCE, TransportQSearchAction.class));
     }
 }
