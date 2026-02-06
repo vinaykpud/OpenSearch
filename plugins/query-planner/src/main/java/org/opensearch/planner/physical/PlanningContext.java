@@ -94,6 +94,13 @@ public class PlanningContext {
         private final Map<String, Object> metadata = new HashMap<>();
 
         /**
+         * Constructs a new Builder.
+         */
+        public Builder() {
+            // Default constructor
+        }
+
+        /**
          * Adds a metadata entry.
          *
          * @param key the metadata key

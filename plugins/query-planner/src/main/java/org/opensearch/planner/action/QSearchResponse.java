@@ -20,16 +20,17 @@ import java.io.IOException;
 /**
  * Response for an optimized query execution.
  *
- * Currently returns a simple placeholder response. Will be enhanced in later phases to include:
- * - Query results (hits, aggregations)
- * - Execution statistics (time, documents processed)
- * - Physical plan information (for debugging)
- * - Optimization details (rules applied, cost estimates)
+ * Returns query planning information including:
+ * - Logical plan (optimized Calcite plan)
+ * - Physical plan (with engine assignments)
+ * - Execution statistics (time)
+ * - Index information
  */
 public class QSearchResponse extends ActionResponse implements StatusToXContentObject {
 
     private final String message;
     private final String logicalPlan;
+    private final String physicalPlan;
     private final String indexName;
     private final long tookInMillis;
 
@@ -38,12 +39,14 @@ public class QSearchResponse extends ActionResponse implements StatusToXContentO
      *
      * @param message the response message
      * @param logicalPlan the Calcite logical plan string
+     * @param physicalPlan the physical plan JSON
      * @param indexName the target index name
      * @param tookInMillis the execution time in milliseconds
      */
-    public QSearchResponse(String message, String logicalPlan, String indexName, long tookInMillis) {
+    public QSearchResponse(String message, String logicalPlan, String physicalPlan, String indexName, long tookInMillis) {
         this.message = message;
         this.logicalPlan = logicalPlan;
+        this.physicalPlan = physicalPlan;
         this.indexName = indexName;
         this.tookInMillis = tookInMillis;
     }
@@ -58,6 +61,7 @@ public class QSearchResponse extends ActionResponse implements StatusToXContentO
         super(in);
         this.message = in.readString();
         this.logicalPlan = in.readString();
+        this.physicalPlan = in.readString();
         this.indexName = in.readString();
         this.tookInMillis = in.readVLong();
     }
@@ -66,6 +70,7 @@ public class QSearchResponse extends ActionResponse implements StatusToXContentO
     public void writeTo(StreamOutput out) throws IOException {
         out.writeString(message);
         out.writeString(logicalPlan);
+        out.writeString(physicalPlan);
         out.writeString(indexName);
         out.writeVLong(tookInMillis);
     }
@@ -80,6 +85,7 @@ public class QSearchResponse extends ActionResponse implements StatusToXContentO
         builder.startObject();
         builder.field("message", message);
         builder.field("logicalPlan", logicalPlan);
+        builder.field("physicalPlan", physicalPlan);
         builder.field("indexName", indexName);
         builder.field("took", tookInMillis);
         builder.endObject();
@@ -98,6 +104,13 @@ public class QSearchResponse extends ActionResponse implements StatusToXContentO
      */
     public String getLogicalPlan() {
         return logicalPlan;
+    }
+
+    /**
+     * Gets the physical plan JSON.
+     */
+    public String getPhysicalPlan() {
+        return physicalPlan;
     }
 
     /**

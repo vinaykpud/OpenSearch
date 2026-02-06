@@ -15,21 +15,21 @@
  * <p><b>Key Classes:</b>
  * <ul>
  *   <li>{@link org.opensearch.planner.physical.PhysicalPlan} - Complete physical plan with root operator</li>
- *   <li>{@link org.opensearch.planner.physical.PhysicalOperator} - Abstract base for all operators</li>
- *   <li>{@link org.opensearch.planner.physical.ExecutionEngine} - Enum for execution engines (Lucene, DataFusion)</li>
- *   <li>{@link org.opensearch.planner.physical.OperatorType} - Enum for operator types</li>
+ *   <li>{@link org.opensearch.planner.physical.operators.PhysicalOperator} - Abstract base for all operators</li>
+ *   <li>{@link org.opensearch.planner.physical.operators.ExecutionEngine} - Enum for execution engines (Lucene, DataFusion)</li>
+ *   <li>{@link org.opensearch.planner.physical.operators.OperatorType} - Enum for operator types</li>
  * </ul>
  *
  * <p><b>Concrete Operators:</b>
  * <ul>
- *   <li>{@link org.opensearch.planner.physical.IndexScanOperator} - Scan Lucene index</li>
- *   <li>{@link org.opensearch.planner.physical.FilterOperator} - Filter rows/documents</li>
- *   <li>{@link org.opensearch.planner.physical.ProjectOperator} - Select columns/fields</li>
- *   <li>{@link org.opensearch.planner.physical.HashAggregateOperator} - Hash-based aggregation</li>
- *   <li>{@link org.opensearch.planner.physical.HashJoinOperator} - Hash-based join</li>
- *   <li>{@link org.opensearch.planner.physical.SortOperator} - Sort rows</li>
- *   <li>{@link org.opensearch.planner.physical.LimitOperator} - Limit rows</li>
- *   <li>{@link org.opensearch.planner.physical.TransferOperator} - Transfer data between engines</li>
+ *   <li>{@link org.opensearch.planner.physical.operators.IndexScanOperator} - Scan Lucene index</li>
+ *   <li>{@link org.opensearch.planner.physical.operators.FilterOperator} - Filter rows/documents</li>
+ *   <li>{@link org.opensearch.planner.physical.operators.ProjectOperator} - Select columns/fields</li>
+ *   <li>{@link org.opensearch.planner.physical.operators.HashAggregateOperator} - Hash-based aggregation</li>
+ *   <li>{@link org.opensearch.planner.physical.operators.HashJoinOperator} - Hash-based join</li>
+ *   <li>{@link org.opensearch.planner.physical.operators.SortOperator} - Sort rows</li>
+ *   <li>{@link org.opensearch.planner.physical.operators.LimitOperator} - Limit rows</li>
+ *   <li>{@link org.opensearch.planner.physical.operators.TransferOperator} - Transfer data between engines</li>
  * </ul>
  *
  * <p><b>Design Philosophy:</b>

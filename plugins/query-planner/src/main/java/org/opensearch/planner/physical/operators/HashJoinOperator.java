@@ -33,9 +33,13 @@ public class HashJoinOperator extends PhysicalOperator {
      * Enum representing join types.
      */
     public enum JoinType {
+        /** Inner join - returns only matching rows from both tables. */
         INNER,
+        /** Left outer join - returns all rows from left table and matching rows from right. */
         LEFT,
+        /** Right outer join - returns all rows from right table and matching rows from left. */
         RIGHT,
+        /** Full outer join - returns all rows from both tables. */
         FULL
     }
 

@@ -52,6 +52,13 @@ public class DefaultCapabilityDetector implements CapabilityDetector {
     // SQL operators that Lucene can handle
     private static final Set<SqlKind> LUCENE_SUPPORTED_OPERATORS = new HashSet<>();
 
+    /**
+     * Constructs a new DefaultCapabilityDetector.
+     */
+    public DefaultCapabilityDetector() {
+        // Default constructor
+    }
+
     static {
         // Comparison operators
         LUCENE_SUPPORTED_OPERATORS.add(SqlKind.EQUALS);
