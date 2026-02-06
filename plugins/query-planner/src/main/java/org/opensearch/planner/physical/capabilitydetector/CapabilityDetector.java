@@ -6,7 +6,7 @@
  * compatible open source license.
  */
 
-package org.opensearch.planner.physical;
+package org.opensearch.planner.physical.capabilitydetector;
 
 import org.apache.calcite.rel.RelNode;
 import org.apache.calcite.rel.core.Aggregate;
@@ -16,6 +16,7 @@ import org.apache.calcite.rel.core.Project;
 import org.apache.calcite.rel.core.Sort;
 import org.apache.calcite.rel.core.TableScan;
 import org.apache.calcite.rex.RexNode;
+import org.opensearch.planner.physical.operators.ExecutionEngine;
 
 /**
  * Interface for detecting which execution engine can handle specific operations.

@@ -18,6 +18,18 @@ import org.apache.calcite.rel.core.Sort;
 import org.apache.calcite.rel.core.TableScan;
 import org.apache.calcite.rel.type.RelDataTypeField;
 import org.apache.calcite.rex.RexNode;
+import org.opensearch.planner.physical.capabilitydetector.CapabilityDetector;
+import org.opensearch.planner.physical.capabilitydetector.DefaultCapabilityDetector;
+import org.opensearch.planner.physical.operators.ExecutionEngine;
+import org.opensearch.planner.physical.operators.FilterOperator;
+import org.opensearch.planner.physical.operators.HashAggregateOperator;
+import org.opensearch.planner.physical.operators.HashJoinOperator;
+import org.opensearch.planner.physical.operators.IndexScanOperator;
+import org.opensearch.planner.physical.operators.LimitOperator;
+import org.opensearch.planner.physical.operators.PhysicalOperator;
+import org.opensearch.planner.physical.operators.ProjectOperator;
+import org.opensearch.planner.physical.operators.SortOperator;
+import org.opensearch.planner.physical.operators.TransferOperator;
 
 import java.util.ArrayList;
 import java.util.Collections;

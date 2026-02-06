@@ -8,6 +8,17 @@
 
 package org.opensearch.planner.physical;
 
+import org.opensearch.planner.physical.operators.ExecutionEngine;
+import org.opensearch.planner.physical.operators.FilterOperator;
+import org.opensearch.planner.physical.operators.HashAggregateOperator;
+import org.opensearch.planner.physical.operators.HashJoinOperator;
+import org.opensearch.planner.physical.operators.IndexScanOperator;
+import org.opensearch.planner.physical.operators.LimitOperator;
+import org.opensearch.planner.physical.operators.OperatorType;
+import org.opensearch.planner.physical.operators.PhysicalOperator;
+import org.opensearch.planner.physical.operators.ProjectOperator;
+import org.opensearch.planner.physical.operators.SortOperator;
+import org.opensearch.planner.physical.operators.TransferOperator;
 import org.opensearch.test.OpenSearchTestCase;
 
 import java.util.Arrays;

@@ -6,7 +6,7 @@
  * compatible open source license.
  */
 
-package org.opensearch.planner.physical;
+package org.opensearch.planner.physical.operators;
 
 /**
  * Enum representing the type of physical operator in a query plan.

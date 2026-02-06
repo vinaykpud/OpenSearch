@@ -15,6 +15,9 @@ import org.apache.calcite.schema.SchemaPlus;
 import org.apache.calcite.sql.fun.SqlStdOperatorTable;
 import org.apache.calcite.tools.Frameworks;
 import org.apache.calcite.tools.RelBuilder;
+import org.opensearch.planner.physical.capabilitydetector.CapabilityDetector;
+import org.opensearch.planner.physical.capabilitydetector.DefaultCapabilityDetector;
+import org.opensearch.planner.physical.operators.ExecutionEngine;
 import org.opensearch.test.OpenSearchTestCase;
 
 /**

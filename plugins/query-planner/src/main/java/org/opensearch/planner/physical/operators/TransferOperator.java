@@ -6,7 +6,7 @@
  * compatible open source license.
  */
 
-package org.opensearch.planner.physical;
+package org.opensearch.planner.physical.operators;
 
 import java.util.List;
 import java.util.Objects;

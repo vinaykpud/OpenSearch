@@ -6,7 +6,7 @@
  * compatible open source license.
  */
 
-package org.opensearch.planner.physical;
+package org.opensearch.planner.physical.capabilitydetector;
 
 import org.apache.calcite.rel.RelNode;
 import org.apache.calcite.rel.core.Aggregate;
@@ -20,6 +20,7 @@ import org.apache.calcite.rex.RexInputRef;
 import org.apache.calcite.rex.RexLiteral;
 import org.apache.calcite.rex.RexNode;
 import org.apache.calcite.sql.SqlKind;
+import org.opensearch.planner.physical.operators.ExecutionEngine;
 
 import java.util.HashSet;
 import java.util.Set;

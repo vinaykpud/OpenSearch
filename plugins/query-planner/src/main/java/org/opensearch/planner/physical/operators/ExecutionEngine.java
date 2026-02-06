@@ -6,7 +6,7 @@
  * compatible open source license.
  */
 
-package org.opensearch.planner.physical;
+package org.opensearch.planner.physical.operators;
 
 /**
  * Enum representing the execution engine for physical operators.
