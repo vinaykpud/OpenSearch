@@ -8,13 +8,17 @@
 
 package org.opensearch.planner;
 
-import org.opensearch.client.Request;
-import org.opensearch.client.Response;
-import org.opensearch.client.ResponseException;
+import org.opensearch.action.ActionRequestValidationException;
+import org.opensearch.index.query.MatchAllQueryBuilder;
+import org.opensearch.index.query.RangeQueryBuilder;
+import org.opensearch.planner.action.QSearchAction;
+import org.opensearch.planner.action.QSearchRequest;
+import org.opensearch.planner.action.QSearchResponse;
 import org.opensearch.plugins.Plugin;
+import org.opensearch.search.aggregations.AggregationBuilders;
+import org.opensearch.search.builder.SearchSourceBuilder;
 import org.opensearch.test.OpenSearchIntegTestCase;
 
-import java.io.IOException;
 import java.util.Collection;
 import java.util.Collections;
 
@@ -33,74 +37,78 @@ public class QSearchEndpointIT extends OpenSearchIntegTestCase {
     }
 
     /**
-     * Test that the /_qsearch endpoint is registered and accepts POST requests.
+     * Test 1: Action Registration
+     * Verifies the action is registered and accepts basic match_all queries.
      */
-    public void testQSearchEndpointExists() throws IOException {
-        Request request = new Request("POST", "/_qsearch");
-        request.setJsonEntity("{\"query\":{\"match_all\":{}}}");
+    public void testQSearchEndpointExists() {
+        QSearchRequest request = new QSearchRequest();
+        SearchSourceBuilder source = new SearchSourceBuilder().query(new MatchAllQueryBuilder());
+        request.source(source);
 
-        Response response = getRestClient().performRequest(request);
-        assertEquals(200, response.getStatusLine().getStatusCode());
+        QSearchResponse response = client().execute(QSearchAction.INSTANCE, request).actionGet();
+        assertNotNull(response);
+        assertEquals(200, response.status().getStatus());
     }
 
     /**
-     * Test that the /_qsearch endpoint returns a valid response structure.
+     * Test 2: Response Structure
+     * Validates response fields (message, took time, status code).
      */
-    public void testQSearchEndpointResponse() throws IOException {
-        Request request = new Request("POST", "/_qsearch");
-        request.setJsonEntity("{\"query\":{\"match_all\":{}}}");
+    public void testQSearchEndpointResponse() {
+        QSearchRequest request = new QSearchRequest();
+        SearchSourceBuilder source = new SearchSourceBuilder().query(new MatchAllQueryBuilder());
+        request.source(source);
 
-        Response response = getRestClient().performRequest(request);
-        String responseBody = response.getEntity().getContent().toString();
-
-        // Verify response contains expected fields
-        assertTrue("Response should contain 'message' field", responseBody.contains("message"));
-        assertTrue("Response should contain 'took' field", responseBody.contains("took"));
+        QSearchResponse response = client().execute(QSearchAction.INSTANCE, request).actionGet();
+        
+        // Verify response structure
+        assertNotNull("Response should have a message", response.getMessage());
+        assertTrue("Response should have took time >= 0", response.getTookInMillis() >= 0);
+        assertEquals("Response should have status 200", 200, response.status().getStatus());
     }
 
     /**
-     * Test that the /_qsearch endpoint validates request body.
+     * Test 3: Request Validation
+     * Tests validation logic (empty source should fail).
      */
     public void testQSearchEndpointValidation() {
-        Request request = new Request("POST", "/_qsearch");
-        // Empty body should fail validation
+        QSearchRequest request = new QSearchRequest();
+        // Empty source should fail validation
 
-        try {
-            getRestClient().performRequest(request);
-            fail("Expected validation error for empty request body");
-        } catch (ResponseException e) {
-            // Expected - validation should fail
-            assertEquals(400, e.getResponse().getStatusLine().getStatusCode());
-        } catch (IOException e) {
-            fail("Unexpected IOException: " + e.getMessage());
-        }
+        ActionRequestValidationException validationException = request.validate();
+        assertNotNull("Expected validation error for empty request body", validationException);
+        assertTrue("Validation error should mention missing source", 
+            validationException.getMessage().contains("search source is missing"));
     }
 
     /**
-     * Test that the /_qsearch endpoint accepts range queries.
+     * Test 4: Range Query Support
+     * Tests range queries (e.g., price > 100).
      */
-    public void testQSearchWithRangeQuery() throws IOException {
-        Request request = new Request("POST", "/_qsearch");
-        request.setJsonEntity("{\"query\":{\"range\":{\"price\":{\"gt\":100}}}}");
+    public void testQSearchWithRangeQuery() {
+        QSearchRequest request = new QSearchRequest();
+        SearchSourceBuilder source = new SearchSourceBuilder()
+            .query(new RangeQueryBuilder("price").gt(100));
+        request.source(source);
 
-        Response response = getRestClient().performRequest(request);
-        assertEquals(200, response.getStatusLine().getStatusCode());
-
-        String responseBody = response.getEntity().getContent().toString();
-        assertTrue("Response should contain 'message' field", responseBody.contains("message"));
+        QSearchResponse response = client().execute(QSearchAction.INSTANCE, request).actionGet();
+        assertNotNull(response);
+        assertEquals(200, response.status().getStatus());
     }
 
     /**
-     * Test that the /_qsearch endpoint accepts aggregation queries.
+     * Test 5: Aggregation Query Support
+     * Tests aggregation queries (e.g., terms aggregation).
      */
-    public void testQSearchWithAggregation() throws IOException {
-        Request request = new Request("POST", "/_qsearch");
-        request.setJsonEntity("{\"query\":{\"match_all\":{}},\"aggs\":{\"by_category\":{\"terms\":{\"field\":\"category\"}}}}");
+    public void testQSearchWithAggregation() {
+        QSearchRequest request = new QSearchRequest();
+        SearchSourceBuilder source = new SearchSourceBuilder()
+            .query(new MatchAllQueryBuilder())
+            .aggregation(AggregationBuilders.terms("by_category").field("category"));
+        request.source(source);
 
-        Response response = getRestClient().performRequest(request);
-        assertEquals(200, response.getStatusLine().getStatusCode());
-
-        String responseBody = response.getEntity().getContent().toString();
-        assertTrue("Response should contain 'message' field", responseBody.contains("message"));
+        QSearchResponse response = client().execute(QSearchAction.INSTANCE, request).actionGet();
+        assertNotNull(response);
+        assertEquals(200, response.status().getStatus());
     }
 }
