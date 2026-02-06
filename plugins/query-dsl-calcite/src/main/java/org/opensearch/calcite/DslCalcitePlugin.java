@@ -19,6 +19,7 @@ import org.opensearch.core.xcontent.NamedXContentRegistry;
 import org.opensearch.env.Environment;
 import org.opensearch.env.NodeEnvironment;
 import org.opensearch.plugins.DslConverterPlugin;
+import org.opensearch.plugins.ExtensiblePlugin;
 import org.opensearch.plugins.Plugin;
 import org.opensearch.repositories.RepositoriesService;
 import org.opensearch.script.ScriptService;
@@ -36,8 +37,11 @@ import java.util.function.Supplier;
  *
  * This plugin provides functionality to convert OpenSearch DSL queries
  * into Apache Calcite logical plans (RelNode).
+ *
+ * This plugin is extensible, allowing other plugins (like query-planner)
+ * to access its classes and services.
  */
-public class DslCalcitePlugin extends Plugin implements DslConverterPlugin {
+public class DslCalcitePlugin extends Plugin implements DslConverterPlugin, ExtensiblePlugin {
 
     private CalciteConverterService converterService;
 
