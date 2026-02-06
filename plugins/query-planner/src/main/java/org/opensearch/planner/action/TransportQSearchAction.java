@@ -16,6 +16,9 @@ import org.opensearch.common.inject.Inject;
 import org.opensearch.core.action.ActionListener;
 import org.opensearch.planner.converter.ConversionException;
 import org.opensearch.planner.converter.DslToCalciteService;
+import org.opensearch.planner.optimizer.CalciteQueryOptimizer;
+import org.opensearch.planner.optimizer.OptimizationException;
+import org.opensearch.planner.optimizer.QueryOptimizer;
 import org.opensearch.tasks.Task;
 import org.opensearch.transport.TransportService;
 import org.opensearch.transport.client.Client;
@@ -27,11 +30,11 @@ import java.util.Locale;
  *
  * This is the entry point for query execution through the optimization pipeline.
  *
- * Current implementation (Phase 1.3):
+ * Current implementation (Phase 1.4):
  * 1. Convert DSL to Calcite logical plan (via query-dsl-calcite plugin)
+ * 2. Optimize the logical plan using Calcite rules (HepPlanner)
  *
  * Future phases will add:
- * 2. Optimize the logical plan using Calcite rules
  * 3. Generate physical plan with engine assignments
  * 4. Split plan into Lucene and DataFusion segments
  * 5. Execute segments and coordinate results
@@ -39,6 +42,7 @@ import java.util.Locale;
 public class TransportQSearchAction extends HandledTransportAction<QSearchRequest, QSearchResponse> {
 
     private final DslToCalciteService dslToCalciteService;
+    private final QueryOptimizer queryOptimizer;
 
     /**
      * Constructs a new TransportQSearchAction.
@@ -57,6 +61,7 @@ public class TransportQSearchAction extends HandledTransportAction<QSearchReques
     ) {
         super(QSearchAction.NAME, transportService, actionFilters, QSearchRequest::new);
         this.dslToCalciteService = new DslToCalciteService(client, calciteConverterService);
+        this.queryOptimizer = new CalciteQueryOptimizer();
     }
 
     @Override
@@ -87,12 +92,21 @@ public class TransportQSearchAction extends HandledTransportAction<QSearchReques
                 return;
             }
 
-            String planString = logicalPlan.explain();
+            // Optimize the logical plan using Calcite rules
+            RelNode optimizedPlan;
+            try {
+                optimizedPlan = queryOptimizer.optimize(logicalPlan);
+            } catch (OptimizationException e) {
+                listener.onFailure(e);
+                return;
+            }
+
+            String planString = optimizedPlan.explain();
 
             // Build response with separate fields
             String message = String.format(
                 Locale.ROOT,
-                "Successfully converted DSL query to Calcite logical plan for index: %s",
+                "Successfully converted and optimized DSL query for index: %s",
                 indexName
             );
 
