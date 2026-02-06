@@ -29,16 +29,22 @@ import java.io.IOException;
 public class QSearchResponse extends ActionResponse implements StatusToXContentObject {
 
     private final String message;
+    private final String logicalPlan;
+    private final String indexName;
     private final long tookInMillis;
 
     /**
      * Constructs a new QSearchResponse.
      *
      * @param message the response message
+     * @param logicalPlan the Calcite logical plan string
+     * @param indexName the target index name
      * @param tookInMillis the execution time in milliseconds
      */
-    public QSearchResponse(String message, long tookInMillis) {
+    public QSearchResponse(String message, String logicalPlan, String indexName, long tookInMillis) {
         this.message = message;
+        this.logicalPlan = logicalPlan;
+        this.indexName = indexName;
         this.tookInMillis = tookInMillis;
     }
 
@@ -51,12 +57,16 @@ public class QSearchResponse extends ActionResponse implements StatusToXContentO
     public QSearchResponse(StreamInput in) throws IOException {
         super(in);
         this.message = in.readString();
+        this.logicalPlan = in.readString();
+        this.indexName = in.readString();
         this.tookInMillis = in.readVLong();
     }
 
     @Override
     public void writeTo(StreamOutput out) throws IOException {
         out.writeString(message);
+        out.writeString(logicalPlan);
+        out.writeString(indexName);
         out.writeVLong(tookInMillis);
     }
 
@@ -69,6 +79,8 @@ public class QSearchResponse extends ActionResponse implements StatusToXContentO
     public XContentBuilder toXContent(XContentBuilder builder, Params params) throws IOException {
         builder.startObject();
         builder.field("message", message);
+        builder.field("logicalPlan", logicalPlan);
+        builder.field("indexName", indexName);
         builder.field("took", tookInMillis);
         builder.endObject();
         return builder;
@@ -79,6 +91,20 @@ public class QSearchResponse extends ActionResponse implements StatusToXContentO
      */
     public String getMessage() {
         return message;
+    }
+
+    /**
+     * Gets the logical plan string.
+     */
+    public String getLogicalPlan() {
+        return logicalPlan;
+    }
+
+    /**
+     * Gets the index name.
+     */
+    public String getIndexName() {
+        return indexName;
     }
 
     /**

@@ -27,21 +27,7 @@ import static org.opensearch.rest.RestRequest.Method.POST;
 /**
  * REST handler for the /_qsearch endpoint.
  *
- * This endpoint accepts DSL queries and executes them through the query optimization
- * and physical planning pipeline.
- *
- * Example request:
- * POST /_qsearch
- * {
- *   "query": {
- *     "range": { "price": { "gt": 100 } }
- *   },
- *   "aggs": {
- *     "by_category": {
- *       "terms": { "field": "category" }
- *     }
- *   }
- * }
+ * This endpoint accepts DSL queries and executes them through the query optimization pipeline.
  */
 public class RestQSearchAction extends BaseRestHandler {
 
@@ -62,27 +48,24 @@ public class RestQSearchAction extends BaseRestHandler {
 
     @Override
     public RestChannelConsumer prepareRequest(final RestRequest request, final NodeClient client) throws IOException {
-        // Create QSearchRequest
         QSearchRequest qSearchRequest = new QSearchRequest();
 
-        // Parse index parameter (optional - defaults to all indices)
+        // Parse index parameter
         String indexParam = request.param("index");
         if (indexParam != null) {
             qSearchRequest.indices(Strings.splitStringByCommaToArray(indexParam));
         }
 
-        // Parse DSL JSON from request body
+        // Parse DSL from request body
         SearchSourceBuilder searchSourceBuilder = new SearchSourceBuilder();
         try (XContentParser parser = request.contentOrSourceParamParser()) {
             if (parser != null) {
-                // Parse the DSL JSON into SearchSourceBuilder
                 searchSourceBuilder.parseXContent(parser, true);
             }
         }
 
         qSearchRequest.source(searchSourceBuilder);
 
-        // Execute the request through the transport layer
         return channel -> client.execute(QSearchAction.INSTANCE, qSearchRequest, new RestStatusToXContentListener<>(channel));
     }
 }

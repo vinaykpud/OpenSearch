@@ -8,22 +8,35 @@
 
 package org.opensearch.planner;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.opensearch.action.ActionRequest;
 import org.opensearch.cluster.metadata.IndexNameExpressionResolver;
 import org.opensearch.cluster.node.DiscoveryNodes;
+import org.opensearch.cluster.service.ClusterService;
 import org.opensearch.common.settings.ClusterSettings;
 import org.opensearch.common.settings.IndexScopedSettings;
 import org.opensearch.common.settings.Settings;
 import org.opensearch.common.settings.SettingsFilter;
 import org.opensearch.core.action.ActionResponse;
+import org.opensearch.core.common.io.stream.NamedWriteableRegistry;
+import org.opensearch.core.xcontent.NamedXContentRegistry;
+import org.opensearch.env.Environment;
+import org.opensearch.env.NodeEnvironment;
 import org.opensearch.planner.action.QSearchAction;
 import org.opensearch.planner.action.TransportQSearchAction;
 import org.opensearch.planner.rest.RestQSearchAction;
 import org.opensearch.plugins.ActionPlugin;
 import org.opensearch.plugins.Plugin;
+import org.opensearch.repositories.RepositoriesService;
 import org.opensearch.rest.RestController;
 import org.opensearch.rest.RestHandler;
+import org.opensearch.script.ScriptService;
+import org.opensearch.threadpool.ThreadPool;
+import org.opensearch.transport.client.Client;
+import org.opensearch.watcher.ResourceWatcherService;
 
+import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 import java.util.function.Supplier;
@@ -45,19 +58,50 @@ import java.util.function.Supplier;
  */
 public class QueryPlannerPlugin extends Plugin implements ActionPlugin {
 
+    private static final Logger logger = LogManager.getLogger(QueryPlannerPlugin.class);
+
     /**
      * Plugin constructor.
      */
     public QueryPlannerPlugin() {
-        // Plugin initialization
-        // Components will be created in createComponents() method
+        logger.info("QueryPlannerPlugin initialized - will use CalciteConverterService from query-dsl-calcite plugin via Guice injection");
+    }
+
+    /**
+     * Creates plugin components.
+     *
+     * @param client OpenSearch client
+     * @param clusterService Cluster service
+     * @param threadPool Thread pool
+     * @param resourceWatcherService Resource watcher service
+     * @param scriptService Script service
+     * @param xContentRegistry XContent registry
+     * @param environment Environment
+     * @param nodeEnvironment Node environment
+     * @param namedWriteableRegistry Named writeable registry
+     * @param indexNameExpressionResolver Index name expression resolver
+     * @param repositoriesServiceSupplier Repositories service supplier
+     * @return Collection of created components (empty for this plugin)
+     */
+    @Override
+    public Collection<Object> createComponents(
+        Client client,
+        ClusterService clusterService,
+        ThreadPool threadPool,
+        ResourceWatcherService resourceWatcherService,
+        ScriptService scriptService,
+        NamedXContentRegistry xContentRegistry,
+        Environment environment,
+        NodeEnvironment nodeEnvironment,
+        NamedWriteableRegistry namedWriteableRegistry,
+        IndexNameExpressionResolver indexNameExpressionResolver,
+        Supplier<RepositoriesService> repositoriesServiceSupplier
+    ) {
+        return Collections.emptyList();
     }
 
     /**
      * Returns the REST handlers for this plugin.
-     *
-     * Currently provides:
-     * - /_qsearch endpoint for executing optimized queries
      *
      * @param settings OpenSearch settings
      * @param restController REST controller for registering handlers
@@ -83,8 +127,6 @@ public class QueryPlannerPlugin extends Plugin implements ActionPlugin {
 
     /**
      * Returns the actions for this plugin.
-     *
-     * Actions define the transport layer operations.
      *
      * @return List of action handlers
      */
