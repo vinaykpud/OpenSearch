@@ -10,8 +10,8 @@ apply plugin: 'java'
 apply plugin: 'opensearch.pluginzip'
 apply plugin: 'opensearch.internal-cluster-test'
 
-def pluginName = 'query-planner'
-def pluginDescription = 'OpenSearch plugin for query optimization and physical planning with hybrid Lucene/DataFusion execution'
+def pluginName = 'query-execution-planner'
+def pluginDescription = 'OpenSearch plugin for query optimization, physical planning and execution with hybrid Lucene/DataFusion execution'
 def projectPath = 'org.opensearch'
 def pathToPlugin = 'planner.QueryPlannerPlugin'
 
@@ -25,14 +25,14 @@ opensearchplugin {
 }
 
 // Configuration for plugin dependencies
-// This ensures query-dsl-calcite is installed before query-planner
+// This ensures query-dsl-calcite is installed before query-execution-planner
 configurations {
     zipArchive
 }
 
 dependencies {
     // Plugin dependency on query-dsl-calcite
-    // This ensures query-dsl-calcite plugin is installed before query-planner
+    // This ensures query-dsl-calcite plugin is installed before query-execution-planner
     zipArchive project(path: ':plugins:query-dsl-calcite', configuration: 'zip')
     
     // Compile-time dependency to access CalciteConverterService classes
@@ -192,7 +192,7 @@ missingJavadoc {
     ]
 }
 
-// Ensure query-dsl-calcite plugin is built before query-planner
+// Ensure query-dsl-calcite plugin is built before query-execution-planner
 bundlePlugin {
     dependsOn ':plugins:query-dsl-calcite:bundlePlugin'
 }
