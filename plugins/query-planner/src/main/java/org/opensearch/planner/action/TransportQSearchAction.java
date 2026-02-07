@@ -18,6 +18,11 @@ import org.opensearch.common.inject.Inject;
 import org.opensearch.core.action.ActionListener;
 import org.opensearch.planner.converter.ConversionException;
 import org.opensearch.planner.converter.DslToCalciteService;
+import org.opensearch.planner.coordinator.CoordinationException;
+import org.opensearch.planner.coordinator.DefaultExecutionCoordinator;
+import org.opensearch.planner.coordinator.ExecutionContext;
+import org.opensearch.planner.coordinator.ExecutionCoordinator;
+import org.opensearch.planner.coordinator.QueryResult;
 import org.opensearch.planner.optimizer.CalciteQueryOptimizer;
 import org.opensearch.planner.optimizer.OptimizationException;
 import org.opensearch.planner.optimizer.QueryOptimizer;
@@ -42,14 +47,16 @@ import java.util.Locale;
  *
  * This is the entry point for query execution through the optimization pipeline.
  *
- * Current implementation (Phase 3.1):
+ * Current implementation (Phase 3.2):
  * 1. Convert DSL to Calcite logical plan (via query-dsl-calcite plugin)
  * 2. Optimize the logical plan using Calcite rules (HepPlanner)
  * 3. Generate physical plan with engine assignments (Lucene/DataFusion)
  * 4. Split plan into Lucene and DataFusion segments
+ * 5. Coordinate execution across segments (placeholder for now)
  *
  * Future phases will add:
- * 5. Execute segments and coordinate results
+ * 6. Actual Lucene query execution with Arrow conversion
+ * 7. DataFusion integration via Substrait
  */
 public class TransportQSearchAction extends HandledTransportAction<QSearchRequest, QSearchResponse> {
 
@@ -59,6 +66,7 @@ public class TransportQSearchAction extends HandledTransportAction<QSearchReques
     private final QueryOptimizer queryOptimizer;
     private final PhysicalPlanner physicalPlanner;
     private final PlanSplitter planSplitter;
+    private final ExecutionCoordinator executionCoordinator;
 
     /**
      * Constructs a new TransportQSearchAction.
@@ -80,6 +88,7 @@ public class TransportQSearchAction extends HandledTransportAction<QSearchReques
         this.queryOptimizer = new CalciteQueryOptimizer();
         this.physicalPlanner = new DefaultPhysicalPlanner();
         this.planSplitter = new DefaultPlanSplitter();
+        this.executionCoordinator = new DefaultExecutionCoordinator();
     }
 
     @Override
@@ -210,13 +219,58 @@ public class TransportQSearchAction extends HandledTransportAction<QSearchReques
                 return;
             }
 
+            // Execute the split plan
+            QueryResult queryResult;
+            try {
+                // Create execution context with metadata
+                ExecutionContext executionContext = ExecutionContext.builder()
+                    .withMetadata("indexName", indexName)
+                    .build();
+
+                logger.info("\n========================================");
+                logger.info("EXECUTING QUERY:");
+                logger.info("========================================");
+                
+                // Execute the plan
+                queryResult = executionCoordinator.execute(splitPlan, executionContext);
+                
+                // Log execution results
+                logger.info("\n========================================");
+                logger.info("EXECUTION RESULTS:");
+                logger.info("========================================");
+                logger.info("Success: {}", queryResult.isSuccess());
+                logger.info("Message: {}", queryResult.getMessage());
+                logger.info("");
+                logger.info("Statistics:");
+                logger.info("  Total Time: {}ms", queryResult.getStatistics().getTotalTimeMillis());
+                logger.info("  Segments Executed: {}", queryResult.getStatistics().getSegmentsExecuted());
+                logger.info("  Documents Processed: {}", queryResult.getStatistics().getDocumentsProcessed());
+                logger.info("  Rows Produced: {}", queryResult.getStatistics().getRowsProduced());
+                
+                // Log per-segment times if available
+                if (!queryResult.getStatistics().getSegmentTimes().isEmpty()) {
+                    logger.info("");
+                    logger.info("Per-Segment Times:");
+                    queryResult.getStatistics().getSegmentTimes().forEach((segmentId, time) -> {
+                        logger.info("  {}: {}ms", segmentId, time);
+                    });
+                }
+                logger.info("========================================\n");
+                
+            } catch (CoordinationException e) {
+                logger.error("Query execution failed", e);
+                listener.onFailure(e);
+                return;
+            }
+
             // Build response with logical, physical, and split plans
             String message = String.format(
                 Locale.ROOT,
-                "Successfully converted DSL query to logical, physical, and split plans for index: %s (segments: %d, hybrid: %b)",
+                "Successfully executed query for index: %s (segments: %d, hybrid: %b, time: %dms)",
                 indexName,
                 splitPlan.getSegmentCount(),
-                splitPlan.isHybrid()
+                splitPlan.isHybrid(),
+                queryResult.getStatistics().getTotalTimeMillis()
             );
 
             long tookInMillis = System.currentTimeMillis() - startTime;

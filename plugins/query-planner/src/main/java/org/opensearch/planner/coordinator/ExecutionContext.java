@@ -92,6 +92,13 @@ public class ExecutionContext {
      * Builder for ExecutionContext.
      */
     public static class Builder {
+        
+        /**
+         * Constructs a new Builder.
+         */
+        public Builder() {
+            // Default constructor
+        }
         private IndexShard indexShard;
         private Map<String, Object> metadata = new HashMap<>();
 

@@ -125,31 +125,74 @@ public class ExecutionStatistics {
         private long rowsProduced;
         private Map<String, Long> segmentTimes = new HashMap<>();
 
+        /**
+         * Constructs a new Builder.
+         */
+        public Builder() {
+            // Default constructor
+        }
+
+        /**
+         * Sets the total execution time in milliseconds.
+         *
+         * @param totalTimeMillis the total time in milliseconds
+         * @return this builder
+         */
         public Builder withTotalTimeMillis(long totalTimeMillis) {
             this.totalTimeMillis = totalTimeMillis;
             return this;
         }
 
+        /**
+         * Sets the number of segments executed.
+         *
+         * @param segmentsExecuted the number of segments
+         * @return this builder
+         */
         public Builder withSegmentsExecuted(int segmentsExecuted) {
             this.segmentsExecuted = segmentsExecuted;
             return this;
         }
 
+        /**
+         * Sets the number of documents processed.
+         *
+         * @param documentsProcessed the number of documents
+         * @return this builder
+         */
         public Builder withDocumentsProcessed(long documentsProcessed) {
             this.documentsProcessed = documentsProcessed;
             return this;
         }
 
+        /**
+         * Sets the number of rows produced.
+         *
+         * @param rowsProduced the number of rows
+         * @return this builder
+         */
         public Builder withRowsProduced(long rowsProduced) {
             this.rowsProduced = rowsProduced;
             return this;
         }
 
+        /**
+         * Adds execution time for a specific segment.
+         *
+         * @param segmentId the segment ID
+         * @param timeMillis the execution time in milliseconds
+         * @return this builder
+         */
         public Builder withSegmentTime(String segmentId, long timeMillis) {
             this.segmentTimes.put(segmentId, timeMillis);
             return this;
         }
 
+        /**
+         * Builds the ExecutionStatistics.
+         *
+         * @return the execution statistics
+         */
         public ExecutionStatistics build() {
             return new ExecutionStatistics(
                 totalTimeMillis,
