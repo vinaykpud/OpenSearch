@@ -14,7 +14,7 @@
  *
  * <h2>Key Classes:</h2>
  * <ul>
- *   <li>{@link org.opensearch.queryplanner.scheduler.PlanFragmenter} - Splits an
+ *   <li>{@link org.opensearch.queryplanner.scheduler.StageBuilder} - Splits an
  *       ExecNode tree at Exchange boundaries into stages (LEAF for shards, ROOT for
  *       coordinator).</li>
  *   <li>{@link org.opensearch.queryplanner.scheduler.QueryStage} - Represents one
