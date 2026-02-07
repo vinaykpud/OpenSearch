@@ -26,6 +26,11 @@ import org.opensearch.planner.physical.PhysicalPlan;
 import org.opensearch.planner.physical.PhysicalPlanner;
 import org.opensearch.planner.physical.PlanningContext;
 import org.opensearch.planner.physical.PlanningException;
+import org.opensearch.planner.splitter.DefaultPlanSplitter;
+import org.opensearch.planner.splitter.ExecutionSegment;
+import org.opensearch.planner.splitter.PlanSplitter;
+import org.opensearch.planner.splitter.SplitException;
+import org.opensearch.planner.splitter.SplitPlan;
 import org.opensearch.tasks.Task;
 import org.opensearch.transport.TransportService;
 import org.opensearch.transport.client.Client;
@@ -37,13 +42,13 @@ import java.util.Locale;
  *
  * This is the entry point for query execution through the optimization pipeline.
  *
- * Current implementation (Phase 2.3):
+ * Current implementation (Phase 3.1):
  * 1. Convert DSL to Calcite logical plan (via query-dsl-calcite plugin)
  * 2. Optimize the logical plan using Calcite rules (HepPlanner)
  * 3. Generate physical plan with engine assignments (Lucene/DataFusion)
+ * 4. Split plan into Lucene and DataFusion segments
  *
  * Future phases will add:
- * 4. Split plan into Lucene and DataFusion segments
  * 5. Execute segments and coordinate results
  */
 public class TransportQSearchAction extends HandledTransportAction<QSearchRequest, QSearchResponse> {
@@ -53,6 +58,7 @@ public class TransportQSearchAction extends HandledTransportAction<QSearchReques
     private final DslToCalciteService dslToCalciteService;
     private final QueryOptimizer queryOptimizer;
     private final PhysicalPlanner physicalPlanner;
+    private final PlanSplitter planSplitter;
 
     /**
      * Constructs a new TransportQSearchAction.
@@ -73,6 +79,7 @@ public class TransportQSearchAction extends HandledTransportAction<QSearchReques
         this.dslToCalciteService = new DslToCalciteService(client, calciteConverterService);
         this.queryOptimizer = new CalciteQueryOptimizer();
         this.physicalPlanner = new DefaultPhysicalPlanner();
+        this.planSplitter = new DefaultPlanSplitter();
     }
 
     @Override
@@ -157,15 +164,63 @@ public class TransportQSearchAction extends HandledTransportAction<QSearchReques
                 return;
             }
 
-            // Build response with both logical and physical plans
+            // Split the physical plan into execution segments
+            SplitPlan splitPlan;
+            try {
+                splitPlan = planSplitter.splitPlan(physicalPlan);
+                
+                // Log split plan information in a readable format
+                logger.info("\n========================================");
+                logger.info("SPLIT PLAN (Execution Segments):");
+                logger.info("========================================");
+                logger.info("Segment Count: {}", splitPlan.getSegmentCount());
+                logger.info("Is Hybrid: {}", splitPlan.isHybrid());
+                logger.info("");
+                
+                // Log each segment
+                for (int i = 0; i < splitPlan.getSegments().size(); i++) {
+                    ExecutionSegment segment = splitPlan.getSegments().get(i);
+                    logger.info("Segment {}: {}", i + 1, segment.getSegmentId());
+                    logger.info("  Engine: {}", segment.getEngine());
+                    logger.info("  Root Operator: {}", segment.getRoot().getOperatorType());
+                    logger.info("  Has Dependencies: {}", segment.hasDependencies());
+                    if (segment.hasDependencies()) {
+                        logger.info("  Dependencies: {}", segment.getDependencies());
+                    }
+                    logger.info("");
+                }
+                
+                // Log execution graph
+                logger.info("Execution Graph:");
+                logger.info("  Execution Order: {}", splitPlan.getExecutionGraph().topologicalSort());
+                logger.info("  Root Segments: {}", splitPlan.getExecutionGraph().getRootSegments());
+                logger.info("========================================\n");
+                
+            } catch (SplitException e) {
+                listener.onFailure(e);
+                return;
+            }
+
+            // Serialize split plan to JSON for response
+            String splitPlanJson;
+            try {
+                splitPlanJson = splitPlan.toJson();
+            } catch (Exception e) {
+                listener.onFailure(new RuntimeException("Failed to serialize split plan to JSON", e));
+                return;
+            }
+
+            // Build response with logical, physical, and split plans
             String message = String.format(
                 Locale.ROOT,
-                "Successfully converted DSL query to logical and physical plans for index: %s",
-                indexName
+                "Successfully converted DSL query to logical, physical, and split plans for index: %s (segments: %d, hybrid: %b)",
+                indexName,
+                splitPlan.getSegmentCount(),
+                splitPlan.isHybrid()
             );
 
             long tookInMillis = System.currentTimeMillis() - startTime;
-            QSearchResponse response = new QSearchResponse(message, logicalPlanString, physicalPlanJson, indexName, tookInMillis);
+            QSearchResponse response = new QSearchResponse(message, logicalPlanString, physicalPlanJson, splitPlanJson, indexName, tookInMillis);
 
             listener.onResponse(response);
 

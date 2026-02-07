@@ -23,6 +23,7 @@ import java.io.IOException;
  * Returns query planning information including:
  * - Logical plan (optimized Calcite plan)
  * - Physical plan (with engine assignments)
+ * - Split plan (execution segments and dependencies)
  * - Execution statistics (time)
  * - Index information
  */
@@ -31,6 +32,7 @@ public class QSearchResponse extends ActionResponse implements StatusToXContentO
     private final String message;
     private final String logicalPlan;
     private final String physicalPlan;
+    private final String splitPlan;
     private final String indexName;
     private final long tookInMillis;
 
@@ -40,13 +42,15 @@ public class QSearchResponse extends ActionResponse implements StatusToXContentO
      * @param message the response message
      * @param logicalPlan the Calcite logical plan string
      * @param physicalPlan the physical plan JSON
+     * @param splitPlan the split plan JSON
      * @param indexName the target index name
      * @param tookInMillis the execution time in milliseconds
      */
-    public QSearchResponse(String message, String logicalPlan, String physicalPlan, String indexName, long tookInMillis) {
+    public QSearchResponse(String message, String logicalPlan, String physicalPlan, String splitPlan, String indexName, long tookInMillis) {
         this.message = message;
         this.logicalPlan = logicalPlan;
         this.physicalPlan = physicalPlan;
+        this.splitPlan = splitPlan;
         this.indexName = indexName;
         this.tookInMillis = tookInMillis;
     }
@@ -62,6 +66,7 @@ public class QSearchResponse extends ActionResponse implements StatusToXContentO
         this.message = in.readString();
         this.logicalPlan = in.readString();
         this.physicalPlan = in.readString();
+        this.splitPlan = in.readString();
         this.indexName = in.readString();
         this.tookInMillis = in.readVLong();
     }
@@ -71,6 +76,7 @@ public class QSearchResponse extends ActionResponse implements StatusToXContentO
         out.writeString(message);
         out.writeString(logicalPlan);
         out.writeString(physicalPlan);
+        out.writeString(splitPlan);
         out.writeString(indexName);
         out.writeVLong(tookInMillis);
     }
@@ -86,6 +92,7 @@ public class QSearchResponse extends ActionResponse implements StatusToXContentO
         builder.field("message", message);
         builder.field("logicalPlan", logicalPlan);
         builder.field("physicalPlan", physicalPlan);
+        builder.field("splitPlan", splitPlan);
         builder.field("indexName", indexName);
         builder.field("took", tookInMillis);
         builder.endObject();
@@ -111,6 +118,13 @@ public class QSearchResponse extends ActionResponse implements StatusToXContentO
      */
     public String getPhysicalPlan() {
         return physicalPlan;
+    }
+
+    /**
+     * Gets the split plan JSON.
+     */
+    public String getSplitPlan() {
+        return splitPlan;
     }
 
     /**

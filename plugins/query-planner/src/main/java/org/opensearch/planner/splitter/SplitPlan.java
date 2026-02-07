@@ -86,6 +86,88 @@ public class SplitPlan {
         return segments.size() > 1;
     }
 
+    /**
+     * Serializes this split plan to JSON format.
+     *
+     * @return JSON string representation of the split plan
+     */
+    public String toJson() {
+        StringBuilder json = new StringBuilder();
+        json.append("{");
+        json.append("\"segmentCount\":").append(segments.size()).append(",");
+        json.append("\"isHybrid\":").append(isHybrid()).append(",");
+        
+        // Serialize segments
+        json.append("\"segments\":[");
+        for (int i = 0; i < segments.size(); i++) {
+            if (i > 0) {
+                json.append(",");
+            }
+            ExecutionSegment segment = segments.get(i);
+            json.append("{");
+            json.append("\"segmentId\":\"").append(escapeJson(segment.getSegmentId())).append("\",");
+            json.append("\"engine\":\"").append(segment.getEngine()).append("\",");
+            json.append("\"hasDependencies\":").append(segment.hasDependencies()).append(",");
+            json.append("\"dependencies\":[");
+            List<String> deps = segment.getDependencies();
+            for (int j = 0; j < deps.size(); j++) {
+                if (j > 0) {
+                    json.append(",");
+                }
+                json.append("\"").append(escapeJson(deps.get(j))).append("\"");
+            }
+            json.append("],");
+            json.append("\"rootOperatorType\":\"").append(segment.getRoot().getOperatorType()).append("\",");
+            json.append("\"rootOperatorEngine\":\"").append(segment.getRoot().getExecutionEngine()).append("\"");
+            json.append("}");
+        }
+        json.append("],");
+        
+        // Serialize execution graph
+        json.append("\"executionGraph\":{");
+        json.append("\"size\":").append(executionGraph.size()).append(",");
+        json.append("\"isEmpty\":").append(executionGraph.isEmpty()).append(",");
+        json.append("\"executionOrder\":[");
+        List<String> executionOrder = executionGraph.topologicalSort();
+        for (int i = 0; i < executionOrder.size(); i++) {
+            if (i > 0) {
+                json.append(",");
+            }
+            json.append("\"").append(escapeJson(executionOrder.get(i))).append("\"");
+        }
+        json.append("],");
+        json.append("\"rootSegments\":[");
+        List<String> rootSegments = executionGraph.getRootSegments();
+        for (int i = 0; i < rootSegments.size(); i++) {
+            if (i > 0) {
+                json.append(",");
+            }
+            json.append("\"").append(escapeJson(rootSegments.get(i))).append("\"");
+        }
+        json.append("]");
+        json.append("}");
+        
+        json.append("}");
+        return json.toString();
+    }
+
+    /**
+     * Escapes special characters in JSON strings.
+     *
+     * @param str the string to escape
+     * @return escaped string
+     */
+    private String escapeJson(String str) {
+        if (str == null) {
+            return "";
+        }
+        return str.replace("\\", "\\\\")
+                  .replace("\"", "\\\"")
+                  .replace("\n", "\\n")
+                  .replace("\r", "\\r")
+                  .replace("\t", "\\t");
+    }
+
     @Override
     public String toString() {
         return String.format(
