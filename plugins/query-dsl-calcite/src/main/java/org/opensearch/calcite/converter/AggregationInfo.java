@@ -8,19 +8,25 @@
 
 package org.opensearch.calcite.converter;
 
+import org.apache.calcite.rel.RelFieldCollation;
 import org.apache.calcite.rel.type.RelDataType;
 import org.apache.calcite.util.ImmutableBitSet;
 import org.opensearch.calcite.exception.ConversionException;
 import org.opensearch.search.aggregations.AggregationBuilder;
 import org.opensearch.search.aggregations.AggregatorFactories;
+import org.opensearch.search.aggregations.BucketOrder;
+import org.opensearch.search.aggregations.InternalOrder;
+import org.opensearch.search.aggregations.bucket.terms.MultiTermsAggregationBuilder;
 import org.opensearch.search.aggregations.bucket.terms.TermsAggregationBuilder;
 import org.opensearch.search.aggregations.metrics.AvgAggregationBuilder;
 import org.opensearch.search.aggregations.metrics.MaxAggregationBuilder;
 import org.opensearch.search.aggregations.metrics.MinAggregationBuilder;
 import org.opensearch.search.aggregations.metrics.SumAggregationBuilder;
+import org.opensearch.search.aggregations.support.MultiTermsValuesSourceConfig;
 
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -37,44 +43,14 @@ import java.util.Map;
  * 6. Providing ImmutableBitSet for GROUP BY fields (for LogicalAggregate)
  */
 public class AggregationInfo {
-    private final List<String> groupByFields;
-    private final Map<String, Integer> fieldIndexMap;
+    private final List<RelFieldCollation> collations;
     private final ImmutableBitSet groupByBitSet;
 
-    /**
-     * Enum for classifying aggregation types.
-     */
-    private enum AggregationType {
-        BUCKET,
-        METRIC
-    }
-
-    /**
-     * Classifies an aggregation builder by type.
-     *
-     * @param agg The aggregation builder to classify
-     * @return The aggregation type, or null if unknown
-     */
-    private static AggregationType classifyAggregation(AggregationBuilder agg) {
-        if (agg instanceof TermsAggregationBuilder) {
-            return AggregationType.BUCKET;
-        }
-        if (agg instanceof AvgAggregationBuilder ||
-            agg instanceof SumAggregationBuilder ||
-            agg instanceof MinAggregationBuilder ||
-            agg instanceof MaxAggregationBuilder) {
-            return AggregationType.METRIC;
-        }
-        return null;
-    }
-
     private AggregationInfo(
-        List<String> groupByFields,
-        Map<String, Integer> fieldIndexMap,
+        List<RelFieldCollation> collations,
         ImmutableBitSet groupByBitSet
     ) {
-        this.groupByFields = groupByFields;
-        this.fieldIndexMap = fieldIndexMap;
+        this.collations = collations;
         this.groupByBitSet = groupByBitSet;
     }
 
@@ -89,31 +65,49 @@ public class AggregationInfo {
     }
 
     /**
-     * Processes aggregations recursively, extracting GROUP BY fields and aggregate field names.
-     * Handles both top-level and nested aggregations.
+     * Returns the pre-built collations for post-aggregation sorting.
+     *
+     * @return List of RelFieldCollation
+     */
+    public List<RelFieldCollation> getCollations() {
+        return collations;
+    }
+
+    /**
+     * Processes aggregations recursively, extracting GROUP BY fields, aggregate field names,
+     * and bucket orders in a single tree walk.
      *
      * @param aggregations Collection of aggregation builders to process
      * @param groupByFields List to add GROUP BY field names to
      * @param aggregateFieldNames List to add aggregate field names to
+     * @param bucketOrders List to add flattened bucket orders to
      * @throws ConversionException if an unknown aggregation type is encountered
      */
     private static void processAggregations(
         Collection<AggregationBuilder> aggregations,
         List<String> groupByFields,
-        List<String> aggregateFieldNames
+        List<String> aggregateFieldNames,
+        List<BucketOrder> bucketOrders
     ) throws ConversionException {
         if (aggregations == null || aggregations.isEmpty()) {
             return;
         }
 
         for (AggregationBuilder agg : aggregations) {
-            AggregationType type = classifyAggregation(agg);
-
-            if (type == AggregationType.BUCKET) {
-                TermsAggregationBuilder terms = (TermsAggregationBuilder) agg;
+            if (agg instanceof TermsAggregationBuilder terms) {
                 groupByFields.add(terms.field());
-                processAggregations(terms.getSubAggregations(), groupByFields, aggregateFieldNames);
-            } else if (type == AggregationType.METRIC) {
+                flattenOrder(terms.order(), bucketOrders);
+                processAggregations(terms.getSubAggregations(), groupByFields, aggregateFieldNames, bucketOrders);
+            } else if (agg instanceof MultiTermsAggregationBuilder multiTerms) {
+                for (MultiTermsValuesSourceConfig config : multiTerms.termsConfig()) {
+                    groupByFields.add(config.getFieldName());
+                }
+                flattenOrder(multiTerms.order(), bucketOrders);
+                processAggregations(multiTerms.getSubAggregations(), groupByFields, aggregateFieldNames, bucketOrders);
+            } else if (agg instanceof AvgAggregationBuilder
+                || agg instanceof SumAggregationBuilder
+                || agg instanceof MinAggregationBuilder
+                || agg instanceof MaxAggregationBuilder) {
                 aggregateFieldNames.add(agg.getName());
             } else {
                 throw new ConversionException(
@@ -126,34 +120,56 @@ public class AggregationInfo {
     }
 
     /**
-     * Builds a field-to-index map for the post-aggregation schema.
+     * Flattens a BucketOrder into individual order elements.
+     * Handles both simple orders and compound orders.
+     */
+    private static void flattenOrder(BucketOrder order, List<BucketOrder> out) {
+        if (order == null) return;
+        if (order instanceof InternalOrder.CompoundOrder compound) {
+            out.addAll(compound.orderElements());
+        } else {
+            out.add(order);
+        }
+    }
+
+    /**
+     * Builds a sort-field-to-indices map for post-aggregation sorting.
      * Post-agg schema order: [GROUP BY fields] + [aggregate fields] + [_count]
+     *
+     * Entries:
+     * - _key → all GROUP BY field indices (supports multi_terms expansion)
+     * - each aggregate field name → its single index
+     * - _count → its single index
+     *
+     * GROUP BY fields themselves are not added since they are only sortable via _key.
      *
      * @param groupByFields List of GROUP BY field names
      * @param aggregateFieldNames List of aggregate field names
-     * @return Map from field name to index in post-aggregation schema
+     * @return Map from sortable field name to list of indices in post-aggregation schema
      */
-    private static Map<String, Integer> buildFieldIndexMap(
+    private static Map<String, List<Integer>> buildSortFieldMap(
         List<String> groupByFields,
         List<String> aggregateFieldNames
     ) {
-        Map<String, Integer> fieldIndexMap = new HashMap<>();
+        Map<String, List<Integer>> sortFieldMap = new HashMap<>();
         int fieldIndex = 0;
 
-        // Add GROUP BY fields
-        for (String field : groupByFields) {
-            fieldIndexMap.put(field, fieldIndex++);
+        // _key maps to all GROUP BY field indices
+        List<Integer> keyIndices = new ArrayList<>(groupByFields.size());
+        for (int i = 0; i < groupByFields.size(); i++) {
+            keyIndices.add(fieldIndex++);
         }
+        sortFieldMap.put("_key", keyIndices);
 
-        // Add aggregate fields
+        // Each aggregate field maps to its single index
         for (String aggName : aggregateFieldNames) {
-            fieldIndexMap.put(aggName, fieldIndex++);
+            sortFieldMap.put(aggName, List.of(fieldIndex++));
         }
 
-        // Add implicit _count field (always present in aggregations)
-        fieldIndexMap.put("_count", fieldIndex);
+        // _count is always present
+        sortFieldMap.put("_count", List.of(fieldIndex));
 
-        return fieldIndexMap;
+        return sortFieldMap;
     }
 
     /**
@@ -191,72 +207,54 @@ public class AggregationInfo {
     ) throws ConversionException {
         List<String> groupByFields = new ArrayList<>();
         List<String> aggregateFieldNames = new ArrayList<>();
+        List<BucketOrder> bucketOrders = new ArrayList<>();
 
-        // Process all aggregations (top-level and nested)
-        processAggregations(aggregations.getAggregatorFactories(), groupByFields, aggregateFieldNames);
+        // Process all aggregations (top-level and nested) — single tree walk
+        processAggregations(aggregations.getAggregatorFactories(), groupByFields, aggregateFieldNames, bucketOrders);
 
-        // Build field-to-index map
-        Map<String, Integer> fieldIndexMap = buildFieldIndexMap(groupByFields, aggregateFieldNames);
+        // Build sort field map
+        Map<String, List<Integer>> sortFieldMap = buildSortFieldMap(groupByFields, aggregateFieldNames);
 
         // Build group by bit set
         ImmutableBitSet groupByBitSet = buildGroupByBitSet(groupByFields, originalSchema);
 
-        return new AggregationInfo(groupByFields, fieldIndexMap, groupByBitSet);
+        // Build collations from bucket orders
+        List<RelFieldCollation> collations = buildCollations(bucketOrders, sortFieldMap);
+
+        return new AggregationInfo(Collections.unmodifiableList(collations), groupByBitSet);
     }
 
     /**
-     * Maps a sort field name to its index in the post-aggregation schema.
-     * Handles special fields like _key and _count.
-     *
-     * @param sortField The field name to map
-     * @return The index of the field in the post-aggregation schema
-     * @throws ConversionException if the field is not found
+     * Builds collations from bucket orders using the sort field map.
      */
-    public int mapSortFieldToIndex(String sortField) throws ConversionException {
-        // Handle special _key field (maps to first GROUP BY field)
-        if ("_key".equals(sortField)) {
-            return mapKeyField();
+    private static List<RelFieldCollation> buildCollations(
+        List<BucketOrder> bucketOrders,
+        Map<String, List<Integer>> sortFieldMap
+    ) throws ConversionException {
+        List<RelFieldCollation> collations = new ArrayList<>();
+        for (BucketOrder bucketOrder : bucketOrders) {
+            OrderMetadata metadata = OrderMetadata.fromBucketOrder(bucketOrder);
+            List<Integer> indices = sortFieldMap.get(metadata.getFieldName());
+            if (indices == null) {
+                throw new ConversionException("post-aggregation-sort", "Sort field '" + metadata.getFieldName() + "' not found. Available: " + sortFieldMap.keySet());
+            }
+            for (int fieldIndex : indices) {
+                collations.add(createCollation(fieldIndex, metadata.isAscending()));
+            }
         }
-
-        // Handle regular fields (includes _count)
-        Integer index = fieldIndexMap.get(sortField);
-        if (index != null) {
-            return index;
-        }
-
-        // Field not found
-        throw buildFieldNotFoundException(sortField);
+        return collations;
     }
 
     /**
-     * Maps the special _key field to the first GROUP BY field index.
-     *
-     * @return The index of the first GROUP BY field
-     * @throws ConversionException if there are no GROUP BY fields
+     * Creates a RelFieldCollation with consistent null direction handling.
      */
-    private int mapKeyField() throws ConversionException {
-        if (groupByFields.isEmpty()) {
-            throw new ConversionException(
-                "post-aggregation-sort",
-                "Cannot sort by _key without GROUP BY fields. " +
-                "The query must include a bucket aggregation (terms, histogram, date_histogram) to use _key sorting."
-            );
-        }
-        return fieldIndexMap.get(groupByFields.get(0));
-    }
-
-    /**
-     * Builds a ConversionException for when a sort field is not found.
-     *
-     * @param sortField The field name that was not found
-     * @return ConversionException with detailed error message
-     */
-    private ConversionException buildFieldNotFoundException(String sortField) {
-        return new ConversionException(
-            "post-aggregation-sort",
-            "Sort field '" + sortField + "' not found in post-aggregation schema. " +
-            "Available fields: " + String.join(", ", fieldIndexMap.keySet()) + ". " +
-            "Post-aggregation sorts can only reference GROUP BY fields, aggregate result fields, or special fields (_key, _count)."
-        );
+    private static RelFieldCollation createCollation(int fieldIndex, boolean ascending) {
+        RelFieldCollation.Direction direction = ascending
+            ? RelFieldCollation.Direction.ASCENDING
+            : RelFieldCollation.Direction.DESCENDING;
+        RelFieldCollation.NullDirection nullDirection = ascending
+            ? RelFieldCollation.NullDirection.LAST
+            : RelFieldCollation.NullDirection.FIRST;
+        return new RelFieldCollation(fieldIndex, direction, nullDirection);
     }
 }

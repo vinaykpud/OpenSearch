@@ -45,8 +45,7 @@ import org.opensearch.index.query.RangeQueryBuilder;
 import org.opensearch.index.query.TermQueryBuilder;
 import org.opensearch.search.aggregations.AggregationBuilder;
 import org.opensearch.search.aggregations.AggregatorFactories;
-import org.opensearch.search.aggregations.BucketOrder;
-import org.opensearch.search.aggregations.InternalOrder;
+import org.opensearch.search.aggregations.bucket.terms.MultiTermsAggregationBuilder;
 import org.opensearch.search.aggregations.bucket.terms.TermsAggregationBuilder;
 import org.opensearch.search.aggregations.metrics.AvgAggregationBuilder;
 import org.opensearch.search.aggregations.metrics.SumAggregationBuilder;
@@ -163,14 +162,9 @@ public class CalciteConverterImpl implements CalciteConverter {
         }
 
         // Step 5: Apply post-aggregation sorts (from aggregation order parameters)
-        if (aggInfo != null) {
-            List<BucketOrder> bucketOrders = extractAggregationOrderSorts(
-                searchSource.aggregations()
-            );
-
-            if (!bucketOrders.isEmpty()) {
-                relNode = buildPostAggregationSort(relNode, bucketOrders, aggInfo);
-            }
+        if (aggInfo != null && !aggInfo.getCollations().isEmpty()) {
+            RelCollation relCollation = RelCollations.of(aggInfo.getCollations());
+            relNode = LogicalSort.create(relNode, relCollation, null, null);
         }
 
         // Step 6: Apply projection if _source filtering exists
@@ -335,6 +329,9 @@ public class CalciteConverterImpl implements CalciteConverter {
             } else if (agg instanceof TermsAggregationBuilder) {
                 TermsAggregationBuilder termsAgg = (TermsAggregationBuilder) agg;
                 processAggregations(termsAgg.getSubAggregations(), visitor, aggregateCalls);
+            } else if (agg instanceof MultiTermsAggregationBuilder) {
+                MultiTermsAggregationBuilder multiTermsAgg = (MultiTermsAggregationBuilder) agg;
+                processAggregations(multiTermsAgg.getSubAggregations(), visitor, aggregateCalls);
             } else {
                 throw new ConversionException(
                     "aggregation-conversion",
@@ -547,98 +544,4 @@ public class CalciteConverterImpl implements CalciteConverter {
         );
     }
 
-    /**
-     * Extracts a flat list of BucketOrder from aggregation order parameters.
-     *
-     * @param aggregations Aggregations from SearchSourceBuilder
-     * @return List of BucketOrder elements (handles compound orders)
-     */
-    private List<BucketOrder> extractAggregationOrderSorts(
-        AggregatorFactories.Builder aggregations
-    ) {
-        if (aggregations == null || aggregations.count() == 0) {
-            return java.util.Collections.emptyList();
-        }
-
-        List<BucketOrder> bucketOrders = new ArrayList<>();
-
-        for (AggregationBuilder agg : aggregations.getAggregatorFactories()) {
-            if (agg instanceof TermsAggregationBuilder terms) {
-                BucketOrder order = terms.order();
-                if (order != null) {
-                    // Handle both simple orders (single element) and compound orders (multiple elements)
-                    if (order instanceof InternalOrder.CompoundOrder compound) {
-                        bucketOrders.addAll(compound.orderElements());
-                    } else {
-                        bucketOrders.add(order);
-                    }
-                }
-            }
-        }
-
-        return bucketOrders;
-    }
-
-    /**
-     * Builds a LogicalSort node for post-aggregation sorting.
-     *
-     * @param input The LogicalAggregate node
-     * @param bucketOrders BucketOrder list from aggregation order parameters
-     * @param aggInfo Aggregation metadata and field mappings
-     * @return LogicalSort node with correct field indices
-     * @throws ConversionException if a sort field is not found in the post-aggregation schema
-     */
-    private RelNode buildPostAggregationSort(
-        RelNode input,
-        List<BucketOrder> bucketOrders,
-        AggregationInfo aggInfo
-    ) throws ConversionException {
-        List<RelFieldCollation> collations = new ArrayList<>();
-
-        for (int i = 0; i < bucketOrders.size(); i++) {
-            BucketOrder bucketOrder = bucketOrders.get(i);
-
-            try {
-                // Extract all order information in one call
-                OrderMetadata metadata = OrderMetadataExtractor.extract(bucketOrder);
-
-                // Map field name to index
-                int fieldIndex = aggInfo.mapSortFieldToIndex(metadata.getFieldName());
-
-                // Create collation with consistent null handling
-                RelFieldCollation collation = createCollation(fieldIndex, metadata.isAscending());
-
-                collations.add(collation);
-
-            } catch (ConversionException e) {
-                throw new ConversionException(
-                    "post-aggregation-sort",
-                    "Failed to process sort order at position " + i + ": " + bucketOrder.toString(),
-                    e
-                );
-            }
-        }
-
-        RelCollation relCollation = RelCollations.of(collations);
-        return LogicalSort.create(input, relCollation, null, null);
-    }
-
-    /**
-     * Creates a RelFieldCollation with consistent null direction handling.
-     *
-     * @param fieldIndex The index of the field to sort by
-     * @param ascending True for ascending order, false for descending
-     * @return RelFieldCollation with appropriate direction and null handling
-     */
-    private RelFieldCollation createCollation(int fieldIndex, boolean ascending) {
-        RelFieldCollation.Direction direction = ascending
-            ? RelFieldCollation.Direction.ASCENDING
-            : RelFieldCollation.Direction.DESCENDING;
-
-        RelFieldCollation.NullDirection nullDirection = ascending
-            ? RelFieldCollation.NullDirection.LAST
-            : RelFieldCollation.NullDirection.FIRST;
-
-        return new RelFieldCollation(fieldIndex, direction, nullDirection);
-    }
 }

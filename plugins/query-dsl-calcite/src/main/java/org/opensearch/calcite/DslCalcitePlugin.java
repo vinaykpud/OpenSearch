@@ -10,6 +10,7 @@ package org.opensearch.calcite;
 
 import org.apache.calcite.rel.RelNode;
 import org.opensearch.calcite.converter.CalciteConverter;
+import org.opensearch.calcite.converter.RelNodeExplainUtils;
 import org.opensearch.cluster.metadata.IndexNameExpressionResolver;
 import org.opensearch.cluster.service.ClusterService;
 import org.opensearch.common.settings.Setting;
@@ -105,6 +106,7 @@ public class DslCalcitePlugin extends Plugin implements DslConverterPlugin, Exte
 
     /**
      * Converts an OpenSearch DSL query to a string representation.
+     * Uses standard Calcite {@code relNode.explain()} output with {@code $N} positional references.
      *
      * @param source The SearchSourceBuilder containing the DSL query
      * @param indexName The name of the target index
@@ -119,22 +121,51 @@ public class DslCalcitePlugin extends Plugin implements DslConverterPlugin, Exte
             // Handle null RelNode (POC returns null for now)
             return (relNode != null) ? relNode.explain() : "null (POC - converter not yet implemented)";
         } catch (Exception e) {
-            // Return full exception details for debugging
-            StringBuilder sb = new StringBuilder();
-            sb.append("Error: ").append(e.getClass().getSimpleName()).append(": ").append(e.getMessage());
-            if (e.getCause() != null) {
-                sb.append("\nCaused by: ").append(e.getCause().getClass().getSimpleName()).append(": ").append(e.getCause().getMessage());
-            }
-            // Add stack trace for debugging
-            sb.append("\nStack trace: ");
-            for (StackTraceElement element : e.getStackTrace()) {
-                if (element.getClassName().startsWith("org.opensearch.calcite") || 
-                    element.getClassName().startsWith("org.apache.calcite")) {
-                    sb.append("\n  at ").append(element);
-                }
-            }
-            return sb.toString();
+            return formatError(e);
         }
+    }
+
+    /**
+     * Converts an OpenSearch DSL query to an annotated string representation.
+     * Field references are resolved to {@code $N:fieldName} format for readability.
+     * Intended for console and REST output.
+     *
+     * @param source The SearchSourceBuilder containing the DSL query
+     * @param indexName The name of the target index
+     * @return An annotated string representation of the converted query
+     */
+    @Override
+    public String convertDslAnnotated(org.opensearch.search.builder.SearchSourceBuilder source, String indexName) {
+        try {
+            CalciteConverter converter = converterService.getConverter();
+            RelNode relNode = converter.convert(source, indexName);
+
+            if (relNode != null) {
+                return RelNodeExplainUtils.annotatedExplain(relNode);
+            }
+            return "null (POC - converter not yet implemented)";
+        } catch (Exception e) {
+            return formatError(e);
+        }
+    }
+
+    /**
+     * Formats an exception into a detailed error string for debugging.
+     */
+    private String formatError(Exception e) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("Error: ").append(e.getClass().getSimpleName()).append(": ").append(e.getMessage());
+        if (e.getCause() != null) {
+            sb.append("\nCaused by: ").append(e.getCause().getClass().getSimpleName()).append(": ").append(e.getCause().getMessage());
+        }
+        sb.append("\nStack trace: ");
+        for (StackTraceElement element : e.getStackTrace()) {
+            if (element.getClassName().startsWith("org.opensearch.calcite")
+                || element.getClassName().startsWith("org.apache.calcite")) {
+                sb.append("\n  at ").append(element);
+            }
+        }
+        return sb.toString();
     }
 
     @Override

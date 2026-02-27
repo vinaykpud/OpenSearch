@@ -10,7 +10,12 @@ package org.opensearch.calcite;
 
 import org.opensearch.index.query.QueryBuilders;
 import org.opensearch.search.aggregations.AggregationBuilders;
+import org.opensearch.search.aggregations.BucketOrder;
+import org.opensearch.search.aggregations.bucket.terms.MultiTermsAggregationBuilder;
+import org.opensearch.search.aggregations.support.MultiTermsValuesSourceConfig;
 import org.opensearch.search.builder.SearchSourceBuilder;
+
+import java.util.List;
 
 import static org.hamcrest.Matchers.containsString;
 
@@ -23,7 +28,7 @@ public class DslCalciteIntegrationIT extends DslCalciteIntegrationTestBase {
     /**
      * Test 13.2: Term query conversion
      * Verifies that a term query is converted to a LogicalFilter with equality condition.
-     * 
+     *
      * DSL Query:
      * {
      *   "query": {
@@ -32,7 +37,7 @@ public class DslCalciteIntegrationIT extends DslCalciteIntegrationTestBase {
      *     }
      *   }
      * }
-     * 
+     *
      * Expected Calcite Plan:
      * LogicalFilter(condition=[=($0, 'electronics')])
      *   LogicalTableScan(table=[[test-term-query]])
@@ -72,7 +77,7 @@ public class DslCalciteIntegrationIT extends DslCalciteIntegrationTestBase {
     /**
      * Test 13.3: Range query conversion
      * Verifies that a range query is converted to a LogicalFilter with comparison operators.
-     * 
+     *
      * DSL Query:
      * {
      *   "query": {
@@ -84,9 +89,9 @@ public class DslCalciteIntegrationIT extends DslCalciteIntegrationTestBase {
      *     }
      *   }
      * }
-     * 
+     *
      * Expected Calcite Plan:
-     * LogicalFilter(condition=[AND(>=($0, 100), <=($0, 500))])
+     * LogicalFilter(condition=[AND({@literal >=}($0, 100), {@literal <=}($0, 500))])
      *   LogicalTableScan(table=[[test-range-query]])
      */
     public void testRangeQueryConversion() throws Exception {
@@ -130,7 +135,7 @@ public class DslCalciteIntegrationIT extends DslCalciteIntegrationTestBase {
     /**
      * Test 13.4: Bool query conversion
      * Verifies that a bool query with must and filter clauses is converted correctly.
-     * 
+     *
      * DSL Query:
      * {
      *   "query": {
@@ -144,9 +149,9 @@ public class DslCalciteIntegrationIT extends DslCalciteIntegrationTestBase {
      *     }
      *   }
      * }
-     * 
+     *
      * Expected Calcite Plan:
-     * LogicalFilter(condition=[AND(=($0, 'electronics'), >=($1, 100), <=($1, 500))])
+     * LogicalFilter(condition=[AND(=($0, 'electronics'), {@literal >=}($1, 100), {@literal <=}($1, 500))])
      *   LogicalTableScan(table=[[test-bool-query]])
      */
     public void testBoolQueryConversion() throws Exception {
@@ -197,7 +202,7 @@ public class DslCalciteIntegrationIT extends DslCalciteIntegrationTestBase {
     /**
      * Test 13.5: Match query conversion
      * Verifies that a match query is converted to a LogicalFilter with MATCH_QUERY UDF.
-     * 
+     *
      * DSL Query:
      * {
      *   "query": {
@@ -206,7 +211,7 @@ public class DslCalciteIntegrationIT extends DslCalciteIntegrationTestBase {
      *     }
      *   }
      * }
-     * 
+     *
      * Expected Calcite Plan:
      * LogicalFilter(condition=[MATCH_QUERY($0, 'laptop', 'OR')])
      *   LogicalTableScan(table=[[test-match-query]])
@@ -247,14 +252,14 @@ public class DslCalciteIntegrationIT extends DslCalciteIntegrationTestBase {
     /**
      * Test 13.6: Sort conversion
      * Verifies that sort is converted to a LogicalSort with correct field and direction.
-     * 
+     *
      * DSL Query:
      * {
      *   "sort": [
      *     { "price": { "order": "asc" } }
      *   ]
      * }
-     * 
+     *
      * Expected Calcite Plan:
      * LogicalSort(sort0=[$0], dir0=[ASC])
      *   LogicalTableScan(table=[[test-sort]])
@@ -286,7 +291,7 @@ public class DslCalciteIntegrationIT extends DslCalciteIntegrationTestBase {
         assertThat("Should contain LogicalSort", relNodeString, containsString("LogicalSort"));
 
         // Verify sort field - price could be at any index depending on field order
-        // Just verify it contains a sort field reference
+        // With annotated output, field refs include names e.g. $0:name, $1:price
         assertTrue("Should contain sort field reference",
             relNodeString.contains("sort0=[$0]") || relNodeString.contains("sort0=[$1]"));
 
@@ -297,13 +302,13 @@ public class DslCalciteIntegrationIT extends DslCalciteIntegrationTestBase {
     /**
      * Test 13.7: Pagination conversion
      * Verifies that from/size parameters are converted to offset/fetch in LogicalSort.
-     * 
+     *
      * DSL Query:
      * {
      *   "from": 10,
      *   "size": 20
      * }
-     * 
+     *
      * Expected Calcite Plan:
      * LogicalSort(offset=[10], fetch=[20])
      *   LogicalTableScan(table=[[test-pagination]])
@@ -344,12 +349,12 @@ public class DslCalciteIntegrationIT extends DslCalciteIntegrationTestBase {
     /**
      * Test 13.8: Source filtering conversion
      * Verifies that _source includes are converted to LogicalProject.
-     * 
+     *
      * DSL Query:
      * {
      *   "_source": ["title", "price"]
      * }
-     * 
+     *
      * Expected Calcite Plan:
      * LogicalProject(title=[$0], price=[$1])
      *   LogicalTableScan(table=[[test-source-filtering]])
@@ -396,7 +401,7 @@ public class DslCalciteIntegrationIT extends DslCalciteIntegrationTestBase {
     /**
      * Test 13.9: Metric aggregation conversion
      * Verifies that metric aggregations are converted to LogicalAggregate.
-     * 
+     *
      * DSL Query:
      * {
      *   "aggs": {
@@ -406,7 +411,7 @@ public class DslCalciteIntegrationIT extends DslCalciteIntegrationTestBase {
      *   },
      *   "size": 0
      * }
-     * 
+     *
      * Expected Calcite Plan:
      * LogicalAggregate(group=[{}], avg_price=[AVG($0)], _count=[COUNT()])
      *   LogicalTableScan(table=[[test-metric-agg]])
@@ -448,7 +453,7 @@ public class DslCalciteIntegrationIT extends DslCalciteIntegrationTestBase {
     /**
      * Test 13.10: Terms aggregation with GROUP BY
      * Verifies that terms aggregations are converted to GROUP BY with metric sub-aggregations.
-     * 
+     *
      * DSL Query:
      * {
      *   "aggs": {
@@ -463,10 +468,16 @@ public class DslCalciteIntegrationIT extends DslCalciteIntegrationTestBase {
      *   },
      *   "size": 0
      * }
-     * 
+     *
      * Expected Calcite Plan:
-     * LogicalAggregate(group=[{0}], avg_price=[AVG($1)], _count=[COUNT()])
-     *   LogicalTableScan(table=[[test-terms-agg]])
+     * LogicalSort(sort0=[$2], sort1=[$0], dir0=[DESC], dir1=[ASC])
+     *   LogicalAggregate(group=[{0}], avg_price=[AVG($1)], _count=[COUNT()])
+     *     LogicalTableScan(table=[[test-terms-agg]])
+     *
+     * Note: When no explicit "order" is specified on a terms aggregation, OpenSearch defaults
+     * to a compound order of [_count desc, _key asc]. This produces an additional LogicalSort
+     * wrapping the LogicalAggregate. Post-agg schema: [brand(0), avg_price(1), _count(2)],
+     * so sort0=[$2] is _count DESC and sort1=[$0] is _key (brand) ASC.
      */
     public void testTermsAggregationConversion() throws Exception {
         // Create index with mapping
@@ -512,7 +523,7 @@ public class DslCalciteIntegrationIT extends DslCalciteIntegrationTestBase {
     /**
      * Test 13.11: Post-aggregation sorting
      * Verifies that aggregation order parameters are converted to LogicalSort after LogicalAggregate.
-     * 
+     *
      * DSL Query:
      * {
      *   "aggs": {
@@ -530,11 +541,16 @@ public class DslCalciteIntegrationIT extends DslCalciteIntegrationTestBase {
      *   },
      *   "size": 0
      * }
-     * 
+     *
      * Expected Calcite Plan:
-     * LogicalSort(sort0=[$1], dir0=[DESC])
+     * LogicalSort(sort0=[$1], sort1=[$0], dir0=[DESC], dir1=[ASC])
      *   LogicalAggregate(group=[{0}], avg_price=[AVG($1)], _count=[COUNT()])
      *     LogicalTableScan(table=[[test-post-agg-sort]])
+     *
+     * Note: TermsAggregationBuilder wraps explicit orders in a compound order with a
+     * _key ASC tie-breaker. So "order": {"avg_price": "desc"} becomes [avg_price desc, _key asc].
+     * Post-agg schema: [brand(0), avg_price(1), _count(2)], so sort0=[$1] is avg_price DESC
+     * and sort1=[$0] is _key (brand) ASC.
      */
     public void testPostAggregationSorting() throws Exception {
         // Create index with mapping
@@ -578,6 +594,7 @@ public class DslCalciteIntegrationIT extends DslCalciteIntegrationTestBase {
 
         // Verify sort references aggregate result field (avg_price is at index 1 in post-agg schema)
         // Post-agg schema: [brand (0), avg_price (1), _count (2)]
+        // With annotated output, field refs include names e.g. $1:avg_price
         assertTrue("Should contain sort on aggregate field",
             relNodeString.contains("sort0=[$1]") && relNodeString.contains("DESC"));
     }
@@ -585,7 +602,7 @@ public class DslCalciteIntegrationIT extends DslCalciteIntegrationTestBase {
     /**
      * Test 13.12: Complex query with all features
      * Verifies that a complex query combining all features is converted correctly.
-     * 
+     *
      * DSL Query:
      * {
      *   "query": {
@@ -615,13 +632,13 @@ public class DslCalciteIntegrationIT extends DslCalciteIntegrationTestBase {
      *   "from": 0,
      *   "size": 10
      * }
-     * 
+     *
      * Expected Calcite Plan:
      * LogicalAggregate(group=[{1}], avg_price=[AVG($2)], _count=[COUNT()])
      *   LogicalSort(sort0=[$2], dir0=[ASC])
-     *     LogicalFilter(condition=[AND(MATCH_QUERY($3, 'laptop', 'OR'), =($0, 'electronics'), >=($2, 500), <=($2, 2000))])
+     *     LogicalFilter(condition=[AND(MATCH_QUERY($3, 'laptop', 'OR'), =($0, 'electronics'), {@literal >=}($2, 500), {@literal <=}($2, 2000))])
      *       LogicalTableScan(table=[[test-complex-query]])
-     * 
+     *
      * Note: Pagination (offset/fetch) is not applied when aggregations are present.
      * The size parameter controls aggregation bucket count, not document pagination.
      */
@@ -693,9 +710,216 @@ public class DslCalciteIntegrationIT extends DslCalciteIntegrationTestBase {
     }
 
     /**
+     * Test: Multi-terms aggregation with sub-aggregations and ordering.
+     *
+     * DSL Query:
+     * {
+     *   "size": 0,
+     *   "aggs": {
+     *     "hot": {
+     *       "multi_terms": {
+     *         "terms": [{"field": "region"}, {"field": "host"}],
+     *         "order": [{"max-cpu": "desc"}, {"max-memory": "desc"}]
+     *       },
+     *       "aggs": {
+     *         "max-cpu": {"max": {"field": "cpu"}},
+     *         "max-memory": {"max": {"field": "memory"}}
+     *       }
+     *     }
+     *   }
+     * }
+     *
+     * Expected Calcite Plan:
+     * LogicalSort(sort0=[$2], sort1=[$3], sort2=[$0], dir0=[DESC], dir1=[DESC], dir2=[ASC])
+     *   LogicalAggregate(group=[{1, 3}], max-cpu=[MAX($0)], max-memory=[MAX($2)], _count=[COUNT()])
+     *     LogicalTableScan(table=[[test-multi-terms-agg]])
+     */
+    public void testMultiTermsAggregation() throws Exception {
+        String indexName = "test-multi-terms-agg";
+        String mapping = "{"
+            + "\"properties\": {"
+            + "  \"region\": {\"type\": \"keyword\"},"
+            + "  \"host\": {\"type\": \"keyword\"},"
+            + "  \"cpu\": {\"type\": \"long\"},"
+            + "  \"memory\": {\"type\": \"long\"}"
+            + "}"
+            + "}";
+        client().admin().indices().prepareCreate(indexName)
+            .setMapping(mapping)
+            .get();
+        ensureGreen(indexName);
+
+        SearchSourceBuilder searchSource = new SearchSourceBuilder();
+        searchSource.size(0);
+        searchSource.aggregation(
+            new MultiTermsAggregationBuilder("hot")
+                .terms(List.of(
+                    new MultiTermsValuesSourceConfig.Builder().setFieldName("region").build(),
+                    new MultiTermsValuesSourceConfig.Builder().setFieldName("host").build()
+                ))
+                .order(List.of(
+                    BucketOrder.aggregation("max-cpu", false),
+                    BucketOrder.aggregation("max-memory", false)
+                ))
+                .subAggregation(AggregationBuilders.max("max-cpu").field("cpu"))
+                .subAggregation(AggregationBuilders.max("max-memory").field("memory"))
+        );
+
+        DslCalcitePlugin plugin = getPlugin(DslCalcitePlugin.class);
+        String relNodeString = plugin.convertDsl(searchSource, indexName);
+
+        assertNotNull("RelNode string should not be null", relNodeString);
+        assertThat("Should contain LogicalAggregate", relNodeString, containsString("LogicalAggregate"));
+        assertThat("Should contain LogicalSort", relNodeString, containsString("LogicalSort"));
+
+        // Fields are returned in alphabetical order: cpu(0), host(1), memory(2), region(3)
+        // GROUP BY on host(1) and region(3)
+        assertThat("Should contain group by host and region", relNodeString, containsString("group=[{1, 3}]"));
+
+        // Verify MAX aggregate functions
+        assertThat("Should contain MAX function", relNodeString, containsString("MAX"));
+
+        // Verify COUNT function
+        assertThat("Should contain COUNT function", relNodeString, containsString("COUNT"));
+
+        // Verify sort contains DESC direction for the metric ordering
+        assertThat("Should contain DESC direction", relNodeString, containsString("DESC"));
+
+        // Verify LogicalSort appears before LogicalAggregate in tree
+        int sortIndex = relNodeString.indexOf("LogicalSort");
+        int aggregateIndex = relNodeString.indexOf("LogicalAggregate");
+        assertTrue("LogicalSort should appear before LogicalAggregate", sortIndex < aggregateIndex);
+    }
+
+    /**
+     * Test: Multi-terms aggregation without sub-aggregations (pure GROUP BY).
+     *
+     * DSL Query:
+     * {
+     *   "size": 0,
+     *   "aggs": {
+     *     "groups": {
+     *       "multi_terms": {
+     *         "terms": [{"field": "region"}, {"field": "host"}]
+     *       }
+     *     }
+     *   }
+     * }
+     *
+     * Expected Calcite Plan:
+     * LogicalAggregate(group=[{1, 2}], _count=[COUNT()])
+     *   LogicalTableScan(table=[[test-multi-terms-no-sub]])
+     */
+    public void testMultiTermsAggregationWithoutSubAggs() throws Exception {
+        String indexName = "test-multi-terms-no-sub";
+        String mapping = "{"
+            + "\"properties\": {"
+            + "  \"region\": {\"type\": \"keyword\"},"
+            + "  \"host\": {\"type\": \"keyword\"},"
+            + "  \"cpu\": {\"type\": \"long\"}"
+            + "}"
+            + "}";
+        client().admin().indices().prepareCreate(indexName)
+            .setMapping(mapping)
+            .get();
+        ensureGreen(indexName);
+
+        SearchSourceBuilder searchSource = new SearchSourceBuilder();
+        searchSource.size(0);
+        searchSource.aggregation(
+            new MultiTermsAggregationBuilder("groups")
+                .terms(List.of(
+                    new MultiTermsValuesSourceConfig.Builder().setFieldName("region").build(),
+                    new MultiTermsValuesSourceConfig.Builder().setFieldName("host").build()
+                ))
+        );
+
+        DslCalcitePlugin plugin = getPlugin(DslCalcitePlugin.class);
+        String relNodeString = plugin.convertDsl(searchSource, indexName);
+
+        assertNotNull("RelNode string should not be null", relNodeString);
+        assertThat("Should contain LogicalAggregate", relNodeString, containsString("LogicalAggregate"));
+
+        // Verify GROUP BY on both fields
+        // Fields are returned in alphabetical order: cpu(0), host(1), region(2)
+        // GROUP BY on host(1) and region(2)
+        assertThat("Should contain group by two fields", relNodeString, containsString("group=[{1, 2}]"));
+
+        // Verify COUNT is present (always added)
+        assertThat("Should contain COUNT function", relNodeString, containsString("COUNT"));
+    }
+
+    /**
+     * Test: Multi-terms aggregation with order by _count desc.
+     *
+     * DSL Query:
+     * {
+     *   "size": 0,
+     *   "aggs": {
+     *     "popular": {
+     *       "multi_terms": {
+     *         "terms": [{"field": "region"}, {"field": "host"}],
+     *         "order": {"_count": "desc"}
+     *       }
+     *     }
+     *   }
+     * }
+     *
+     * Expected Calcite Plan:
+     * LogicalSort(sort0=[$2], dir0=[DESC])
+     *   LogicalAggregate(group=[{1, 2}], _count=[COUNT()])
+     *     LogicalTableScan(table=[[test-multi-terms-count-order]])
+     */
+    public void testMultiTermsAggregationOrderByCount() throws Exception {
+        String indexName = "test-multi-terms-count-order";
+        String mapping = "{"
+            + "\"properties\": {"
+            + "  \"region\": {\"type\": \"keyword\"},"
+            + "  \"host\": {\"type\": \"keyword\"},"
+            + "  \"cpu\": {\"type\": \"long\"}"
+            + "}"
+            + "}";
+        client().admin().indices().prepareCreate(indexName)
+            .setMapping(mapping)
+            .get();
+        ensureGreen(indexName);
+
+        SearchSourceBuilder searchSource = new SearchSourceBuilder();
+        searchSource.size(0);
+        searchSource.aggregation(
+            new MultiTermsAggregationBuilder("popular")
+                .terms(List.of(
+                    new MultiTermsValuesSourceConfig.Builder().setFieldName("region").build(),
+                    new MultiTermsValuesSourceConfig.Builder().setFieldName("host").build()
+                ))
+                .order(BucketOrder.count(false))
+        );
+
+        DslCalcitePlugin plugin = getPlugin(DslCalcitePlugin.class);
+        String relNodeString = plugin.convertDsl(searchSource, indexName);
+
+        assertNotNull("RelNode string should not be null", relNodeString);
+        assertThat("Should contain LogicalAggregate", relNodeString, containsString("LogicalAggregate"));
+        assertThat("Should contain LogicalSort", relNodeString, containsString("LogicalSort"));
+
+        // Verify GROUP BY on both fields
+        // Fields are returned in alphabetical order: cpu(0), host(1), region(2)
+        // GROUP BY on host(1) and region(2)
+        assertThat("Should contain group by two fields", relNodeString, containsString("group=[{1, 2}]"));
+
+        // Verify sort is DESC (order by _count desc)
+        assertThat("Should contain DESC direction", relNodeString, containsString("DESC"));
+
+        // _count is at index 2 in post-agg schema: [host(0), region(1), _count(2)]
+        // The sort may include additional key tie-breaker fields added by MultiTermsAggregationBuilder
+        // With annotated output, field refs include names e.g. $2:_count
+        assertThat("Should sort by _count field", relNodeString, containsString("[$2]"));
+    }
+
+    /**
      * Test 13.13: Error handling for invalid queries
      * Verifies that queries with non-existent fields produce appropriate error messages.
-     * 
+     *
      * DSL Query:
      * {
      *   "query": {
@@ -704,7 +928,7 @@ public class DslCalciteIntegrationIT extends DslCalciteIntegrationTestBase {
      *     }
      *   }
      * }
-     * 
+     *
      * Expected Result:
      * ConversionException with message: "Field 'invalid_field' not found in index schema"
      */

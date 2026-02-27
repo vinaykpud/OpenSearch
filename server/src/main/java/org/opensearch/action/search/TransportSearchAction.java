@@ -356,7 +356,7 @@ public class TransportSearchAction extends HandledTransportAction<SearchRequest,
                         logger.info("[DSL-Calcite POC] Found converter: {}", converter.getConverterName());
 
                         try {
-                            String result = converter.convertDsl(searchRequest.source(), indexName);
+                            String result = converter.convertDslAnnotated(searchRequest.source(), indexName);
                             System.out.println(result);
                         } catch (Exception e) {
                             logger.warn("[DSL-Calcite POC] Converter {} failed", converter.getConverterName(), e);
