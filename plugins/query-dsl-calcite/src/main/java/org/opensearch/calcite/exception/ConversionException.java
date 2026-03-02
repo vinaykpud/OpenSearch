@@ -51,7 +51,7 @@ public class ConversionException extends Exception {
      * @return A ConversionException instance
      */
     public static ConversionException unsupportedQuery(String type) {
-        return new ConversionException(type, "Query type not supported in POC");
+        return new ConversionException(type, "Query type not supported");
     }
 
     /**

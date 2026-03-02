@@ -6,7 +6,7 @@ An OpenSearch plugin that converts OpenSearch Query DSL to Apache Calcite logica
 
 This plugin integrates with OpenSearch's search pipeline to convert DSL queries into Calcite's logical plan representation. It supports:
 
-- **Query Types**: Term, Range, Match, Bool (must + filter), Match All
+- **Query Types**: Term, Range, Bool (must + filter), Match All
 - **Aggregations**: Metric (avg, sum, min, max, count) and bucket (terms, multi\_terms)
 - **Sorting**: Pre-aggregation and post-aggregation sorting with BucketOrder
 - **Pagination**: Offset and fetch (limit)
@@ -55,7 +55,7 @@ RelNode (Calcite Logical Plan)
 | `AggregationInfo` | Extracts GROUP BY fields, metric fields, and post-agg sort info |
 | `IndexMappingClient` | Retrieves and flattens OpenSearch index mappings |
 | `OpenSearchTypeMapper` | Maps OpenSearch field types to Calcite SQL types |
-| `OpenSearchFunctions` | Defines UDFs (MATCH\_QUERY) |
+| `OpenSearchFunctions` | Defines custom Calcite functions for OpenSearch operations |
 
 ## Supported Features
 
@@ -65,7 +65,6 @@ RelNode (Calcite Logical Plan)
 |-----------|------------------------|
 | `term` | `=($field, value)` — equality filter |
 | `range` (gte, lte, gt, lt) | `AND(>=($field, min), <=($field, max))` — range filter |
-| `match` | `MATCH_QUERY($field, text, operator)` — UDF call |
 | `bool` (must + filter) | `AND(condition1, condition2, ...)` — flattened conjunction |
 | `match_all` | Skipped (boolean literal `TRUE`) |
 
@@ -161,24 +160,7 @@ LogicalFilter(condition=[AND(=($0, 'electronics'), >=($1, 100), <=($1, 500))])
 
 Both `must` and `filter` clauses are flattened into a single AND conjunction.
 
-### 4. Match Query
-
-```json
-{
-  "query": {
-    "match": { "title": "laptop" }
-  }
-}
-```
-**Mapping:** `title: text`
-```
-LogicalFilter(condition=[MATCH_QUERY($0, 'laptop', 'OR')])
-  LogicalTableScan(table=[[test-match-query]])
-```
-
-The `MATCH_QUERY` UDF takes `(field, text, operator)`. The default operator is `OR`.
-
-### 5. Sort
+### 4. Sort
 
 ```json
 {
@@ -193,7 +175,7 @@ LogicalSort(sort0=[$0], dir0=[ASC])
   LogicalTableScan(table=[[test-sort]])
 ```
 
-### 6. Pagination
+### 5. Pagination
 
 ```json
 {
@@ -207,7 +189,7 @@ LogicalSort(offset=[10], fetch=[20])
   LogicalTableScan(table=[[test-pagination]])
 ```
 
-### 7. Source Filtering (Projection)
+### 6. Source Filtering (Projection)
 
 ```json
 {
@@ -222,7 +204,7 @@ LogicalProject(title=[$0], price=[$1])
 
 Only the requested fields appear in the projection. `brand` and `description` are excluded.
 
-### 8. Metric Aggregation (avg)
+### 7. Metric Aggregation (avg)
 
 ```json
 {
@@ -242,7 +224,7 @@ LogicalAggregate(group=[{}], avg_price=[AVG($0)], _count=[COUNT()])
 
 `group=[{}]` means no GROUP BY (global aggregation). An implicit `_count` is always appended.
 
-### 9. Terms Aggregation with Sub-Aggregation
+### 8. Terms Aggregation with Sub-Aggregation
 
 ```json
 {
@@ -266,7 +248,7 @@ LogicalSort(sort0=[$2], sort1=[$0], dir0=[DESC], dir1=[ASC])
 
 No explicit order → defaults to `[_count DESC, _key ASC]`. Post-agg schema: `[brand(0), avg_price(1), _count(2)]`, so `sort0=[$2]` is `_count DESC` and `sort1=[$0]` is `_key ASC`.
 
-### 10. Post-Aggregation Sorting (explicit order)
+### 9. Post-Aggregation Sorting (explicit order)
 
 ```json
 {
@@ -293,7 +275,7 @@ LogicalSort(sort0=[$1], sort1=[$0], dir0=[DESC], dir1=[ASC])
 
 Explicit `"order": {"avg_price": "desc"}` sorts by the `avg_price` metric. OpenSearch appends a `_key ASC` tie-breaker automatically.
 
-### 11. Multi-Terms Aggregation
+### 10. Multi-Terms Aggregation
 
 ```json
 {
@@ -321,14 +303,14 @@ LogicalSort(sort0=[$2], sort1=[$3], sort2=[$0], dir0=[DESC], dir1=[DESC], dir2=[
 
 Fields are in alphabetical order: `cpu(0), host(1), memory(2), region(3)`. GROUP BY on `host(1)` and `region(3)`.
 
-### 12. Complex Query (all features combined)
+### 11. Complex Query (all features combined)
 
 ```json
 {
   "query": {
     "bool": {
       "must": [
-        { "match": { "title": "laptop" } }
+        { "term": { "brand": "dell" } }
       ],
       "filter": [
         { "term": { "category": "electronics" } },
@@ -351,11 +333,11 @@ Fields are in alphabetical order: `cpu(0), host(1), memory(2), region(3)`. GROUP
   "size": 10
 }
 ```
-**Mapping:** `category: keyword, brand: keyword, price: long, title: text`
+**Mapping:** `brand: keyword, category: keyword, price: long`
 ```
-LogicalAggregate(group=[{1}], avg_price=[AVG($2)], _count=[COUNT()])
+LogicalAggregate(group=[{0}], avg_price=[AVG($2)], _count=[COUNT()])
   LogicalSort(sort0=[$2], dir0=[ASC])
-    LogicalFilter(condition=[AND(MATCH_QUERY($3, 'laptop', 'OR'), =($0, 'electronics'), >=($2, 500), <=($2, 2000))])
+    LogicalFilter(condition=[AND(=($0, 'dell'), =($1, 'electronics'), >=($2, 500), <=($2, 2000))])
       LogicalTableScan(table=[[test-complex-query]])
 ```
 
@@ -424,7 +406,7 @@ Current limitations:
 
 1. **Read-only** — converts queries to logical plans but does not execute them
 2. **Logging only** — converted plans are logged, not used for query execution
-3. **Limited query types** — only `term`, `range`, `match`, `bool` (must + filter), and `match_all`
+3. **Limited query types** — only `term`, `range`, `bool` (must + filter), and `match_all`
 4. **Bool query** — `should` and `must_not` clauses are not yet supported
 5. **Nested objects** — flattened using dot notation, no true nested query support
 6. **Pagination with aggregations** — `from`/`size` is not applied when aggregations are present

@@ -10,7 +10,6 @@ package org.opensearch.calcite;
 
 import org.apache.calcite.rel.RelNode;
 import org.opensearch.calcite.converter.CalciteConverter;
-import org.opensearch.calcite.converter.RelNodeExplainUtils;
 import org.opensearch.cluster.metadata.IndexNameExpressionResolver;
 import org.opensearch.cluster.service.ClusterService;
 import org.opensearch.common.settings.Setting;
@@ -34,43 +33,22 @@ import java.util.List;
 import java.util.function.Supplier;
 
 /**
- * Main plugin class for OpenSearch DSL to Calcite converter.
+ * Plugin entry point for the OpenSearch DSL to Calcite converter.
  *
- * This plugin provides functionality to convert OpenSearch DSL queries
- * into Apache Calcite logical plans (RelNode).
+ * Converts OpenSearch DSL queries into Apache Calcite logical plans (RelNode).
+ * Implements {@link DslConverterPlugin} so that {@code TransportSearchAction} can
+ * discover and invoke this converter via {@code PluginsService}.
  *
- * This plugin is extensible, allowing other plugins (like query-planner)
- * to access its classes and services.
+ * Also implements {@link ExtensiblePlugin} to allow downstream plugins
+ * (e.g. query-planner) to access converter classes and services.
  */
 public class DslCalcitePlugin extends Plugin implements DslConverterPlugin, ExtensiblePlugin {
 
     private CalciteConverterService converterService;
 
-    /**
-     * Constructor for DslCalcitePlugin.
-     *
-     * @param settings The settings for the plugin
-     */
     public DslCalcitePlugin(Settings settings) {
-        // Plugin initialization
     }
 
-    /**
-     * Creates components for the DSL Calcite plugin.
-     *
-     * @param client The client instance
-     * @param clusterService The cluster service instance
-     * @param threadPool The thread pool instance
-     * @param resourceWatcherService The resource watcher service instance
-     * @param scriptService The script service instance
-     * @param xContentRegistry The named XContent registry
-     * @param environment The environment instance
-     * @param nodeEnvironment The node environment instance
-     * @param namedWriteableRegistry The named writeable registry
-     * @param indexNameExpressionResolver The index name expression resolver instance
-     * @param repositoriesServiceSupplier The supplier for the repositories service
-     * @return Collection of created components
-     */
     @Override
     public Collection<Object> createComponents(
         Client client,
@@ -85,73 +63,35 @@ public class DslCalcitePlugin extends Plugin implements DslConverterPlugin, Exte
         IndexNameExpressionResolver indexNameExpressionResolver,
         Supplier<RepositoriesService> repositoriesServiceSupplier
     ) {
-        // Pass client to CalciteConverterService for index mapping retrieval
         converterService = new CalciteConverterService(client);
-
-        // No need to register - PluginsService automatically discovers plugins implementing DslConverterPlugin
-
         return Collections.singletonList(converterService);
     }
 
-    /**
-     * Gets the plugin settings.
-     *
-     * @return A list of plugin settings (empty for now)
-     */
     @Override
     public List<Setting<?>> getSettings() {
-        // Plugin settings can be added here if needed
         return Collections.emptyList();
-    }
-
-    /**
-     * Converts an OpenSearch DSL query to a string representation.
-     * Uses standard Calcite {@code relNode.explain()} output with {@code $N} positional references.
-     *
-     * @param source The SearchSourceBuilder containing the DSL query
-     * @param indexName The name of the target index
-     * @return A string representation of the converted query
-     */
-    @Override
-    public String convertDsl(org.opensearch.search.builder.SearchSourceBuilder source, String indexName) {
-        try {
-            CalciteConverter converter = converterService.getConverter();
-            RelNode relNode = converter.convert(source, indexName);
-
-            // Handle null RelNode (POC returns null for now)
-            return (relNode != null) ? relNode.explain() : "null (POC - converter not yet implemented)";
-        } catch (Exception e) {
-            return formatError(e);
-        }
     }
 
     /**
      * Converts an OpenSearch DSL query to an annotated string representation.
      * Field references are resolved to {@code $N:fieldName} format for readability.
-     * Intended for console and REST output.
      *
      * @param source The SearchSourceBuilder containing the DSL query
      * @param indexName The name of the target index
      * @return An annotated string representation of the converted query
      */
     @Override
-    public String convertDslAnnotated(org.opensearch.search.builder.SearchSourceBuilder source, String indexName) {
+    public String convertDsl(org.opensearch.search.builder.SearchSourceBuilder source, String indexName) {
         try {
             CalciteConverter converter = converterService.getConverter();
             RelNode relNode = converter.convert(source, indexName);
-
-            if (relNode != null) {
-                return RelNodeExplainUtils.annotatedExplain(relNode);
-            }
-            return "null (POC - converter not yet implemented)";
+            return (relNode != null) ? relNode.explain() : "null";
         } catch (Exception e) {
             return formatError(e);
         }
     }
 
-    /**
-     * Formats an exception into a detailed error string for debugging.
-     */
+    /** Formats an exception into a detailed error string for debugging. */
     private String formatError(Exception e) {
         StringBuilder sb = new StringBuilder();
         sb.append("Error: ").append(e.getClass().getSimpleName()).append(": ").append(e.getMessage());

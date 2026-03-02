@@ -1,3 +1,11 @@
+/*
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * The OpenSearch Contributors require contributions made to
+ * this file be licensed under the Apache-2.0 license or a
+ * compatible open source license.
+ */
+
 package org.opensearch.calcite.converter;
 
 import org.apache.calcite.rel.RelCollations;
@@ -15,8 +23,11 @@ import org.opensearch.search.aggregations.metrics.MaxAggregationBuilder;
 import java.util.Collections;
 
 /**
- * Implementation of AggregationBuilderVisitor that converts OpenSearch metric aggregations
- * to Calcite AggregateCall objects.
+ * Converts OpenSearch metric aggregation builders to Calcite AggregateCall objects.
+ *
+ * Result type nullability depends on whether a GROUP BY is present:
+ * with GROUP BY, aggregates are non-nullable (at least one group exists);
+ * without GROUP BY (global aggregation), they are nullable (no input rows → null).
  */
 public class AggregateCallVisitor implements AggregationBuilderVisitor {
 
@@ -24,13 +35,6 @@ public class AggregateCallVisitor implements AggregationBuilderVisitor {
     private final RelDataTypeFactory typeFactory;
     private final boolean hasGroupBy;
 
-    /**
-     * Creates a new AggregateCallVisitor.
-     *
-     * @param rowType the row type of the input relation
-     * @param typeFactory the type factory for creating nullable types
-     * @param hasGroupBy whether the query has a GROUP BY clause (non-empty group set)
-     */
     public AggregateCallVisitor(RelDataType rowType, RelDataTypeFactory typeFactory, boolean hasGroupBy) {
         this.rowType = rowType;
         this.typeFactory = typeFactory;
@@ -39,109 +43,34 @@ public class AggregateCallVisitor implements AggregationBuilderVisitor {
 
     @Override
     public AggregateCall visitAvgAggregation(AvgAggregationBuilder aggregation) throws ConversionException {
-        String fieldName = aggregation.field();
-        int fieldIndex = SchemaUtils.findFieldIndex(fieldName, rowType);
-        SqlAggFunction avgFunction = SqlStdOperatorTable.AVG;
-
-        // Get the field type
-        RelDataType fieldType = rowType.getFieldList().get(fieldIndex).getType();
-        
-        // Make type nullable only when there's NO GROUP BY
-        // With GROUP BY: aggregates return non-nullable types (always at least one group)
-        // Without GROUP BY: aggregates return nullable types (can be null when no input rows)
-        RelDataType resultType = hasGroupBy 
-            ? fieldType 
-            : typeFactory.createTypeWithNullability(fieldType, true);
-
-        return AggregateCall.create(
-            avgFunction,
-            false,
-            false,
-            false,
-            Collections.singletonList(fieldIndex),
-            -1,
-            RelCollations.EMPTY,
-            resultType,
-            aggregation.getName()
-        );
+        return buildMetricCall(SqlStdOperatorTable.AVG, aggregation.field(), aggregation.getName());
     }
 
     @Override
     public AggregateCall visitSumAggregation(SumAggregationBuilder aggregation) throws ConversionException {
-        String fieldName = aggregation.field();
-        int fieldIndex = SchemaUtils.findFieldIndex(fieldName, rowType);
-        SqlAggFunction sumFunction = SqlStdOperatorTable.SUM;
-
-        // Get the field type
-        RelDataType fieldType = rowType.getFieldList().get(fieldIndex).getType();
-        
-        // Make type nullable only when there's NO GROUP BY
-        // With GROUP BY: aggregates return non-nullable types (always at least one group)
-        // Without GROUP BY: aggregates return nullable types (can be null when no input rows)
-        RelDataType resultType = hasGroupBy 
-            ? fieldType 
-            : typeFactory.createTypeWithNullability(fieldType, true);
-
-        return AggregateCall.create(
-            sumFunction,
-            false,
-            false,
-            false,
-            Collections.singletonList(fieldIndex),
-            -1,
-            RelCollations.EMPTY,
-            resultType,
-            aggregation.getName()
-        );
+        return buildMetricCall(SqlStdOperatorTable.SUM, aggregation.field(), aggregation.getName());
     }
 
     @Override
     public AggregateCall visitMinAggregation(MinAggregationBuilder aggregation) throws ConversionException {
-        String fieldName = aggregation.field();
-        int fieldIndex = SchemaUtils.findFieldIndex(fieldName, rowType);
-        SqlAggFunction minFunction = SqlStdOperatorTable.MIN;
-
-        // Get the field type
-        RelDataType fieldType = rowType.getFieldList().get(fieldIndex).getType();
-        
-        // Make type nullable only when there's NO GROUP BY
-        // With GROUP BY: aggregates return non-nullable types (always at least one group)
-        // Without GROUP BY: aggregates return nullable types (can be null when no input rows)
-        RelDataType resultType = hasGroupBy 
-            ? fieldType 
-            : typeFactory.createTypeWithNullability(fieldType, true);
-
-        return AggregateCall.create(
-            minFunction,
-            false,
-            false,
-            false,
-            Collections.singletonList(fieldIndex),
-            -1,
-            RelCollations.EMPTY,
-            resultType,
-            aggregation.getName()
-        );
+        return buildMetricCall(SqlStdOperatorTable.MIN, aggregation.field(), aggregation.getName());
     }
 
     @Override
     public AggregateCall visitMaxAggregation(MaxAggregationBuilder aggregation) throws ConversionException {
-        String fieldName = aggregation.field();
-        int fieldIndex = SchemaUtils.findFieldIndex(fieldName, rowType);
-        SqlAggFunction maxFunction = SqlStdOperatorTable.MAX;
+        return buildMetricCall(SqlStdOperatorTable.MAX, aggregation.field(), aggregation.getName());
+    }
 
-        // Get the field type
+    private AggregateCall buildMetricCall(SqlAggFunction function, String fieldName, String aggName)
+            throws ConversionException {
+        int fieldIndex = SchemaUtils.findFieldIndex(fieldName, rowType);
         RelDataType fieldType = rowType.getFieldList().get(fieldIndex).getType();
-        
-        // Make type nullable only when there's NO GROUP BY
-        // With GROUP BY: aggregates return non-nullable types (always at least one group)
-        // Without GROUP BY: aggregates return nullable types (can be null when no input rows)
-        RelDataType resultType = hasGroupBy 
-            ? fieldType 
+        RelDataType resultType = hasGroupBy
+            ? fieldType
             : typeFactory.createTypeWithNullability(fieldType, true);
 
         return AggregateCall.create(
-            maxFunction,
+            function,
             false,
             false,
             false,
@@ -149,7 +78,7 @@ public class AggregateCallVisitor implements AggregationBuilderVisitor {
             -1,
             RelCollations.EMPTY,
             resultType,
-            aggregation.getName()
+            aggName
         );
     }
 }

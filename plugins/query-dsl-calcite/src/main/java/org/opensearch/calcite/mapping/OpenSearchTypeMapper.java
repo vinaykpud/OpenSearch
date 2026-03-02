@@ -11,19 +11,11 @@ package org.opensearch.calcite.mapping;
 import org.apache.calcite.sql.type.SqlTypeName;
 
 /**
- * Utility class for mapping OpenSearch field types to Calcite SqlTypeName.
- * 
- * This mapper provides a direct mapping from OpenSearch types to standard Calcite types.
- * Inspired by the SQL plugin's OpenSearchDataType.MappingType enum, but simplified for POC.
- * 
- * The SQL plugin uses a three-layer architecture:
- *   OpenSearch Type → ExprCoreType → Calcite RelDataType (with UDTs)
- * 
- * For POC simplicity, we use direct mapping:
- *   OpenSearch Type → Calcite SqlTypeName (standard types only)
- * 
- * Future enhancements could add UDTs for IP, DATE, TIME, TIMESTAMP, BINARY
- * similar to the SQL plugin's approach.
+ * Maps OpenSearch field types to Calcite SqlTypeName.
+ *
+ * Provides a direct mapping from OpenSearch index mapping types to standard
+ * Calcite SQL types. Type names are normalized (underscores removed, lowercased)
+ * before matching. Unknown types default to {@link SqlTypeName#ANY}.
  */
 public class OpenSearchTypeMapper {
 

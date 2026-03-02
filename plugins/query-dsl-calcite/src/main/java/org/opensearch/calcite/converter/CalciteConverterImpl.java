@@ -39,7 +39,6 @@ import org.opensearch.calcite.mapping.OpenSearchTypeMapper;
 import org.opensearch.transport.client.Client;
 import org.opensearch.index.query.BoolQueryBuilder;
 import org.opensearch.index.query.MatchAllQueryBuilder;
-import org.opensearch.index.query.MatchQueryBuilder;
 import org.opensearch.index.query.QueryBuilder;
 import org.opensearch.index.query.RangeQueryBuilder;
 import org.opensearch.index.query.TermQueryBuilder;
@@ -63,14 +62,16 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Implementation of CalciteConverter that converts OpenSearch DSL to Calcite RelNode.
+ * Converts an OpenSearch SearchSourceBuilder into a Calcite logical plan (RelNode).
  *
- * This converter builds a Calcite logical plan from OpenSearch SearchSourceBuilder:
- * 1. TableScan - represents the index
- * 2. Filter - represents the query conditions
- * 3. Aggregate - represents aggregations (future)
- * 4. Sort - represents sorting and pagination (future)
- * 5. Project - represents source filtering (future)
+ * The conversion pipeline applies the following steps in order:
+ * 1. TableScan — discover index schema from mappings
+ * 2. Filter — convert query conditions to RexNode predicates
+ * 3. Sort — convert top-level sort clauses to collations
+ * 4. Aggregate — convert bucket and metric aggregations
+ * 5. Post-aggregation sort — apply BucketOrder collations
+ * 6. Project — apply _source field filtering
+ * 7. Pagination — apply from/size as offset/fetch
  */
 public class CalciteConverterImpl implements CalciteConverter {
 
@@ -81,55 +82,42 @@ public class CalciteConverterImpl implements CalciteConverter {
     private final Map<String, RelDataType> schemaCache;
 
     /**
-     * Constructor for CalciteConverterImpl.
+     * Creates a new CalciteConverterImpl.
      *
      * @param schema The Calcite schema
      * @param client The OpenSearch client for retrieving index mappings
-     * @param schemaCache Cache for storing discovered schemas
+     * @param schemaCache Cache for storing discovered index schemas
      */
     public CalciteConverterImpl(SchemaPlus schema, Client client, Map<String, RelDataType> schemaCache) {
         this.schema = schema;
         this.mappingClient = new IndexMappingClient(client);
         this.schemaCache = schemaCache;
 
-        // Create type factory
         RelDataTypeFactory typeFactory = new JavaTypeFactoryImpl();
-
-        // Create planner and cluster
         VolcanoPlanner planner = new VolcanoPlanner();
-
         this.cluster = RelOptCluster.create(planner, new RexBuilder(typeFactory));
         this.rexBuilder = cluster.getRexBuilder();
     }
 
-    /**
-     * Converts an OpenSearch DSL query to a Calcite RelNode.
-     *
-     * @param searchSource The SearchSourceBuilder containing the DSL query
-     * @param indexName The name of the target index
-     * @return Calcite logical plan (RelNode)
-     * @throws Exception if conversion fails
-     */
     @Override
     public RelNode convert(SearchSourceBuilder searchSource, String indexName) throws Exception {
         // Step 1: Create table scan for the index
         RelNode relNode = createTableScan(indexName);
         RelDataType originalSchema = relNode.getRowType();
 
-        // Step 2: Apply filter if query exists
-        // Skip filter for match_all queries since LogicalTableScan already returns all rows
+        // Step 2: Apply filter (skip match_all since LogicalTableScan already returns all rows)
         if (searchSource.query() != null && !(searchSource.query() instanceof MatchAllQueryBuilder)) {
             RexNode condition = buildFilter(searchSource.query(), originalSchema);
             relNode = LogicalFilter.create(relNode, condition);
         }
 
-        // Step 3: Apply pre-aggregation sorts (top-level sorts)
+        // Step 3: Apply pre-aggregation sorts
         if (searchSource.sorts() != null && !searchSource.sorts().isEmpty()) {
             RelDataType rowType = relNode.getRowType();
             relNode = buildSort(relNode, searchSource.sorts(), rowType);
         }
 
-        // Step 4: Apply aggregations if they exist
+        // Step 4: Apply aggregations
         AggregationInfo aggInfo = null;
         if (searchSource.aggregations() != null && !searchSource.aggregations().getAggregatorFactories().isEmpty()) {
             RelDataType inputRowType = relNode.getRowType();
@@ -161,7 +149,7 @@ public class CalciteConverterImpl implements CalciteConverter {
             );
         }
 
-        // Step 5: Apply post-aggregation sorts (from aggregation order parameters)
+        // Step 5: Apply post-aggregation sorts (from BucketOrder parameters)
         if (aggInfo != null && !aggInfo.getCollations().isEmpty()) {
             RelCollation relCollation = RelCollations.of(aggInfo.getCollations());
             relNode = LogicalSort.create(relNode, relCollation, null, null);
@@ -174,53 +162,38 @@ public class CalciteConverterImpl implements CalciteConverter {
         }
 
         // Step 7: Apply pagination (from/size)
-        // Skip pagination if size=0 and aggregations exist (user only wants aggregation results)
-        boolean hasAggregations = searchSource.aggregations() != null &&
-                                  searchSource.aggregations().getAggregatorFactories() != null &&
-                                  !searchSource.aggregations().getAggregatorFactories().isEmpty();
+        // Skip when size=0 with aggregations (aggregation-only queries need no document pagination)
+        boolean hasAggregations = searchSource.aggregations() != null
+            && searchSource.aggregations().getAggregatorFactories() != null
+            && !searchSource.aggregations().getAggregatorFactories().isEmpty();
         relNode = buildPagination(relNode, searchSource, hasAggregations);
 
         return relNode;
     }
 
     /**
-     * Creates a LogicalTableScan for the specified index with dynamic schema discovery.
-     *
-     * @param indexName The name of the index
-     * @return LogicalTableScan node
-     * @throws ConversionException if schema discovery fails
+     * Creates a LogicalTableScan by discovering the index schema from OpenSearch mappings.
+     * Fields are flattened using dot-notation for nested objects and multi-fields,
+     * and each field type is mapped to the corresponding Calcite SqlTypeName.
      */
     private RelNode createTableScan(String indexName) throws ConversionException {
         try {
-            // Check if schema is already cached
             RelDataType cachedSchema = schemaCache.get(indexName);
 
             if (cachedSchema == null) {
-                // Retrieve index mappings from OpenSearch
                 Map<String, Object> properties = mappingClient.getMappings(indexName);
-
-                // Flatten nested fields
                 Map<String, String> flattenedFields = mappingClient.flattenFields(properties);
 
-                // Build RelDataType from flattened fields
                 RelDataTypeFactory.Builder builder = cluster.getTypeFactory().builder();
-
                 for (Map.Entry<String, String> entry : flattenedFields.entrySet()) {
-                    String fieldName = entry.getKey();
-                    String fieldType = entry.getValue();
-
-                    // Convert OpenSearch type to Calcite type
-                    SqlTypeName calciteType = OpenSearchTypeMapper.toCalciteType(fieldType);
-                    builder.add(fieldName, calciteType);
+                    SqlTypeName calciteType = OpenSearchTypeMapper.toCalciteType(entry.getValue());
+                    builder.add(entry.getKey(), calciteType);
                 }
 
                 cachedSchema = builder.build();
-
-                // Cache the schema
                 schemaCache.put(indexName, cachedSchema);
             }
 
-            // Create table with discovered schema
             final RelDataType finalSchema = cachedSchema;
             Table table = new AbstractTable() {
                 @Override
@@ -229,16 +202,14 @@ public class CalciteConverterImpl implements CalciteConverter {
                 }
             };
 
-            // Register table in schema
             schema.add(indexName, table);
 
-            // Create table scan
             RelOptTable relOptTable = RelOptTableImpl.create(
-                null,  // RelOptSchema
+                null,
                 table.getRowType(cluster.getTypeFactory()),
                 List.of(indexName),
                 table,
-                (org.apache.calcite.linq4j.tree.Expression) null  // Expression
+                (org.apache.calcite.linq4j.tree.Expression) null
             );
 
             return LogicalTableScan.create(cluster, relOptTable, List.of());
@@ -248,22 +219,16 @@ public class CalciteConverterImpl implements CalciteConverter {
     }
 
     /**
-     * Builds a RexNode filter condition from an OpenSearch QueryBuilder.
-     *
-     * @param query The OpenSearch query
-     * @param rowType The row type for field references
-     * @return RexNode representing the filter condition
+     * Builds a RexNode filter condition from an OpenSearch QueryBuilder
+     * by dispatching to the appropriate visitor method.
      */
     private RexNode buildFilter(QueryBuilder query, RelDataType rowType) {
         RexNodeQueryVisitor visitor = new RexNodeQueryVisitor(rexBuilder, rowType);
 
-        // Dispatch to appropriate visitor method based on query type
-        if (query instanceof org.opensearch.index.query.BoolQueryBuilder) {
+        if (query instanceof BoolQueryBuilder) {
             return visitor.visitBoolQuery((BoolQueryBuilder) query);
         } else if (query instanceof TermQueryBuilder) {
             return visitor.visitTermQuery((TermQueryBuilder) query);
-        } else if (query instanceof MatchQueryBuilder) {
-            return visitor.visitMatchQuery((MatchQueryBuilder) query);
         } else if (query instanceof RangeQueryBuilder) {
             return visitor.visitRangeQuery((RangeQueryBuilder) query);
         } else if (query instanceof MatchAllQueryBuilder) {
@@ -276,37 +241,23 @@ public class CalciteConverterImpl implements CalciteConverter {
     }
 
     /**
-     * Builds a list of AggregateCall objects from OpenSearch aggregations.
-     * Note: Terms aggregations are handled separately in AggregationInfo.build()
-     * and do not produce AggregateCall objects, but their sub-aggregations do.
-     *
-     * @param searchSource The SearchSourceBuilder containing aggregations
-     * @param rowType The row type for field references
-     * @param hasGroupBy Whether the query has a GROUP BY clause (non-empty group set)
-     * @return List of AggregateCall objects (metric aggregations only)
-     * @throws ConversionException if aggregation conversion fails
+     * Builds AggregateCall objects from metric aggregations.
+     * Bucket aggregations (terms, multi_terms) are handled separately in {@link AggregationInfo}
+     * as GROUP BY fields; only their sub-aggregations produce AggregateCall objects.
      */
     private List<AggregateCall> buildAggregations(SearchSourceBuilder searchSource, RelDataType rowType, boolean hasGroupBy)
             throws ConversionException {
         List<AggregateCall> aggregateCalls = new ArrayList<>();
 
-        // Create visitor for converting aggregations
         AggregateCallVisitor visitor = new AggregateCallVisitor(rowType, cluster.getTypeFactory(), hasGroupBy);
-
-        // Process all aggregations (top-level and nested)
         processAggregations(searchSource.aggregations().getAggregatorFactories(), visitor, aggregateCalls);
 
         return aggregateCalls;
     }
 
     /**
-     * Processes aggregations recursively, converting them to AggregateCall objects.
-     * Handles both top-level and nested aggregations.
-     *
-     * @param aggregations Collection of aggregation builders to process
-     * @param visitor Visitor for converting aggregations to AggregateCall
-     * @param aggregateCalls List to add AggregateCall objects to
-     * @throws ConversionException if aggregation conversion fails
+     * Recursively processes aggregation builders, converting metric aggregations
+     * to AggregateCall objects and descending into bucket aggregation sub-aggregations.
      */
     private void processAggregations(
         Collection<AggregationBuilder> aggregations,
@@ -326,74 +277,42 @@ public class CalciteConverterImpl implements CalciteConverter {
                 aggregateCalls.add(visitor.visitMinAggregation((MinAggregationBuilder) agg));
             } else if (agg instanceof MaxAggregationBuilder) {
                 aggregateCalls.add(visitor.visitMaxAggregation((MaxAggregationBuilder) agg));
-            } else if (agg instanceof TermsAggregationBuilder) {
-                TermsAggregationBuilder termsAgg = (TermsAggregationBuilder) agg;
+            } else if (agg instanceof TermsAggregationBuilder termsAgg) {
                 processAggregations(termsAgg.getSubAggregations(), visitor, aggregateCalls);
-            } else if (agg instanceof MultiTermsAggregationBuilder) {
-                MultiTermsAggregationBuilder multiTermsAgg = (MultiTermsAggregationBuilder) agg;
+            } else if (agg instanceof MultiTermsAggregationBuilder multiTermsAgg) {
                 processAggregations(multiTermsAgg.getSubAggregations(), visitor, aggregateCalls);
             } else {
                 throw new ConversionException(
                     "aggregation-conversion",
-                    "Unsupported aggregation type: " + agg.getClass().getSimpleName() +
-                    " (name: " + agg.getName() + "). "
+                    "Unsupported aggregation type: " + agg.getClass().getSimpleName()
+                        + " (name: " + agg.getName() + ")"
                 );
             }
         }
     }
 
     /**
-     * Builds a LogicalSort node from OpenSearch sort builders.
-     *
-     * Per Requirement 13.1: "WHEN the Converter processes a sort clause
-     * THEN the Converter SHALL produce a LogicalSort with the specified field and direction"
-     *
-     * Per Requirement 13.2: "WHEN the Converter processes multiple sort fields
-     * THEN the Converter SHALL preserve the sort order priority"
-     *
-     * @param input The input RelNode to apply sorting to
-     * @param sorts List of SortBuilder to apply
-     * @param rowType The row type for field references
-     * @return LogicalSort node with collation
-     * @throws ConversionException if sort conversion fails
+     * Converts top-level FieldSortBuilder entries to a LogicalSort with collations.
+     * Null ordering follows OpenSearch defaults: nulls last for ASC, nulls first for DESC.
      */
     private RelNode buildSort(RelNode input, List<SortBuilder<?>> sorts, RelDataType rowType)
             throws ConversionException {
         List<RelFieldCollation> fieldCollations = new ArrayList<>();
 
-        // Iterate through all sort builders
         for (SortBuilder<?> sortBuilder : sorts) {
             if (sortBuilder instanceof FieldSortBuilder fieldSort) {
                 String fieldName = fieldSort.getFieldName();
-
-                // Find the field index in the row type
                 int fieldIndex = SchemaUtils.findFieldIndex(fieldName, rowType);
 
-                // Convert OpenSearch SortOrder to Calcite Direction
-                RelFieldCollation.Direction direction;
-                if (fieldSort.order() == SortOrder.ASC) {
-                    direction = RelFieldCollation.Direction.ASCENDING;
-                } else {
-                    direction = RelFieldCollation.Direction.DESCENDING;
-                }
+                RelFieldCollation.Direction direction = (fieldSort.order() == SortOrder.ASC)
+                    ? RelFieldCollation.Direction.ASCENDING
+                    : RelFieldCollation.Direction.DESCENDING;
 
-                // Handle null ordering
-                // OpenSearch default: nulls last for ASC, nulls first for DESC
-                RelFieldCollation.NullDirection nullDirection;
-                if (fieldSort.order() == SortOrder.ASC) {
-                    nullDirection = RelFieldCollation.NullDirection.LAST;
-                } else {
-                    nullDirection = RelFieldCollation.NullDirection.FIRST;
-                }
+                RelFieldCollation.NullDirection nullDirection = (fieldSort.order() == SortOrder.ASC)
+                    ? RelFieldCollation.NullDirection.LAST
+                    : RelFieldCollation.NullDirection.FIRST;
 
-                // Create RelFieldCollation
-                RelFieldCollation fieldCollation = new RelFieldCollation(
-                    fieldIndex,
-                    direction,
-                    nullDirection
-                );
-
-                fieldCollations.add(fieldCollation);
+                fieldCollations.add(new RelFieldCollation(fieldIndex, direction, nullDirection));
             } else {
                 throw new UnsupportedOperationException(
                     "Sort type not supported: " + sortBuilder.getClass().getSimpleName()
@@ -401,147 +320,83 @@ public class CalciteConverterImpl implements CalciteConverter {
             }
         }
 
-        // Create RelCollation from field collations
         RelCollation collation = RelCollations.of(fieldCollations);
-
-        // Create LogicalSort with collation (no offset/fetch yet - that's task 9)
         return LogicalSort.create(input, collation, null, null);
     }
 
     /**
-     * Builds a LogicalProject node from OpenSearch _source filtering.
-     *
-     * Per Requirement 15.1: "WHEN the Converter processes a _source parameter with includes
-     * THEN the Converter SHALL produce a LogicalProject with only the specified fields"
-     *
-     * Per Requirement 15.2: "WHEN the Converter processes _source: false
-     * THEN the Converter SHALL produce a LogicalProject with no fields"
-     *
-     * Per Requirement 15.3: "WHEN the Converter processes _source with wildcard patterns
-     * THEN the Converter SHALL expand the patterns to matching fields"
-     *
-     * @param input The input RelNode to apply projection to
-     * @param fetchSource The FetchSourceContext containing _source filtering
-     * @param rowType The row type for field references
-     * @return LogicalProject node with selected fields
-     * @throws ConversionException if projection conversion fails
+     * Builds a LogicalProject from _source filtering.
+     * Handles exact field names, wildcard patterns, and _source: false (empty projection).
      */
     private RelNode buildProjection(RelNode input, FetchSourceContext fetchSource, RelDataType rowType)
             throws ConversionException {
         List<RexNode> projects = new ArrayList<>();
         List<String> fieldNames = new ArrayList<>();
 
-        // Handle _source: false (no fields)
         if (!fetchSource.fetchSource()) {
-            // Return empty projection (no fields)
             return LogicalProject.create(input, List.of(), projects, fieldNames);
         }
 
-        // Get includes array
         String[] includes = fetchSource.includes();
-
-        // If no includes specified, return all fields (skip projection)
         if (includes == null || includes.length == 0) {
             return input;
         }
 
-        // Build list of field indices to project
         List<RelDataTypeField> allFields = rowType.getFieldList();
 
         for (String includePattern : includes) {
-            // Check if pattern contains wildcard
             if (includePattern.contains("*")) {
-                // Expand wildcard pattern
                 String regex = includePattern.replace(".", "\\.").replace("*", ".*");
-
                 for (RelDataTypeField field : allFields) {
                     if (field.getName().matches(regex)) {
-                        // Add field to projection
                         projects.add(rexBuilder.makeInputRef(field.getType(), field.getIndex()));
                         fieldNames.add(field.getName());
                     }
                 }
             } else {
-                // Exact field name match
                 int fieldIndex = SchemaUtils.findFieldIndex(includePattern, rowType);
                 RelDataTypeField field = allFields.get(fieldIndex);
-
-                // Add field to projection
                 projects.add(rexBuilder.makeInputRef(field.getType(), fieldIndex));
                 fieldNames.add(field.getName());
             }
         }
 
-        // Create LogicalProject with selected fields
         return LogicalProject.create(input, List.of(), projects, fieldNames);
     }
 
     /**
-     * Builds pagination (LIMIT/OFFSET) from OpenSearch from/size parameters.
-     *
-     * Per Requirement 14.1: "WHEN the Converter processes a from parameter
-     * THEN the Converter SHALL produce a LogicalSort with offset"
-     *
-     * Per Requirement 14.2: "WHEN the Converter processes a size parameter
-     * THEN the Converter SHALL produce a LogicalSort with fetch"
-     *
-     * Per Requirement 14.3: "WHEN the Converter processes both from and size
-     * THEN the Converter SHALL produce a LogicalSort with both offset and fetch"
-     *
-     * Note: This method is called at the END of the pipeline, after all other operations.
-     * If there's an existing LogicalSort from Step 3 (pre-aggregation sort), we should NOT
-     * try to update it because:
-     * 1. The schema has changed after aggregation
-     * 2. The sort was on the input documents, not the aggregated results
-     * 3. We need a NEW sort node on the current (post-aggregation) schema
-     *
-     * @param input The input RelNode to apply pagination to
-     * @param searchSource The SearchSourceBuilder containing from/size parameters
-     * @param hasAggregations Whether the query has aggregations
-     * @return LogicalSort node with offset and/or fetch, or original input if no pagination
+     * Applies from/size pagination as a LogicalSort with offset and fetch.
+     * If the current node is already a LogicalSort (from pre-aggregation sorting),
+     * the pagination is merged into that node rather than creating a new one.
+     * Skipped when size=0 with aggregations (aggregation-only queries).
      */
     private RelNode buildPagination(RelNode input, SearchSourceBuilder searchSource, boolean hasAggregations) {
-        // Get from and size parameters
-        // OpenSearch defaults: from=0, size=10
         int from = searchSource.from() != -1 ? searchSource.from() : 0;
         int size = searchSource.size() != -1 ? searchSource.size() : 10;
 
-        // Skip pagination if size=0 and aggregations exist
-        // When size=0 with aggregations, user only wants aggregation results, not document hits
         if (size == 0 && hasAggregations) {
-            return input;  // No pagination needed for aggregation-only queries
+            return input;
         }
 
-        // Only create pagination if we have non-default values
         if (from == 0 && size == 10) {
-            return input;  // No pagination needed
+            return input;
         }
 
-        // Create RexLiteral for offset and fetch
-        RexNode offset = from > 0 ? rexBuilder.makeLiteral(from, cluster.getTypeFactory().createSqlType(SqlTypeName.INTEGER), false) : null;
+        RexNode offset = from > 0
+            ? rexBuilder.makeLiteral(from, cluster.getTypeFactory().createSqlType(SqlTypeName.INTEGER), false)
+            : null;
         RexNode fetch = rexBuilder.makeLiteral(size, cluster.getTypeFactory().createSqlType(SqlTypeName.INTEGER), false);
 
-        // Check if input is already a LogicalSort (from pre-aggregation sorting)
-        // If so, merge pagination with existing sort instead of creating a new node
-        if (input instanceof LogicalSort) {
-            LogicalSort existingSort = (LogicalSort) input;
-
-            // Merge pagination with existing sort collation
+        if (input instanceof LogicalSort existingSort) {
             return LogicalSort.create(
-                existingSort.getInput(),  // Use the input of the existing sort
-                existingSort.getCollation(),  // Keep the existing sort collation
+                existingSort.getInput(),
+                existingSort.getCollation(),
                 offset,
                 fetch
             );
         }
 
-        // No existing sort - create a new LogicalSort with just pagination
-        return LogicalSort.create(
-            input,
-            RelCollations.EMPTY,  // No sorting, just LIMIT/OFFSET
-            offset,
-            fetch
-        );
+        return LogicalSort.create(input, RelCollations.EMPTY, offset, fetch);
     }
 
 }

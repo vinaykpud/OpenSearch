@@ -18,18 +18,9 @@ import org.opensearch.search.aggregations.metrics.MaxAggregationBuilder;
 /**
  * Visitor interface for converting OpenSearch metric aggregations to Calcite AggregateCall.
  *
- * This visitor pattern allows different metric aggregation types to be converted to their
- * corresponding Calcite representations. Each visit method handles a specific
- * OpenSearch aggregation type and returns a Calcite AggregateCall.
- *
- * Note: Bucket aggregations (like terms) are handled separately via GROUP BY and do not
- * produce AggregateCall objects.
- *
- * Supported metric aggregations:
- * - AvgAggregationBuilder: Converts to AVG aggregate function
- * - SumAggregationBuilder: Converts to SUM aggregate function
- * - MinAggregationBuilder: Converts to MIN aggregate function
- * - MaxAggregationBuilder: Converts to MAX aggregate function
+ * Each visit method handles a specific metric aggregation type and returns the
+ * corresponding Calcite AggregateCall. Bucket aggregations (terms, multi_terms)
+ * are handled separately as GROUP BY fields in {@link AggregationInfo}.
  */
 public interface AggregationBuilderVisitor {
 
