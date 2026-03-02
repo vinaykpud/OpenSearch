@@ -1,16 +1,16 @@
 # OpenSearch DSL to Calcite Converter Plugin
 
-A proof-of-concept OpenSearch plugin that converts OpenSearch Query DSL to Apache Calcite logical plans (RelNode). This plugin demonstrates how OpenSearch queries can be represented as relational algebra for potential query optimization and execution by alternative query engines.
+An OpenSearch plugin that converts OpenSearch Query DSL to Apache Calcite logical plans (RelNode). This plugin represents OpenSearch queries as relational algebra for query optimization and execution by alternative query engines.
 
 ## Overview
 
-This plugin integrates with OpenSearch's search pipeline to convert DSL queries into Calcite's logical plan representation. It supports a wide range of OpenSearch query features including:
+This plugin integrates with OpenSearch's search pipeline to convert DSL queries into Calcite's logical plan representation. It supports:
 
-- **Query Types**: Term, Range, Match, Bool queries
-- **Aggregations**: Metric aggregations (avg, sum, min, max, count) and bucket aggregations (terms)
-- **Sorting**: Pre-aggregation and post-aggregation sorting
+- **Query Types**: Term, Range, Match, Bool (must + filter), Match All
+- **Aggregations**: Metric (avg, sum, min, max, count) and bucket (terms, multi\_terms)
+- **Sorting**: Pre-aggregation and post-aggregation sorting with BucketOrder
 - **Pagination**: Offset and fetch (limit)
-- **Projection**: Source filtering (_source includes)
+- **Projection**: Source filtering (\_source includes, wildcards)
 - **Dynamic Schema**: Automatic schema discovery from index mappings
 
 ## Architecture
@@ -31,312 +31,298 @@ CalciteConverterImpl.convert()
 RelNode (Calcite Logical Plan)
 ```
 
+### Conversion Pipeline
+
+`CalciteConverterImpl.convert()` builds the plan in seven steps:
+
+1. **TableScan** — discover index schema from mappings, create `LogicalTableScan`
+2. **Filter** — convert DSL `QueryBuilder` → `LogicalFilter` with `RexNode` conditions
+3. **Sort** — convert top-level `SortBuilder` list → `LogicalSort` with collations
+4. **Aggregate** — convert bucket/metric aggregations → `LogicalAggregate`
+5. **Post-aggregation sort** — apply BucketOrder collations after aggregation
+6. **Project** — apply `_source` filtering → `LogicalProject`
+7. **Pagination** — apply `from`/`size` → `LogicalSort` with offset/fetch
+
 ### Key Components
 
-- **DslCalcitePlugin**: Main plugin class implementing `DslConverterPlugin` interface
-- **CalciteConverterService**: Service managing Calcite schema and converter instances
-- **CalciteConverterImpl**: Core converter logic transforming DSL to RelNode
-- **QueryBuilderVisitor**: Visitor pattern for converting query builders to RexNode
-- **AggregationBuilderVisitor**: Visitor pattern for converting aggregation builders to AggregateCall
-- **IndexMappingClient**: Retrieves and flattens OpenSearch index mappings
-- **OpenSearchTypeMapper**: Maps OpenSearch field types to Calcite SQL types
-
-### SearchSourceBuilder Components
-
-The `SearchSourceBuilder` is the main DSL container. The plugin converts its components to Calcite RelNodes:
-
-| Component | Purpose | Supported (Now) | Calcite Mapping |
-|-----------|---------|-----------|-----------------|
-| `query` | Row filtering | ✅ | `LogicalFilter` |
-| `postFilter` | Post-aggregation filtering | ❌ | `LogicalFilter` after `LogicalAggregate` |
-| `aggregations` | Grouping and metrics | ✅ | `LogicalAggregate` |
-| `sorts` | Result ordering | ✅ | `LogicalSort` |
-| `from`/`size` | Pagination | ✅ | `LogicalSort` with `offset`/`fetch` |
-| `fetchSource` | Column projection | ✅ | `LogicalProject` |
-| `scriptFields` | Computed fields | ❌ | `LogicalProject` with expressions |
-| `highlight` | Result highlighting | ❌ | Not applicable |
-| `suggest` | Search suggestions | ❌ | Not applicable |
-| `rescore` | Result rescoring | ❌ | Not applicable |
+| Class | Role |
+|-------|------|
+| `DslCalcitePlugin` | Main plugin class implementing `DslConverterPlugin` |
+| `CalciteConverterService` | Manages Calcite schema and converter instances |
+| `CalciteConverterImpl` | Core converter: DSL → RelNode pipeline |
+| `RexNodeQueryVisitor` | Visitor converting QueryBuilders to RexNode filter expressions |
+| `AggregateCallVisitor` | Visitor converting metric aggregation builders to AggregateCall |
+| `AggregationInfo` | Extracts GROUP BY fields, metric fields, and post-agg sort info |
+| `IndexMappingClient` | Retrieves and flattens OpenSearch index mappings |
+| `OpenSearchTypeMapper` | Maps OpenSearch field types to Calcite SQL types |
+| `OpenSearchFunctions` | Defines UDFs (MATCH\_QUERY) |
 
 ## Supported Features
 
-### QueryBuilder Hierarchy
+### Queries
 
-The plugin converts OpenSearch QueryBuilder types to Calcite relational expressions:
-
-#### Compound Queries
-
-| Query Type | Supported (Now) | Calcite Representation |
-|------------|-----------|------------------------|
-| `BoolQueryBuilder` (must) | ✅ | `AND(condition1, condition2, ...)` - Native SQL |
-| `BoolQueryBuilder` (filter) | ✅ | `AND(condition1, condition2, ...)` - Native SQL |
-| `BoolQueryBuilder` (should) | ❌ | `OR(condition1, condition2, ...)` - Native SQL |
-| `BoolQueryBuilder` (mustNot) | ❌ | `NOT(condition)` - Native SQL |
-| `BoostingQueryBuilder` | ❌ | `BOOSTING(positive, negative, negative_boost)` - UDF |
-| `ConstantScoreQueryBuilder` | ❌ | `CONSTANT_SCORE(filter, boost)` - UDF |
-| `DisMaxQueryBuilder` | ❌ | `DIS_MAX(queries[], tie_breaker)` - UDF |
-| `FunctionScoreQueryBuilder` | ❌ | `FUNCTION_SCORE(query, functions[], score_mode, boost_mode)` - UDF |
-| `HybridQueryBuilder` | ❌ | `HYBRID(queries[], normalization, combination)` - UDF |
-
-#### Term-Level Queries
-
-| Query Type | Supported (Now) | Calcite Representation |
-|------------|-----------|------------------------|
-| `TermQueryBuilder` | ✅ | `=($field, 'value')` - Native SQL |
-| `TermsQueryBuilder` | ❌ | `IN($field, value1, value2, ...)` - Native SQL |
-| `TermsSetQueryBuilder` | ❌ | `TERMS_SET($field, values[], minimum_should_match)` - UDF |
-| `IdsQueryBuilder` | ❌ | `IN($_id, id1, id2, ...)` - Native SQL |
-| `RangeQueryBuilder` | ✅ | `AND(>=($field, min), <=($field, max))` - Native SQL |
-| `PrefixQueryBuilder` | ❌ | `LIKE($field, 'prefix%')` - Native SQL |
-| `ExistsQueryBuilder` | ❌ | `IS NOT NULL($field)` - Native SQL |
-| `FuzzyQueryBuilder` | ❌ | `FUZZY($field, value, fuzziness, prefix_length)` - UDF |
-| `WildcardQueryBuilder` | ❌ | `LIKE($field, 'pattern')` - Native SQL |
-| `RegexpQueryBuilder` | ❌ | `RLIKE($field, 'pattern')` - Native SQL |
-
-#### Full-Text Queries
-
-| Query Type | Supported (Now) | Calcite Representation |
-|------------|-----------|------------------------|
-| `MatchQueryBuilder` | ✅ | `MATCH_QUERY($field, 'text', 'operator')` - UDF |
-| `MatchPhraseQueryBuilder` | ❌ | `MATCH_PHRASE($field, 'phrase', slop)` - UDF |
-| `MatchPhrasePrefixQueryBuilder` | ❌ | `MATCH_PHRASE_PREFIX($field, 'text', max_expansions)` - UDF |
-| `MatchBoolPrefixQueryBuilder` | ❌ | `MATCH_BOOL_PREFIX($field, 'text')` - UDF |
-| `MultiMatchQueryBuilder` | ❌ | `MULTI_MATCH(query, fields[], type)` - UDF |
-| `QueryStringQueryBuilder` | ❌ | `QUERY_STRING(query, default_field)` - UDF |
-| `SimpleQueryStringQueryBuilder` | ❌ | `SIMPLE_QUERY_STRING(query, fields[])` - UDF |
-| `CombinedFieldsQueryBuilder` | ❌ | `COMBINED_FIELDS(query, fields[])` - UDF |
-| `IntervalsQueryBuilder` | ❌ | `INTERVALS($field, rule)` - UDF |
-| `MatchAllQueryBuilder` | ✅ | `true` - Native SQL Literal |
-| `MatchNoneQueryBuilder` | ❌ | `false` - Native SQL Literal |
-
-#### Geographic Queries
-
-| Query Type | Supported (Now) | Calcite Representation |
-|------------|-----------|------------------------|
-| `GeoBoundingBoxQueryBuilder` | ❌ | `GEO_BOUNDING_BOX($field, top_left, bottom_right)` - UDF |
-| `GeoDistanceQueryBuilder` | ❌ | `GEO_DISTANCE($field, distance, location)` - UDF |
-| `GeoPolygonQueryBuilder` | ❌ | `GEO_POLYGON($field, points[])` - UDF |
-| `GeoShapeQueryBuilder` | ❌ | `GEO_SHAPE($field, shape, relation)` - UDF |
-| `XYShapeQueryBuilder` | ❌ | `XY_SHAPE($field, shape, relation)` - UDF |
-
-#### Span Queries
-
-| Query Type | Supported (Now) | Calcite Representation |
-|------------|-----------|------------------------|
-| `SpanTermQueryBuilder` | ❌ | `SPAN_TERM($field, value)` - UDF |
-| `SpanNearQueryBuilder` | ❌ | `SPAN_NEAR(clauses[], slop, in_order)` - UDF |
-| `SpanFirstQueryBuilder` | ❌ | `SPAN_FIRST(match, end)` - UDF |
-| `SpanOrQueryBuilder` | ❌ | `SPAN_OR(clauses[])` - UDF |
-| `SpanNotQueryBuilder` | ❌ | `SPAN_NOT(include, exclude, pre, post)` - UDF |
-| `SpanContainingQueryBuilder` | ❌ | `SPAN_CONTAINING(big, little)` - UDF |
-| `SpanWithinQueryBuilder` | ❌ | `SPAN_WITHIN(big, little)` - UDF |
-| `SpanMultiTermQueryBuilder` | ❌ | `SPAN_MULTI(match)` - UDF |
-
-#### Joining Queries
-
-| Query Type | Supported (Now) | Calcite Representation |
-|------------|-----------|------------------------|
-| `NestedQueryBuilder` | ❌ | `NESTED(path, query, score_mode)` - UDF |
-| `HasChildQueryBuilder` | ❌ | `HAS_CHILD(type, query, score_mode)` - UDF |
-| `HasParentQueryBuilder` | ❌ | `HAS_PARENT(parent_type, query, score)` - UDF |
-| `ParentIdQueryBuilder` | ❌ | `PARENT_ID(type, id)` - UDF |
-
-#### Specialized Queries
-
-| Query Type | Supported (Now) | Calcite Representation |
-|------------|-----------|------------------------|
-| `DistanceFeatureQueryBuilder` | ❌ | `DISTANCE_FEATURE($field, origin, pivot)` - UDF |
-| `MoreLikeThisQueryBuilder` | ❌ | `MORE_LIKE_THIS(fields[], like, config)` - UDF |
-| `PercolateQueryBuilder` | ❌ | `PERCOLATE($field, document, index)` - UDF |
-| `RankFeatureQueryBuilder` | ❌ | `RANK_FEATURE($field, function)` - UDF |
-| `ScriptQueryBuilder` | ❌ | `SCRIPT(source, params)` - UDF |
-| `ScriptScoreQueryBuilder` | ❌ | `SCRIPT_SCORE(query, script)` - UDF |
-| `WrapperQueryBuilder` | ❌ | Unwraps contained query - N/A |
-| `KnnQueryBuilder` | ❌ | `KNN($field, vector, k)` - UDF |
-| `NeuralQueryBuilder` | ❌ | `NEURAL($field, query_text, model_id)` - UDF |
-| `NeuralSparseQueryBuilder` | ❌ | `NEURAL_SPARSE($field, query_text, model_id)` - UDF |
-| `PinnedQueryBuilder` | ❌ | `PINNED(ids[], organic_query)` - UDF |
-| `RuleQueryBuilder` | ❌ | `RULE_QUERY(organic_query, ruleset_ids)` - UDF |
-| `ShapeQueryBuilder` | ❌ | `SHAPE($field, shape, relation)` - UDF |
+| DSL Query | Calcite Representation |
+|-----------|------------------------|
+| `term` | `=($field, value)` — equality filter |
+| `range` (gte, lte, gt, lt) | `AND(>=($field, min), <=($field, max))` — range filter |
+| `match` | `MATCH_QUERY($field, text, operator)` — UDF call |
+| `bool` (must + filter) | `AND(condition1, condition2, ...)` — flattened conjunction |
+| `match_all` | Skipped (boolean literal `TRUE`) |
 
 ### Aggregations
 
-#### Bucket Aggregations (GROUP BY equivalent)
+| DSL Aggregation | Calcite Representation |
+|-----------------|------------------------|
+| `terms` | `GROUP BY $field` in `LogicalAggregate` |
+| `multi_terms` | `GROUP BY $field1, $field2, ...` in `LogicalAggregate` |
+| `avg` | `AVG($field)` metric in `LogicalAggregate` |
+| `sum` | `SUM($field)` metric in `LogicalAggregate` |
+| `min` | `MIN($field)` metric in `LogicalAggregate` |
+| `max` | `MAX($field)` metric in `LogicalAggregate` |
+| implicit `count` | `COUNT()` — always appended as `_count` |
 
-| Aggregation Type | Supported (Now) | Calcite Representation |
-|------------------|-----------|------------------------|
-| `TermsAggregationBuilder` | ✅ | `GROUP BY $field` - Native SQL |
-| `HistogramAggregationBuilder` | ❌ | `GROUP BY FLOOR($field / interval) * interval` - Native SQL |
-| `DateHistogramAggregationBuilder` | ❌ | `GROUP BY DATE_TRUNC($field, interval)` - Native SQL |
-| `AutoDateHistogramAggregationBuilder` | ❌ | `AUTO_DATE_HISTOGRAM($field, buckets)` - UDF |
-| `RangeAggregationBuilder` | ❌ | `GROUP BY CASE WHEN` expressions - Native SQL |
-| `DateRangeAggregationBuilder` | ❌ | `DATE_RANGE($field, ranges[], format)` - UDF |
-| `IpRangeAggregationBuilder` | ❌ | `IP_RANGE($field, ranges[])` - UDF |
-| `FilterAggregationBuilder` | ❌ | `FILTER_AGG(query)` - UDF |
-| `FiltersAggregationBuilder` | ❌ | `FILTERS_AGG(filters_map)` - UDF |
-| `GlobalAggregationBuilder` | ❌ | `GLOBAL()` - UDF (ignores query scope) |
-| `MissingAggregationBuilder` | ❌ | `MISSING($field)` - UDF |
-| `NestedAggregationBuilder` | ❌ | `NESTED_AGG(path)` - UDF |
-| `ReverseNestedAggregationBuilder` | ❌ | `REVERSE_NESTED(path)` - UDF |
-| `ChildrenAggregationBuilder` | ❌ | `CHILDREN(type)` - UDF |
-| `ParentAggregationBuilder` | ❌ | `PARENT(type)` - UDF |
-| `SamplerAggregationBuilder` | ❌ | `SAMPLER(shard_size)` - UDF |
-| `DiversifiedSamplerAggregationBuilder` | ❌ | `DIVERSIFIED_SAMPLER($field, shard_size, max_docs_per_value)` - UDF |
-| `SignificantTermsAggregationBuilder` | ❌ | `SIGNIFICANT_TERMS($field, background_filter)` - UDF |
-| `SignificantTextAggregationBuilder` | ❌ | `SIGNIFICANT_TEXT($field, filter_duplicate_text)` - UDF |
-| `RareTermsAggregationBuilder` | ❌ | `RARE_TERMS($field, max_doc_count)` - UDF |
-| `GeoDistanceAggregationBuilder` | ❌ | `GEO_DISTANCE_AGG($field, origin, ranges[])` - UDF |
-| `GeohashGridAggregationBuilder` | ❌ | `GEOHASH_GRID($field, precision)` - UDF |
-| `GeotileGridAggregationBuilder` | ❌ | `GEOTILE_GRID($field, precision)` - UDF |
-| `GeohexGridAggregationBuilder` | ❌ | `GEOHEX_GRID($field, precision)` - UDF |
-| `AdjacencyMatrixAggregationBuilder` | ❌ | `ADJACENCY_MATRIX(filters_map)` - UDF |
-| `MultiTermsAggregationBuilder` | ❌ | `MULTI_TERMS(terms[])` - UDF |
-| `CompositeAggregationBuilder` | ❌ | `COMPOSITE(sources[], size, after)` - UDF |
+### Post-Aggregation Sorting
 
-#### Metric Aggregations (Aggregate functions)
+BucketOrder on `terms`/`multi_terms` aggregations produces a `LogicalSort` wrapping the `LogicalAggregate`:
 
-| Aggregation Type | Supported (Now) | Calcite Representation |
-|------------------|-----------|------------------------|
-| `AvgAggregationBuilder` | ✅ | `AVG($field)` - Native SQL |
-| `SumAggregationBuilder` | ✅ | `SUM($field)` - Native SQL |
-| `MinAggregationBuilder` | ✅ | `MIN($field)` - Native SQL |
-| `MaxAggregationBuilder` | ✅ | `MAX($field)` - Native SQL |
-| `CountAggregationBuilder` | ✅ (implicit) | `COUNT()` - Native SQL |
-| `ValueCountAggregationBuilder` | ❌ | `COUNT($field)` - Native SQL |
-| `CardinalityAggregationBuilder` | ❌ | `COUNT(DISTINCT $field)` - Native SQL |
-| `StatsAggregationBuilder` | ❌ | Multiple: `COUNT`, `MIN`, `MAX`, `AVG`, `SUM` - Native SQL |
-| `ExtendedStatsAggregationBuilder` | ❌ | Stats + variance, std_deviation, sum_of_squares - UDF |
-| `MatrixStatsAggregationBuilder` | ❌ | `MATRIX_STATS(fields[])` - UDF (covariance, correlation) |
-| `PercentilesAggregationBuilder` | ❌ | `PERCENTILES($field, percents[])` - UDF |
-| `PercentileRanksAggregationBuilder` | ❌ | `PERCENTILE_RANKS($field, values[])` - UDF |
-| `GeoBoundsAggregationBuilder` | ❌ | `GEO_BOUNDS($field)` - UDF |
-| `GeoCentroidAggregationBuilder` | ❌ | `GEO_CENTROID($field)` - UDF |
-| `GeoLineAggregationBuilder` | ❌ | `GEO_LINE(point_field, sort_field)` - UDF |
-| `TopHitsAggregationBuilder` | ❌ | `TOP_HITS(size, sort, _source)` - UDF |
-| `ScriptedMetricAggregationBuilder` | ❌ | `SCRIPTED_METRIC(init, map, combine, reduce)` - UDF |
-| `MedianAbsoluteDeviationAggregationBuilder` | ❌ | `MEDIAN_ABSOLUTE_DEVIATION($field)` - UDF |
-| `WeightedAvgAggregationBuilder` | ❌ | `WEIGHTED_AVG(value_field, weight_field)` - UDF |
-| `TTestAggregationBuilder` | ❌ | `T_TEST(field_a, field_b, type)` - UDF |
-| `RateAggregationBuilder` | ❌ | `RATE($field, unit)` - UDF |
-| `StringStatsAggregationBuilder` | ❌ | `STRING_STATS($field)` - UDF |
+- `_count` asc/desc → sort on the `_count` column
+- `_key` asc/desc → sort on GROUP BY column(s)
+- Sub-aggregation name (e.g. `avg_price`) → sort on that metric column
 
-#### Pipeline Aggregations (Post-processing)
+When no explicit order is specified, OpenSearch defaults to `[_count DESC, _key ASC]`.
 
-| Aggregation Type | Supported (Now) | Calcite Representation |
-|------------------|-----------|------------------------|
-| `AvgBucketAggregationBuilder` | ❌ | `AVG_BUCKET(buckets_path)` - UDF |
-| `SumBucketAggregationBuilder` | ❌ | `SUM_BUCKET(buckets_path)` - UDF |
-| `MinBucketAggregationBuilder` | ❌ | `MIN_BUCKET(buckets_path)` - UDF |
-| `MaxBucketAggregationBuilder` | ❌ | `MAX_BUCKET(buckets_path)` - UDF |
-| `StatsBucketAggregationBuilder` | ❌ | `STATS_BUCKET(buckets_path)` - UDF |
-| `ExtendedStatsBucketAggregationBuilder` | ❌ | `EXTENDED_STATS_BUCKET(buckets_path)` - UDF |
-| `PercentilesBucketAggregationBuilder` | ❌ | `PERCENTILES_BUCKET(buckets_path, percents[])` - UDF |
-| `DerivativeAggregationBuilder` | ❌ | `DERIVATIVE(buckets_path, unit)` - UDF |
-| `CumulativeSumAggregationBuilder` | ❌ | `CUMULATIVE_SUM(buckets_path)` - UDF |
-| `CumulativeCardinalityAggregationBuilder` | ❌ | `CUMULATIVE_CARDINALITY(buckets_path)` - UDF |
-| `MovingAvgAggregationBuilder` | ❌ | `MOVING_AVG(buckets_path, model, window)` - UDF |
-| `MovingFunctionAggregationBuilder` | ❌ | `MOVING_FN(buckets_path, script, window)` - UDF |
-| `MovingPercentilesAggregationBuilder` | ❌ | `MOVING_PERCENTILES(buckets_path, window)` - UDF |
-| `SerialDifferencingAggregationBuilder` | ❌ | `SERIAL_DIFF(buckets_path, lag)` - UDF |
-| `BucketScriptAggregationBuilder` | ❌ | `BUCKET_SCRIPT(buckets_path_map, script)` - UDF |
-| `BucketSelectorAggregationBuilder` | ❌ | `BUCKET_SELECTOR(buckets_path_map, script)` - UDF |
-| `BucketSortAggregationBuilder` | ❌ | `BUCKET_SORT(sort[], from, size)` - UDF |
-| `NormalizeAggregationBuilder` | ❌ | `NORMALIZE(buckets_path, method)` - UDF |
+### Sort, Pagination, Projection
 
-### Search Features
+| Feature | Calcite Representation |
+|---------|------------------------|
+| Field sort (ASC/DESC) | `LogicalSort` with `RelFieldCollation` |
+| `from` / `size` | `LogicalSort` with `offset` / `fetch` |
+| `_source` includes | `LogicalProject` selecting named fields |
+| `_source: false` | Empty projection |
+| Wildcard patterns in `_source` | Regex-expanded `LogicalProject` |
 
-Additional OpenSearch search features and their Calcite representations:
+## Examples
 
-| Feature | Supported (Now) | Calcite Representation |
-|---------|-----------|------------------------|
-| **Sorting** | ✅ | `LogicalSort` with collations - Native Calcite RelNode |
-| Post-aggregation sorting | ✅ | `LogicalSort` after `LogicalAggregate` - Native Calcite RelNode |
-| Geo distance sort | ❌ | `GEO_DISTANCE_SORT($field, location)` - UDF |
-| Script sort | ❌ | `SCRIPT_SORT(script)` - UDF |
-| Nested sort | ❌ | `NESTED_SORT(path, filter)` - UDF |
-| **Pagination** | ✅ | `LogicalSort` with offset/fetch - Native Calcite RelNode |
-| search_after | ❌ | `SEARCH_AFTER(sort_values[])` - UDF |
-| Point in Time (PIT) | ❌ | `POINT_IN_TIME(pit_id, keep_alive)` - UDF |
-| **Projection** | ✅ | `LogicalProject` - Native Calcite RelNode |
-| Source filtering (_source) | ✅ | Field selection in `LogicalProject` - Native Calcite RelNode |
-| Stored fields | ❌ | `STORED_FIELDS(fields[])` - UDF |
-| Doc value fields | ❌ | `DOCVALUE_FIELDS(fields[], format)` - UDF |
-| Script fields | ❌ | `SCRIPT_FIELDS(field_name, script)` - UDF |
-| Fields parameter | ❌ | `FIELDS(patterns[], format)` - UDF |
-| **Result Processing** | | |
-| Highlight | ❌ | `HIGHLIGHT(fields[], config)` - UDF |
-| Collapse | ❌ | `COLLAPSE($field, inner_hits)` - UDF |
-| Rescore | ❌ | `RESCORE(query, window_size, weights)` - UDF |
-| Inner hits | ❌ | `INNER_HITS(name, config)` - UDF |
-| **Suggestions** | | |
-| Term suggester | ❌ | `TERM_SUGGEST($field, text, mode)` - UDF |
-| Phrase suggester | ❌ | `PHRASE_SUGGEST($field, text, config)` - UDF |
-| Completion suggester | ❌ | `COMPLETION_SUGGEST($field, prefix, fuzzy)` - UDF |
-| Context suggester | ❌ | `CONTEXT_SUGGEST($field, prefix, contexts)` - UDF |
-| **Execution Control** | | |
-| Timeout | ❌ | Metadata: max execution time |
-| Terminate after | ❌ | Metadata: max docs per shard |
-| Min score | ❌ | `LogicalFilter` with score threshold - Native Calcite RelNode |
-| Track total hits | ❌ | Metadata: count accuracy |
-| Track scores | ❌ | Metadata: force scoring |
-| Explain | ❌ | Metadata: return score explanation |
-| Profile | ❌ | Metadata: return timing info |
-| **Advanced Parameters** | | |
-| Indices boost | ❌ | `INDICES_BOOST(index_boost_pairs)` - UDF |
-| Runtime mappings | ❌ | Runtime field definitions - Metadata |
-| Minimum should match | ❌ | Preserved in bool/full-text UDFs - Parameter |
-| Rewrite parameter | ❌ | Preserved in multi-term query UDFs - Parameter |
+All examples below are drawn from the integration tests. Field references use Calcite's positional `$N` notation where the index is determined by alphabetical field ordering from the index mapping.
 
-## Usage
+### 1. Term Query
 
-The plugin automatically integrates with OpenSearch's search pipeline. When a search request is executed, the plugin converts the DSL query to a Calcite logical plan and logs the result.
-
-### Example Queries
-
-#### 1. Term Query
-
-**DSL:**
 ```json
 {
   "query": {
-    "term": {
-      "category": "electronics"
-    }
+    "term": { "category": "electronics" }
   }
 }
 ```
-
-**Calcite Plan:**
+**Mapping:** `category: keyword, price: long`
 ```
 LogicalFilter(condition=[=($0, 'electronics')])
-  LogicalTableScan(table=[[my-index]])
+  LogicalTableScan(table=[[test-term-query]])
 ```
 
-#### 2. Range Query
+### 2. Range Query
 
-**DSL:**
 ```json
 {
   "query": {
     "range": {
-      "price": {
-        "gte": 100,
-        "lte": 500
+      "price": { "gte": 100, "lte": 500 }
+    }
+  }
+}
+```
+**Mapping:** `price: long`
+```
+LogicalFilter(condition=[AND(>=($0, 100), <=($0, 500))])
+  LogicalTableScan(table=[[test-range-query]])
+```
+
+### 3. Bool Query (must + filter)
+
+```json
+{
+  "query": {
+    "bool": {
+      "must": [
+        { "term": { "category": "electronics" } }
+      ],
+      "filter": [
+        { "range": { "price": { "gte": 100, "lte": 500 } } }
+      ]
+    }
+  }
+}
+```
+**Mapping:** `category: keyword, price: long`
+```
+LogicalFilter(condition=[AND(=($0, 'electronics'), >=($1, 100), <=($1, 500))])
+  LogicalTableScan(table=[[test-bool-query]])
+```
+
+Both `must` and `filter` clauses are flattened into a single AND conjunction.
+
+### 4. Match Query
+
+```json
+{
+  "query": {
+    "match": { "title": "laptop" }
+  }
+}
+```
+**Mapping:** `title: text`
+```
+LogicalFilter(condition=[MATCH_QUERY($0, 'laptop', 'OR')])
+  LogicalTableScan(table=[[test-match-query]])
+```
+
+The `MATCH_QUERY` UDF takes `(field, text, operator)`. The default operator is `OR`.
+
+### 5. Sort
+
+```json
+{
+  "sort": [
+    { "price": { "order": "asc" } }
+  ]
+}
+```
+**Mapping:** `price: long, name: keyword`
+```
+LogicalSort(sort0=[$0], dir0=[ASC])
+  LogicalTableScan(table=[[test-sort]])
+```
+
+### 6. Pagination
+
+```json
+{
+  "from": 10,
+  "size": 20
+}
+```
+**Mapping:** `title: text`
+```
+LogicalSort(offset=[10], fetch=[20])
+  LogicalTableScan(table=[[test-pagination]])
+```
+
+### 7. Source Filtering (Projection)
+
+```json
+{
+  "_source": ["title", "price"]
+}
+```
+**Mapping:** `title: text, price: long, brand: keyword, description: text`
+```
+LogicalProject(title=[$0], price=[$1])
+  LogicalTableScan(table=[[test-source-filtering]])
+```
+
+Only the requested fields appear in the projection. `brand` and `description` are excluded.
+
+### 8. Metric Aggregation (avg)
+
+```json
+{
+  "aggs": {
+    "avg_price": {
+      "avg": { "field": "price" }
+    }
+  },
+  "size": 0
+}
+```
+**Mapping:** `price: long`
+```
+LogicalAggregate(group=[{}], avg_price=[AVG($0)], _count=[COUNT()])
+  LogicalTableScan(table=[[test-metric-agg]])
+```
+
+`group=[{}]` means no GROUP BY (global aggregation). An implicit `_count` is always appended.
+
+### 9. Terms Aggregation with Sub-Aggregation
+
+```json
+{
+  "aggs": {
+    "by_brand": {
+      "terms": { "field": "brand" },
+      "aggs": {
+        "avg_price": { "avg": { "field": "price" } }
+      }
+    }
+  },
+  "size": 0
+}
+```
+**Mapping:** `brand: keyword, price: long`
+```
+LogicalSort(sort0=[$2], sort1=[$0], dir0=[DESC], dir1=[ASC])
+  LogicalAggregate(group=[{0}], avg_price=[AVG($1)], _count=[COUNT()])
+    LogicalTableScan(table=[[test-terms-agg]])
+```
+
+No explicit order → defaults to `[_count DESC, _key ASC]`. Post-agg schema: `[brand(0), avg_price(1), _count(2)]`, so `sort0=[$2]` is `_count DESC` and `sort1=[$0]` is `_key ASC`.
+
+### 10. Post-Aggregation Sorting (explicit order)
+
+```json
+{
+  "aggs": {
+    "by_brand": {
+      "terms": {
+        "field": "brand",
+        "order": { "avg_price": "desc" }
+      },
+      "aggs": {
+        "avg_price": { "avg": { "field": "price" } }
+      }
+    }
+  },
+  "size": 0
+}
+```
+**Mapping:** `brand: keyword, price: long`
+```
+LogicalSort(sort0=[$1], sort1=[$0], dir0=[DESC], dir1=[ASC])
+  LogicalAggregate(group=[{0}], avg_price=[AVG($1)], _count=[COUNT()])
+    LogicalTableScan(table=[[test-post-agg-sort]])
+```
+
+Explicit `"order": {"avg_price": "desc"}` sorts by the `avg_price` metric. OpenSearch appends a `_key ASC` tie-breaker automatically.
+
+### 11. Multi-Terms Aggregation
+
+```json
+{
+  "size": 0,
+  "aggs": {
+    "hot": {
+      "multi_terms": {
+        "terms": [{"field": "region"}, {"field": "host"}],
+        "order": [{"max-cpu": "desc"}, {"max-memory": "desc"}]
+      },
+      "aggs": {
+        "max-cpu": { "max": { "field": "cpu" } },
+        "max-memory": { "max": { "field": "memory" } }
       }
     }
   }
 }
 ```
-
-**Calcite Plan:**
+**Mapping:** `region: keyword, host: keyword, cpu: long, memory: long`
 ```
-LogicalFilter(condition=[AND(>=($0, 100), <=($0, 500))])
-  LogicalTableScan(table=[[my-index]])
+LogicalSort(sort0=[$2], sort1=[$3], sort2=[$0], dir0=[DESC], dir1=[DESC], dir2=[ASC])
+  LogicalAggregate(group=[{1, 3}], max-cpu=[MAX($0)], max-memory=[MAX($2)], _count=[COUNT()])
+    LogicalTableScan(table=[[test-multi-terms-agg]])
 ```
 
-#### 3. Bool Query with Aggregation
+Fields are in alphabetical order: `cpu(0), host(1), memory(2), region(3)`. GROUP BY on `host(1)` and `region(3)`.
 
-**DSL:**
+### 12. Complex Query (all features combined)
+
 ```json
 {
   "query": {
@@ -354,25 +340,26 @@ LogicalFilter(condition=[AND(>=($0, 100), <=($0, 500))])
     "by_brand": {
       "terms": { "field": "brand" },
       "aggs": {
-        "avg_price": {
-          "avg": { "field": "price" }
-        }
+        "avg_price": { "avg": { "field": "price" } }
       }
     }
   },
   "sort": [
     { "price": { "order": "asc" } }
-  ]
+  ],
+  "from": 0,
+  "size": 10
 }
 ```
-
-**Calcite Plan:**
+**Mapping:** `category: keyword, brand: keyword, price: long, title: text`
 ```
 LogicalAggregate(group=[{1}], avg_price=[AVG($2)], _count=[COUNT()])
   LogicalSort(sort0=[$2], dir0=[ASC])
     LogicalFilter(condition=[AND(MATCH_QUERY($3, 'laptop', 'OR'), =($0, 'electronics'), >=($2, 500), <=($2, 2000))])
-      LogicalTableScan(table=[[my-index]])
+      LogicalTableScan(table=[[test-complex-query]])
 ```
+
+Note: Pagination (`from`/`size`) is not applied when aggregations are present.
 
 ## Type Mappings
 
@@ -380,37 +367,32 @@ OpenSearch field types are mapped to Calcite SQL types:
 
 | OpenSearch Type | Calcite Type |
 |-----------------|--------------|
-| keyword, text | VARCHAR |
+| keyword, text, match\_only\_text | VARCHAR |
 | long | BIGINT |
-| integer | INTEGER |
+| integer, token\_count | INTEGER |
 | short | SMALLINT |
 | byte | TINYINT |
-| double, scaled_float | DOUBLE |
-| float, half_float | FLOAT |
+| double, scaled\_float | DOUBLE |
+| float, half\_float | FLOAT |
 | boolean | BOOLEAN |
-| date, date_nanos | TIMESTAMP |
+| date, date\_nanos | TIMESTAMP |
 | binary | VARBINARY |
-| ip | VARCHAR |
-| object, nested | ANY (flattened) |
+| ip, completion | VARCHAR |
+| object, nested, geo\_point, geo\_shape, alias | ANY |
+
+Unknown types default to `ANY`. Type names are normalized (underscores removed, lowercased) before matching.
 
 ## Building
-
-Build the plugin:
 
 ```bash
 ./gradlew :plugins:query-dsl-calcite:assemble
 ```
 
-The plugin ZIP will be created at:
-```
-plugins/query-dsl-calcite/build/distributions/query-dsl-calcite-<version>.zip
-```
+The plugin ZIP is created at `plugins/query-dsl-calcite/build/distributions/query-dsl-calcite-<version>.zip`.
 
 ## Installation
 
 ### Development Mode
-
-Run OpenSearch with the plugin installed:
 
 ```bash
 ./gradlew run -PinstalledPlugins="['query-dsl-calcite']"
@@ -418,23 +400,11 @@ Run OpenSearch with the plugin installed:
 
 ### Production Installation
 
-Install the plugin ZIP:
-
 ```bash
 bin/opensearch-plugin install file:///path/to/query-dsl-calcite-<version>.zip
 ```
 
 ## Testing
-
-### Unit Tests
-
-Run unit tests:
-
-```bash
-./gradlew :plugins:query-dsl-calcite:test
-```
-
-### Integration Tests
 
 Run integration tests:
 
@@ -442,7 +412,7 @@ Run integration tests:
 ./gradlew :plugins:query-dsl-calcite:internalClusterTest
 ```
 
-Run specific test:
+Run a specific test:
 
 ```bash
 ./gradlew :plugins:query-dsl-calcite:internalClusterTest --tests "DslCalciteIntegrationIT.testComplexQueryConversion"
@@ -450,14 +420,15 @@ Run specific test:
 
 ## Limitations
 
-This is a proof-of-concept implementation with the following limitations:
+Current limitations:
 
-1. **Read-Only**: The plugin only converts queries to logical plans; it does not execute them
-2. **Logging Only**: Converted plans are logged but not used for query execution
-3. **Limited Query Types**: Only supports a subset of OpenSearch query types
-4. **No Nested Objects**: Nested objects are flattened using dot notation
-5. **No Script Fields**: Script-based queries and aggregations are not supported
-6. **Pagination with Aggregations**: Pagination (offset/fetch) is not applied when aggregations are present
+1. **Read-only** — converts queries to logical plans but does not execute them
+2. **Logging only** — converted plans are logged, not used for query execution
+3. **Limited query types** — only `term`, `range`, `match`, `bool` (must + filter), and `match_all`
+4. **Bool query** — `should` and `must_not` clauses are not yet supported
+5. **Nested objects** — flattened using dot notation, no true nested query support
+6. **Pagination with aggregations** — `from`/`size` is not applied when aggregations are present
+7. **Sort** — only `FieldSortBuilder` (no script sort, geo sort, or nested sort)
 
 ## Dependencies
 
@@ -465,17 +436,6 @@ This is a proof-of-concept implementation with the following limitations:
 - **Apache Calcite Linq4j**: 1.38.0
 - **Guava**: 33.4.0-jre
 - **Commons Lang3**: 3.17.0
-
-## Future Enhancements
-
-Potential areas for enhancement:
-
-1. **Query Execution**: Execute Calcite plans using Calcite's execution engine
-2. **Query Optimization**: Apply Calcite's rule-based optimizer
-3. **Additional Query Types**: Support for more complex queries (nested, geo, etc.)
-4. **Custom Functions**: Implement OpenSearch-specific functions as Calcite UDFs
-5. **Cost-Based Optimization**: Integrate with OpenSearch statistics for cost estimation
-6. **Distributed Execution**: Coordinate execution across OpenSearch cluster nodes
 
 ## Contributing
 
