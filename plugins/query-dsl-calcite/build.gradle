@@ -13,7 +13,7 @@ apply plugin: 'opensearch.internal-cluster-test'
 def pluginName = 'query-dsl-calcite'
 def pluginDescription = 'OpenSearch plugin for converting DSL queries to Apache Calcite logical plans'
 def projectPath = 'org.opensearch'
-def pathToPlugin = 'calcite.DslCalcitePlugin'
+def pathToPlugin = 'dsl.DslLogicalPlanPlugin'
 
 opensearchplugin {
     name = pluginName
@@ -124,9 +124,13 @@ project.ext.failOnJavadocWarning = false
 // Configure Javadoc to skip package documentation requirements
 missingJavadoc {
     javadocMissingIgnore = [
-        'org.opensearch.calcite',
-        'org.opensearch.calcite.converter',
-        'org.opensearch.calcite.functions',
-        'org.opensearch.calcite.exception'
+        'org.opensearch.dsl',
+        'org.opensearch.dsl.pipeline',
+        'org.opensearch.dsl.pipeline.clause',
+        'org.opensearch.dsl.aggregation',
+        'org.opensearch.dsl.query',
+        'org.opensearch.dsl.capabilities',
+        'org.opensearch.dsl.exception',
+        'org.opensearch.dsl.mapping'
     ]
 }

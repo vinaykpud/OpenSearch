@@ -330,47 +330,35 @@ public class TransportSearchAction extends HandledTransportAction<SearchRequest,
                 e -> {}
             );
         }
-        executeRequest(task, searchRequest, this::searchAsyncAction, listener);
-
-        // POC: Call DSL converters from plugins
-        logger.info("[DSL-Calcite POC] Search request received - source: {}, indices: {}",
-            searchRequest.source(),
-            searchRequest.indices() != null ? String.join(",", searchRequest.indices()) : "null");
-
+        // Try DSL converter first — short-circuit if it handles the query
         if (searchRequest.source() != null) {
-            try {
-                // Get the first index name (for POC, just use the first one)
-                String indexName = searchRequest.indices() != null && searchRequest.indices().length > 0
-                    ? searchRequest.indices()[0]
-                    : "unknown";
-
-                logger.info("[DSL-Calcite POC] Looking for DSL converter plugins...");
-
-                // Get converters using PluginsService (standard OpenSearch pattern)
-                List<DslConverterPlugin> converters = pluginsService.filterPlugins(DslConverterPlugin.class);
-
-                if (converters.isEmpty()) {
-                    logger.info("[DSL-Calcite POC] No DSL converter plugins found");
-                } else {
-                    for (DslConverterPlugin converter : converters) {
-                        logger.info("[DSL-Calcite POC] Found converter: {}", converter.getConverterName());
-
-                        try {
-                            String result = converter.convertDslAnnotated(searchRequest.source(), indexName);
-                            System.out.println(result);
-                        } catch (Exception e) {
-                            logger.warn("[DSL-Calcite POC] Converter {} failed", converter.getConverterName(), e);
-                        }
-                    }
-                }
-
-            } catch (Exception e) {
-                // Catch-all for any unexpected errors
-                logger.warn("[DSL-Calcite POC] Error discovering or calling DSL converters", e);
+            SearchResponse converterResponse = tryDslConverter(searchRequest);
+            if (converterResponse != null) {
+                listener.onResponse(converterResponse);
+                return;
             }
-        } else {
-            logger.info("[DSL-Calcite POC] Skipping conversion - searchRequest.source() is null");
         }
+
+        executeRequest(task, searchRequest, this::searchAsyncAction, listener);
+    }
+
+    private SearchResponse tryDslConverter(SearchRequest searchRequest) {
+        List<DslConverterPlugin> converters = pluginsService.filterPlugins(DslConverterPlugin.class);
+        if (converters.isEmpty()) return null;
+
+        String indexName = searchRequest.indices() != null && searchRequest.indices().length > 0
+            ? searchRequest.indices()[0] : null;
+        if (indexName == null) return null;
+
+        for (DslConverterPlugin converter : converters) {
+            try {
+                SearchResponse response = converter.convertDsl(searchRequest.source(), indexName);
+                if (response != null) return response;
+            } catch (Exception e) {
+                logger.debug("[DSL Converter] Converter failed, falling through to normal search", e);
+            }
+        }
+        return null;
     }
 
     /**
