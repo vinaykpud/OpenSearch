@@ -8,6 +8,7 @@
 
 package org.opensearch.dsl.aggregation.metric;
 
+import org.apache.calcite.sql.SqlAggFunction;
 import org.apache.calcite.sql.fun.SqlStdOperatorTable;
 import org.opensearch.search.aggregations.metrics.SumAggregationBuilder;
 
@@ -16,13 +17,16 @@ import org.opensearch.search.aggregations.metrics.SumAggregationBuilder;
  */
 public class SumMetricHandler extends AbstractMetricHandler<SumAggregationBuilder> {
 
+    /** Creates a new SUM metric handler. */
+    public SumMetricHandler() {}
+
     @Override
     public Class<SumAggregationBuilder> getAggregationType() {
         return SumAggregationBuilder.class;
     }
 
     @Override
-    protected org.apache.calcite.sql.SqlAggFunction getAggFunction() {
+    protected SqlAggFunction getAggFunction() {
         return SqlStdOperatorTable.SUM;
     }
 

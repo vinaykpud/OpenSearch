@@ -29,6 +29,7 @@ import java.util.List;
  */
 public class SourceConverter extends AbstractClauseConverter {
 
+    /** Creates a SourceConverter in the {@link PipelinePhase#PROJECT} phase. */
     public SourceConverter() {
         super(PipelinePhase.PROJECT);
     }

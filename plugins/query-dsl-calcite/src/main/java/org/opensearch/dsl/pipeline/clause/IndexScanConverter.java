@@ -31,6 +31,7 @@ import java.util.List;
  */
 public class IndexScanConverter extends AbstractClauseConverter {
 
+    /** Creates an IndexScanConverter in the {@link PipelinePhase#SCHEMA} phase. */
     public IndexScanConverter() {
         super(PipelinePhase.SCHEMA);
     }

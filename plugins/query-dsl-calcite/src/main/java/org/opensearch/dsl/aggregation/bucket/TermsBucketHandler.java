@@ -22,6 +22,9 @@ import java.util.List;
  */
 public class TermsBucketHandler implements BucketAggregationHandler<TermsAggregationBuilder> {
 
+    /** Creates a new terms bucket handler. */
+    public TermsBucketHandler() {}
+
     @Override
     public Class<TermsAggregationBuilder> getAggregationType() {
         return TermsAggregationBuilder.class;

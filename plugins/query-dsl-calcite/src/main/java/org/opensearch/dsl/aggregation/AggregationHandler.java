@@ -40,6 +40,9 @@ public interface AggregationHandler<T extends AggregationBuilder> {
     /**
      * Returns sub-aggregations to recurse into.
      * Default: empty (metric handlers have no children).
+     *
+     * @param agg the aggregation builder
+     * @return the sub-aggregations, or empty if none
      */
     default Collection<AggregationBuilder> getSubAggregations(T agg) {
         return Collections.emptyList();

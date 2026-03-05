@@ -20,6 +20,9 @@ import org.apache.calcite.sql.SqlOperator;
  */
 public class AllSupportedCapabilities implements DownstreamCapabilities {
 
+    /** Creates a capabilities instance that allows all operations. */
+    public AllSupportedCapabilities() {}
+
     @Override
     public boolean isRelNodeSupported(Class<? extends RelNode> type) {
         return true;

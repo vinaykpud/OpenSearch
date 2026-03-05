@@ -8,6 +8,7 @@
 
 package org.opensearch.dsl.aggregation.metric;
 
+import org.apache.calcite.sql.SqlAggFunction;
 import org.apache.calcite.sql.fun.SqlStdOperatorTable;
 import org.opensearch.search.aggregations.metrics.AvgAggregationBuilder;
 
@@ -16,13 +17,16 @@ import org.opensearch.search.aggregations.metrics.AvgAggregationBuilder;
  */
 public class AvgMetricHandler extends AbstractMetricHandler<AvgAggregationBuilder> {
 
+    /** Creates a new AVG metric handler. */
+    public AvgMetricHandler() {}
+
     @Override
     public Class<AvgAggregationBuilder> getAggregationType() {
         return AvgAggregationBuilder.class;
     }
 
     @Override
-    protected org.apache.calcite.sql.SqlAggFunction getAggFunction() {
+    protected SqlAggFunction getAggFunction() {
         return SqlStdOperatorTable.AVG;
     }
 

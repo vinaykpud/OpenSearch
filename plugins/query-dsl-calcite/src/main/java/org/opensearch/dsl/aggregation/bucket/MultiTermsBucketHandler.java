@@ -24,6 +24,9 @@ import java.util.List;
  */
 public class MultiTermsBucketHandler implements BucketAggregationHandler<MultiTermsAggregationBuilder> {
 
+    /** Creates a new multi-terms bucket handler. */
+    public MultiTermsBucketHandler() {}
+
     @Override
     public Class<MultiTermsAggregationBuilder> getAggregationType() {
         return MultiTermsAggregationBuilder.class;

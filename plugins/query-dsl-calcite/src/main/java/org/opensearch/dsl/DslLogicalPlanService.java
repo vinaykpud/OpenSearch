@@ -8,9 +8,10 @@
 
 package org.opensearch.dsl;
 
+import org.apache.calcite.jdbc.JavaTypeFactoryImpl;
+import org.apache.calcite.plan.ConventionTraitDef;
 import org.apache.calcite.plan.RelOptCluster;
-import org.apache.calcite.plan.hep.HepPlanner;
-import org.apache.calcite.plan.hep.HepProgramBuilder;
+import org.apache.calcite.plan.volcano.VolcanoPlanner;
 import org.apache.calcite.rel.RelNode;
 import org.apache.calcite.rel.type.RelDataType;
 import org.apache.calcite.rel.type.RelDataTypeFactory;
@@ -19,11 +20,13 @@ import org.apache.calcite.rex.RexBuilder;
 import org.apache.calcite.sql.type.SqlTypeFactoryImpl;
 import org.opensearch.dsl.pipeline.ConversionContext;
 import org.opensearch.dsl.pipeline.ConversionPipeline;
+import org.opensearch.search.aggregations.AggregatorFactories;
 import org.opensearch.dsl.aggregation.AggregationHandlerRegistry;
 import org.opensearch.dsl.aggregation.metric.AvgMetricHandler;
 import org.opensearch.dsl.aggregation.metric.MaxMetricHandler;
 import org.opensearch.dsl.aggregation.metric.MinMetricHandler;
 import org.opensearch.dsl.aggregation.bucket.MultiTermsBucketHandler;
+import org.opensearch.dsl.aggregation.metric.CardinalityMetricHandler;
 import org.opensearch.dsl.aggregation.metric.SumMetricHandler;
 import org.opensearch.dsl.aggregation.bucket.TermsBucketHandler;
 import org.opensearch.dsl.capabilities.AllSupportedCapabilities;
@@ -65,7 +68,9 @@ public class DslLogicalPlanService {
     private final RelOptCluster cluster;
     private final IndexMappingClient mappingClient;
     private final DownstreamCapabilities capabilities;
-    private final ConversionPipeline pipeline;
+    private final ConversionPipeline sharedPipeline;
+    private final ConversionPipeline hitsSuffix;
+    private final ConversionPipeline aggSuffix;
 
     /**
      * Creates a new DslLogicalPlanService with AllSupportedCapabilities (default).
@@ -86,33 +91,47 @@ public class DslLogicalPlanService {
         this.capabilities = capabilities;
         this.mappingClient = new IndexMappingClient(client);
 
-        RelDataTypeFactory typeFactory = new SqlTypeFactoryImpl(RelDataTypeSystem.DEFAULT);
-        HepPlanner planner = new HepPlanner(new HepProgramBuilder().build());
+//        RelDataTypeFactory typeFactory = new SqlTypeFactoryImpl(RelDataTypeSystem.DEFAULT);
+        RelDataTypeFactory typeFactory = new JavaTypeFactoryImpl();
+        VolcanoPlanner planner = new VolcanoPlanner();
         this.cluster = RelOptCluster.create(planner, new RexBuilder(typeFactory));
 
         QueryHandlerRegistry queryRegistry = createQueryHandlerRegistry();
         AggregationHandlerRegistry aggRegistry = createAggregationHandlerRegistry();
 
-        this.pipeline = new ConversionPipeline.Builder()
+        this.sharedPipeline = new ConversionPipeline.Builder()
             .addConverter(new IndexScanConverter())
             .addConverter(new QueryConverter(queryRegistry))
+            .build();
+
+        this.hitsSuffix = new ConversionPipeline.Builder()
             .addConverter(new SortConverter())
-            .addConverter(new AggregationConverter(aggRegistry))
-            .addConverter(new BucketOrderConverter())
             .addConverter(new SourceConverter())
             .addConverter(new FromSizeConverter())
+            .build();
+
+        this.aggSuffix = new ConversionPipeline.Builder()
+            .addConverter(new AggregationConverter(aggRegistry))
+            .addConverter(new BucketOrderConverter())
             .build();
     }
 
     /**
-     * Converts an OpenSearch DSL query to a Calcite RelNode.
+     * Converts an OpenSearch DSL query to a QueryPlan containing one or more execution paths.
+     *
+     * <p>Scenarios:
+     * <ul>
+     *   <li>Query only (no aggs): 1 path → HITS</li>
+     *   <li>Aggs with size=0: 1 path → FILTER_AGGREGATION</li>
+     *   <li>Aggs with size&gt;0: 2 paths → HITS + FILTER_AGGREGATION</li>
+     * </ul>
      *
      * @param searchSource The SearchSourceBuilder containing the DSL query
      * @param indexName The name of the target index
-     * @return A Calcite RelNode representing the logical query plan
+     * @return A QueryPlan with one or more execution paths
      * @throws Exception if conversion fails
      */
-    public RelNode convert(SearchSourceBuilder searchSource, String indexName) throws Exception {
+    public QueryPlan convert(SearchSourceBuilder searchSource, String indexName) throws Exception {
         RelDataType indexSchema = mappingClient.resolveSchema(
             indexName, cluster.getTypeFactory());
 
@@ -123,7 +142,32 @@ public class DslLogicalPlanService {
             cluster,
             capabilities
         );
-        return pipeline.execute(ctx);
+
+        RelNode shared = sharedPipeline.execute(ctx);
+
+        boolean hasAggs = hasAggregations(searchSource);
+        int size = searchSource.size() != -1 ? searchSource.size() : 10;
+
+        QueryPlan.Builder builder = new QueryPlan.Builder();
+
+        if (size > 0 || !hasAggs) {
+            RelNode hitsTree = hitsSuffix.execute(ctx, shared);
+            builder.addPath(new ExecutionPath(ExecutionPath.PathRole.HITS, hitsTree));
+        }
+
+        if (hasAggs) {
+            RelNode aggTree = aggSuffix.execute(ctx, shared);
+            builder.addPath(new ExecutionPath(ExecutionPath.PathRole.FILTER_AGGREGATION, aggTree));
+        }
+
+        return builder.build();
+    }
+
+    private boolean hasAggregations(SearchSourceBuilder searchSource) {
+        AggregatorFactories.Builder aggs = searchSource.aggregations();
+        return aggs != null
+            && aggs.getAggregatorFactories() != null
+            && !aggs.getAggregatorFactories().isEmpty();
     }
 
     private QueryHandlerRegistry createQueryHandlerRegistry() {
@@ -143,6 +187,7 @@ public class DslLogicalPlanService {
         registry.register(new SumMetricHandler());
         registry.register(new MinMetricHandler());
         registry.register(new MaxMetricHandler());
+        registry.register(new CardinalityMetricHandler());
         return registry;
     }
 }

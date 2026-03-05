@@ -114,7 +114,6 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.ServiceLoader;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
@@ -330,35 +329,26 @@ public class TransportSearchAction extends HandledTransportAction<SearchRequest,
                 e -> {}
             );
         }
-        // Try DSL converter first — short-circuit if it handles the query
+        // Execute via DSL converter plugin
         if (searchRequest.source() != null) {
-            SearchResponse converterResponse = tryDslConverter(searchRequest);
-            if (converterResponse != null) {
-                listener.onResponse(converterResponse);
-                return;
+            List<DslConverterPlugin> converters = pluginsService.filterPlugins(DslConverterPlugin.class);
+            if (!converters.isEmpty()) {
+                String indexName = searchRequest.indices() != null && searchRequest.indices().length > 0
+                    ? searchRequest.indices()[0] : null;
+                if (indexName != null) {
+                    try {
+                        SearchResponse response = converters.get(0).convertDsl(searchRequest.source(), indexName);
+                        listener.onResponse(response);
+                        return;
+                    } catch (Exception e) {
+                        listener.onFailure(e);
+                        return;
+                    }
+                }
             }
         }
 
         executeRequest(task, searchRequest, this::searchAsyncAction, listener);
-    }
-
-    private SearchResponse tryDslConverter(SearchRequest searchRequest) {
-        List<DslConverterPlugin> converters = pluginsService.filterPlugins(DslConverterPlugin.class);
-        if (converters.isEmpty()) return null;
-
-        String indexName = searchRequest.indices() != null && searchRequest.indices().length > 0
-            ? searchRequest.indices()[0] : null;
-        if (indexName == null) return null;
-
-        for (DslConverterPlugin converter : converters) {
-            try {
-                SearchResponse response = converter.convertDsl(searchRequest.source(), indexName);
-                if (response != null) return response;
-            } catch (Exception e) {
-                logger.debug("[DSL Converter] Converter failed, falling through to normal search", e);
-            }
-        }
-        return null;
     }
 
     /**

@@ -27,6 +27,10 @@ import java.util.List;
  */
 public class AggregationMetadataBuilder {
 
+    /** Creates a new empty builder. */
+    public AggregationMetadataBuilder() {}
+
+    /** Name used for the implicit COUNT(*) aggregate added by bucket aggregations. */
     public static final String IMPLICIT_COUNT_NAME = "_count";
 
     private final List<GroupingInfo> groupings = new ArrayList<>();
@@ -35,10 +39,20 @@ public class AggregationMetadataBuilder {
     private final List<BucketOrder> bucketOrders = new ArrayList<>();
     private boolean implicitCountRequested = false;
 
+    /**
+     * Adds a grouping contribution.
+     *
+     * @param grouping the grouping info to add
+     */
     public void addGrouping(GroupingInfo grouping) {
         groupings.add(grouping);
     }
 
+    /**
+     * Adds a bucket order for post-aggregation sorting.
+     *
+     * @param order the bucket order to add (may be null or compound)
+     */
     public void addBucketOrder(BucketOrder order) {
         if (order == null) return;
         if (order instanceof InternalOrder.CompoundOrder compound) {
@@ -48,10 +62,20 @@ public class AggregationMetadataBuilder {
         }
     }
 
+    /**
+     * Adds a Calcite aggregate call.
+     *
+     * @param call the aggregate call to add
+     */
     public void addAggregateCall(AggregateCall call) {
         aggregateCalls.add(call);
     }
 
+    /**
+     * Adds an output field name for an aggregate call.
+     *
+     * @param name the aggregate field name
+     */
     public void addAggregateFieldName(String name) {
         aggregateFieldNames.add(name);
     }

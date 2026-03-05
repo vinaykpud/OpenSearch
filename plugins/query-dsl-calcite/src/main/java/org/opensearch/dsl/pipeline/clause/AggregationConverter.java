@@ -27,6 +27,11 @@ public class AggregationConverter extends AbstractClauseConverter {
 
     private final AggregationHandlerRegistry aggRegistry;
 
+    /**
+     * Creates a new AggregationConverter.
+     *
+     * @param aggRegistry the registry for resolving aggregation handlers
+     */
     public AggregationConverter(AggregationHandlerRegistry aggRegistry) {
         super(PipelinePhase.AGGREGATE);
         this.aggRegistry = aggRegistry;

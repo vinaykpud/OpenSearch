@@ -6,7 +6,7 @@
  * compatible open source license.
  */
 
-package org.opensearch.dsl;
+package org.opensearch.dsl.result;
 
 import org.apache.lucene.search.TotalHits;
 import org.apache.lucene.util.BytesRef;
@@ -16,6 +16,7 @@ import org.opensearch.common.document.DocumentField;
 import org.opensearch.core.common.bytes.BytesReference;
 import org.opensearch.core.xcontent.XContentBuilder;
 import org.opensearch.common.xcontent.XContentFactory;
+import org.opensearch.dsl.ExecutionPath;
 import org.opensearch.search.DocValueFormat;
 import org.opensearch.search.SearchHit;
 import org.opensearch.search.SearchHits;
@@ -32,52 +33,57 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Converts tabular execution results into OpenSearch {@link SearchResponse}.
+ * Converts execution results into OpenSearch {@link SearchResponse}.
  *
- * When execution returns empty results (placeholder executor), builds a dummy
- * response simulating a TermQuery + Terms aggregation + Avg metric.
+ * Builds role-specific dummy data for each execution path present in the
+ * {@link QueryPlanResult}: dummy hits for the HITS path and dummy aggregations
+ * for the FILTER_AGGREGATION path.
  */
 public final class SearchResponseBuilder {
 
     private SearchResponseBuilder() {}
 
-    public static SearchResponse build(Object[][] rows, List<String> fieldNames, long tookInMillis) {
-        if (rows.length == 0) {
-            return buildDummyResponse(tookInMillis);
-        }
-        return buildFromRows(rows, fieldNames, tookInMillis);
-    }
+    /**
+     * Builds a {@link SearchResponse} from the given query plan result.
+     * Produces dummy hits if a HITS path is present and dummy aggregations
+     * if a FILTER_AGGREGATION path is present.
+     *
+     * @param planResult    the results from executing a query plan
+     * @param tookInMillis  elapsed time in milliseconds
+     * @return the constructed search response
+     */
+    public static SearchResponse build(QueryPlanResult planResult, long tookInMillis) {
+        SearchHit[] hits = new SearchHit[0];
+        InternalAggregations aggs = null;
 
-    private static SearchResponse buildFromRows(Object[][] rows, List<String> fieldNames, long tookInMillis) {
-        SearchHit[] hits = new SearchHit[rows.length];
-        for (int i = 0; i < rows.length; i++) {
-            Map<String, DocumentField> documentFields = new LinkedHashMap<>();
-            Map<String, Object> sourceMap = new LinkedHashMap<>();
-            for (int j = 0; j < fieldNames.size() && j < rows[i].length; j++) {
-                String name = fieldNames.get(j);
-                Object value = rows[i][j];
-                documentFields.put(name, new DocumentField(name, List.of(value)));
-                sourceMap.put(name, value);
-            }
-            hits[i] = createHit(i, documentFields, sourceMap);
+        if (planResult.getResult(ExecutionPath.PathRole.HITS).isPresent()) {
+            hits = buildDummyHits();
         }
-        return wrapInResponse(hits, null, tookInMillis);
+
+        if (planResult.getResult(ExecutionPath.PathRole.FILTER_AGGREGATION).isPresent()) {
+            aggs = buildDummyAggregations();
+        }
+
+        return wrapInResponse(hits, aggs, tookInMillis);
     }
 
     /**
-     * Dummy response simulating:
-     *   Query: term(status=active) → 3 hits
-     *   Aggregation: terms(brand) → avg(price)
-     *     Apple:   2 docs, avg_price = 1149.50
-     *     Samsung: 1 doc,  avg_price = 799.50
+     * Dummy hits simulating: term(status=active) returning 3 documents.
      */
-    private static SearchResponse buildDummyResponse(long tookInMillis) {
-        SearchHit[] hits = {
+    private static SearchHit[] buildDummyHits() {
+        return new SearchHit[] {
             createDummyHit(0, "Apple", 999.99),
             createDummyHit(1, "Apple", 1299.00),
             createDummyHit(2, "Samsung", 799.50),
         };
+    }
 
+    /**
+     * Dummy aggregations simulating: terms(brand) with avg(price) sub-agg.
+     *   Apple:   2 docs, avg_price = 1149.50
+     *   Samsung: 1 doc,  avg_price = 799.50
+     */
+    private static InternalAggregations buildDummyAggregations() {
         InternalAvg appleAvg = new InternalAvg("avg_price", 2299.0, 2, DocValueFormat.RAW, Map.of());
         InternalAvg samsungAvg = new InternalAvg("avg_price", 799.5, 1, DocValueFormat.RAW, Map.of());
 
@@ -104,8 +110,7 @@ public final class SearchResponseBuilder {
             new TermsAggregator.BucketCountThresholds(1, 0, 10, 10)
         );
 
-        InternalAggregations aggs = InternalAggregations.from(List.of(termsAgg));
-        return wrapInResponse(hits, aggs, tookInMillis);
+        return InternalAggregations.from(List.of(termsAgg));
     }
 
     private static SearchHit createDummyHit(int docId, String brand, double price) {

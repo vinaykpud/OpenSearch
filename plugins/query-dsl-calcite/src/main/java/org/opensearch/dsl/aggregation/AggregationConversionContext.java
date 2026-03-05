@@ -26,6 +26,13 @@ public class AggregationConversionContext {
     private final RelDataTypeFactory typeFactory;
     private final DownstreamCapabilities capabilities;
 
+    /**
+     * Creates a new aggregation conversion context.
+     *
+     * @param rowType the row type of the input relation
+     * @param typeFactory the Calcite type factory
+     * @param capabilities the downstream capability checker
+     */
     public AggregationConversionContext(
         RelDataType rowType,
         RelDataTypeFactory typeFactory,
@@ -36,14 +43,22 @@ public class AggregationConversionContext {
         this.capabilities = capabilities;
     }
 
+    /** Returns the row type of the input relation. */
     public RelDataType getRowType() {
         return rowType;
     }
 
+    /** Returns the Calcite type factory. */
     public RelDataTypeFactory getTypeFactory() {
         return typeFactory;
     }
 
+    /**
+     * Throws if the given aggregate function is not supported downstream.
+     *
+     * @param function the aggregate function to check
+     * @throws ConversionException if the function is unsupported
+     */
     public void requireAggFunctionSupported(SqlAggFunction function) throws ConversionException {
         if (!capabilities.isAggFunctionSupported(function)) {
             throw ConversionException.unsupportedAggFunction(function.getName());

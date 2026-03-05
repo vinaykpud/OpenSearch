@@ -21,14 +21,28 @@ import org.opensearch.index.query.QueryBuilder;
  */
 public class QueryHandlerRegistry extends HandlerRegistry<QueryBuilder, QueryHandler> {
 
+    /** Creates a new query handler registry. */
     public QueryHandlerRegistry() {
         super("query");
     }
 
+    /**
+     * Registers a query handler.
+     *
+     * @param handler the handler to register
+     */
     public void register(QueryHandler handler) {
         doRegister(handler.getQueryType(), handler);
     }
 
+    /**
+     * Converts a query to a Calcite RexNode using the registered handler.
+     *
+     * @param query the query builder to convert
+     * @param ctx the conversion context
+     * @return the resulting RexNode filter expression
+     * @throws ConversionException if no handler is found or conversion fails
+     */
     public RexNode convert(QueryBuilder query, ConversionContext ctx) throws ConversionException {
         QueryHandler handler = findHandler(query);
         return handler.convert(query, ctx);

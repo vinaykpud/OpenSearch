@@ -29,6 +29,7 @@ import java.util.List;
  */
 public class BucketOrderConverter extends AbstractClauseConverter {
 
+    /** Creates a new BucketOrderConverter for the POST_AGGREGATE phase. */
     public BucketOrderConverter() {
         super(PipelinePhase.POST_AGGREGATE);
     }

@@ -20,12 +20,27 @@ import org.apache.calcite.sql.SqlOperator;
  */
 public interface DownstreamCapabilities {
 
-    /** Can the downstream handle this type of logical operator? */
+    /**
+     * Can the downstream handle this type of logical operator?
+     *
+     * @param type the RelNode class to check
+     * @return true if supported
+     */
     boolean isRelNodeSupported(Class<? extends RelNode> type);
 
-    /** Can the downstream handle this SQL operator? (=, >=, AND, OR, FLOOR, etc.) */
+    /**
+     * Can the downstream handle this SQL operator? (e.g., =, >=, AND, OR, FLOOR)
+     *
+     * @param operator the SQL operator to check
+     * @return true if supported
+     */
     boolean isOperatorSupported(SqlOperator operator);
 
-    /** Can the downstream handle this aggregate function? (AVG, SUM, etc.) */
+    /**
+     * Can the downstream handle this aggregate function? (e.g., AVG, SUM)
+     *
+     * @param function the aggregate function to check
+     * @return true if supported
+     */
     boolean isAggFunctionSupported(SqlAggFunction function);
 }

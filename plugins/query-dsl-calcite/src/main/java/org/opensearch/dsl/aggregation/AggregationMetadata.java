@@ -49,26 +49,32 @@ public final class AggregationMetadata {
         this.bucketOrders = bucketOrders;
     }
 
+    /** Returns the bit set of GROUP BY column indices. */
     public ImmutableBitSet getGroupByBitSet() {
         return groupByBitSet;
     }
 
+    /** Returns the field names used in GROUP BY. */
     public List<String> getGroupByFieldNames() {
         return groupByFieldNames;
     }
 
+    /** Returns the output field names for aggregate calls. */
     public List<String> getAggregateFieldNames() {
         return aggregateFieldNames;
     }
 
+    /** Returns the list of Calcite aggregate calls. */
     public List<AggregateCall> getAggregateCalls() {
         return aggregateCalls;
     }
 
+    /** Returns the bucket orders for post-aggregation sorting. */
     public List<BucketOrder> getBucketOrders() {
         return bucketOrders;
     }
 
+    /** Returns true if bucket orders are present. */
     public boolean hasBucketOrders() {
         return !bucketOrders.isEmpty();
     }

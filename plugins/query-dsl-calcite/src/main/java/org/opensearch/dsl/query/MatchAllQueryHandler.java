@@ -23,6 +23,9 @@ import org.opensearch.index.query.QueryBuilder;
  */
 public class MatchAllQueryHandler implements QueryHandler {
 
+    /** Creates a new match-all query handler. */
+    public MatchAllQueryHandler() {}
+
     @Override
     public Class<? extends QueryBuilder> getQueryType() {
         return MatchAllQueryBuilder.class;

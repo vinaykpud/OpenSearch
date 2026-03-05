@@ -31,6 +31,7 @@ import java.util.List;
  */
 public class SortConverter extends AbstractClauseConverter {
 
+    /** Creates a new SortConverter for the SORT phase. */
     public SortConverter() {
         super(PipelinePhase.SORT);
     }

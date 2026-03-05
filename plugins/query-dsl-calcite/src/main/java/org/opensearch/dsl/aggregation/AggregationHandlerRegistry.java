@@ -19,14 +19,28 @@ import org.opensearch.search.aggregations.AggregationBuilder;
  */
 public class AggregationHandlerRegistry extends HandlerRegistry<AggregationBuilder, AggregationHandler<?>> {
 
+    /** Creates a new aggregation handler registry. */
     public AggregationHandlerRegistry() {
         super("aggregation");
     }
 
+    /**
+     * Registers an aggregation handler.
+     *
+     * @param handler the handler to register
+     */
     public void register(AggregationHandler<?> handler) {
         doRegister(handler.getAggregationType(), handler);
     }
 
+    /**
+     * Finds the handler for the given aggregation builder.
+     *
+     * @param agg the aggregation builder
+     * @param <T> the aggregation builder type
+     * @return the matching handler
+     * @throws ConversionException if no handler is registered for the aggregation type
+     */
     @SuppressWarnings("unchecked")
     public <T extends AggregationBuilder> AggregationHandler<T> findHandler(T agg) throws ConversionException {
         return (AggregationHandler<T>) super.findHandler(agg);

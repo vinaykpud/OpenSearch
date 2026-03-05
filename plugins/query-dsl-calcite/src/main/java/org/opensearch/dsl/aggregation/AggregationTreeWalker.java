@@ -25,6 +25,11 @@ public class AggregationTreeWalker {
 
     private final AggregationHandlerRegistry registry;
 
+    /**
+     * Creates a tree walker with the given handler registry.
+     *
+     * @param registry the registry of aggregation handlers
+     */
     public AggregationTreeWalker(AggregationHandlerRegistry registry) {
         this.registry = registry;
     }
@@ -52,7 +57,6 @@ public class AggregationTreeWalker {
         }
 
         for (AggregationBuilder agg : aggs) {
-            @SuppressWarnings("unchecked")
             AggregationHandler<AggregationBuilder> handler = registry.findHandler(agg);
             handler.contribute(agg, builder, ctx);
             walkRecursive(handler.getSubAggregations(agg), builder, ctx);

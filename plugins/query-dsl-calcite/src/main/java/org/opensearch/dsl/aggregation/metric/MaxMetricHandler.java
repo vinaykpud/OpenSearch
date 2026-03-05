@@ -8,6 +8,7 @@
 
 package org.opensearch.dsl.aggregation.metric;
 
+import org.apache.calcite.sql.SqlAggFunction;
 import org.apache.calcite.sql.fun.SqlStdOperatorTable;
 import org.opensearch.search.aggregations.metrics.MaxAggregationBuilder;
 
@@ -16,13 +17,16 @@ import org.opensearch.search.aggregations.metrics.MaxAggregationBuilder;
  */
 public class MaxMetricHandler extends AbstractMetricHandler<MaxAggregationBuilder> {
 
+    /** Creates a new MAX metric handler. */
+    public MaxMetricHandler() {}
+
     @Override
     public Class<MaxAggregationBuilder> getAggregationType() {
         return MaxAggregationBuilder.class;
     }
 
     @Override
-    protected org.apache.calcite.sql.SqlAggFunction getAggFunction() {
+    protected SqlAggFunction getAggFunction() {
         return SqlStdOperatorTable.MAX;
     }
 

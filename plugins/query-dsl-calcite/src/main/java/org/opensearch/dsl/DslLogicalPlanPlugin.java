@@ -8,7 +8,8 @@
 
 package org.opensearch.dsl;
 
-import org.apache.calcite.rel.RelNode;
+import org.apache.calcite.rel.metadata.JaninoRelMetadataProvider;
+import org.apache.calcite.rel.metadata.RelMetadataQueryBase;
 import org.opensearch.action.search.SearchResponse;
 import org.opensearch.cluster.metadata.IndexNameExpressionResolver;
 import org.opensearch.cluster.service.ClusterService;
@@ -16,6 +17,11 @@ import org.opensearch.common.settings.Setting;
 import org.opensearch.common.settings.Settings;
 import org.opensearch.core.common.io.stream.NamedWriteableRegistry;
 import org.opensearch.core.xcontent.NamedXContentRegistry;
+import org.opensearch.dsl.queryplanner.DefaultQueryPlanExecutor;
+import org.opensearch.dsl.queryplanner.LoggingRelNodeExecutor;
+import org.opensearch.dsl.queryplanner.QueryPlanExecutor;
+import org.opensearch.dsl.result.QueryPlanResult;
+import org.opensearch.dsl.result.SearchResponseBuilder;
 import org.opensearch.env.Environment;
 import org.opensearch.env.NodeEnvironment;
 import org.opensearch.plugins.DslConverterPlugin;
@@ -43,6 +49,11 @@ public class DslLogicalPlanPlugin extends Plugin implements DslConverterPlugin, 
     private DslLogicalPlanService converterService;
     private QueryPlanExecutor queryPlanExecutor;
 
+    /**
+     * Creates a new DSL logical plan plugin instance.
+     *
+     * @param settings the node-level settings
+     */
     public DslLogicalPlanPlugin(Settings settings) {
     }
 
@@ -61,7 +72,7 @@ public class DslLogicalPlanPlugin extends Plugin implements DslConverterPlugin, 
         Supplier<RepositoriesService> repositoriesServiceSupplier
     ) {
         converterService = new DslLogicalPlanService(client);
-        queryPlanExecutor = new DefaultQueryPlanExecutor();
+        queryPlanExecutor = new DefaultQueryPlanExecutor(new LoggingRelNodeExecutor());
         return List.of(converterService, queryPlanExecutor);
     }
 
@@ -70,17 +81,23 @@ public class DslLogicalPlanPlugin extends Plugin implements DslConverterPlugin, 
         return Collections.emptyList();
     }
 
+    /**
+     * Returns the converter service for direct access to QueryPlan conversion.
+     * Visible for testing.
+     */
+    DslLogicalPlanService getConverterService() {
+        return converterService;
+    }
+
     @Override
     public SearchResponse convertDsl(org.opensearch.search.builder.SearchSourceBuilder source,
             String indexName) throws Exception {
         long startTime = System.currentTimeMillis();
 
-        RelNode relNode = converterService.convert(source, indexName);
-        Object[][] rows = queryPlanExecutor.execute(relNode);
+        QueryPlan plan = converterService.convert(source, indexName);
+        QueryPlanResult result = queryPlanExecutor.execute(plan);
 
-        List<String> fieldNames = relNode.getRowType().getFieldNames();
         long tookInMillis = System.currentTimeMillis() - startTime;
-
-        return SearchResponseBuilder.build(rows, fieldNames, tookInMillis);
+        return SearchResponseBuilder.build(result, tookInMillis);
     }
 }

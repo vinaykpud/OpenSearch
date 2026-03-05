@@ -25,6 +25,11 @@ public abstract class AbstractClauseConverter implements ClauseConverter {
 
     private final PipelinePhase phase;
 
+    /**
+     * Creates a converter assigned to the given pipeline phase.
+     *
+     * @param phase the pipeline phase this converter belongs to
+     */
     protected AbstractClauseConverter(PipelinePhase phase) {
         this.phase = phase;
     }

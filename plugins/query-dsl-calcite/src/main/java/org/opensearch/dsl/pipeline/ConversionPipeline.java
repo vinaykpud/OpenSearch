@@ -37,7 +37,20 @@ public class ConversionPipeline {
      * @throws ConversionException if any converter fails
      */
     public RelNode execute(ConversionContext context) throws ConversionException {
-        RelNode relNode = null;
+        return execute(context, null);
+    }
+
+    /**
+     * Executes all converters in sequence, starting from an initial RelNode.
+     * Used by suffix pipelines that continue from a shared prefix output.
+     *
+     * @param context The shared conversion context
+     * @param initialInput The RelNode to start from (output of a shared prefix pipeline)
+     * @return The final RelNode
+     * @throws ConversionException if any converter fails
+     */
+    public RelNode execute(ConversionContext context, RelNode initialInput) throws ConversionException {
+        RelNode relNode = initialInput;
         for (ClauseConverter converter : converters) {
             relNode = converter.convert(relNode, context);
         }
@@ -48,13 +61,27 @@ public class ConversionPipeline {
      * Builder for constructing a ConversionPipeline.
      */
     public static class Builder {
+        /** Creates a new empty pipeline builder. */
+        public Builder() {}
+
         private final List<ClauseConverter> converters = new ArrayList<>();
 
+        /**
+         * Adds a converter to the pipeline.
+         *
+         * @param converter the clause converter to add
+         * @return this builder for chaining
+         */
         public Builder addConverter(ClauseConverter converter) {
             converters.add(converter);
             return this;
         }
 
+        /**
+         * Builds the pipeline, sorting converters by their phase order.
+         *
+         * @return the constructed {@link ConversionPipeline}
+         */
         public ConversionPipeline build() {
             List<ClauseConverter> sorted = new ArrayList<>(converters);
             sorted.sort(Comparator.comparingInt(c -> c.getPhase().getOrder()));

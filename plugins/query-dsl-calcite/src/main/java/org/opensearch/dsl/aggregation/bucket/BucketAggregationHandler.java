@@ -27,13 +27,28 @@ import java.util.Collection;
  */
 public interface BucketAggregationHandler<T extends AggregationBuilder> extends AggregationHandler<T> {
 
-    /** Returns the grouping contribution for this bucket aggregation. */
+    /**
+     * Returns the grouping contribution for this bucket aggregation.
+     *
+     * @param agg the bucket aggregation builder
+     * @return the grouping info
+     */
     GroupingInfo getGrouping(T agg);
 
-    /** Returns the bucket order for post-aggregation sorting. */
+    /**
+     * Returns the bucket order for post-aggregation sorting.
+     *
+     * @param agg the bucket aggregation builder
+     * @return the bucket order
+     */
     BucketOrder getOrder(T agg);
 
-    /** Returns sub-aggregations to recurse into. */
+    /**
+     * Returns sub-aggregations to recurse into.
+     *
+     * @param agg the bucket aggregation builder
+     * @return the sub-aggregations
+     */
     @Override
     Collection<AggregationBuilder> getSubAggregations(T agg);
 

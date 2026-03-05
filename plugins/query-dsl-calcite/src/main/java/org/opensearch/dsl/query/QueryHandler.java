@@ -25,6 +25,13 @@ public interface QueryHandler {
     /** Returns the concrete QueryBuilder class this handler handles. */
     Class<? extends QueryBuilder> getQueryType();
 
-    /** Converts the query to a Calcite RexNode filter expression. */
+    /**
+     * Converts the query to a Calcite RexNode filter expression.
+     *
+     * @param query the query builder to convert
+     * @param ctx the conversion context
+     * @return the resulting RexNode
+     * @throws ConversionException if conversion fails
+     */
     RexNode convert(QueryBuilder query, ConversionContext ctx) throws ConversionException;
 }

@@ -26,14 +26,32 @@ public abstract class HandlerRegistry<K, H> {
     private final Map<Class<? extends K>, H> handlers = new HashMap<>();
     private final String handlerKind;
 
+    /**
+     * Creates a registry for the given handler kind.
+     *
+     * @param handlerKind descriptive name used in error messages (e.g., "query", "aggregation")
+     */
     protected HandlerRegistry(String handlerKind) {
         this.handlerKind = handlerKind;
     }
 
+    /**
+     * Registers a handler for the given key type.
+     *
+     * @param keyType the class of the key to map
+     * @param handler the handler to associate with the key type
+     */
     protected void doRegister(Class<? extends K> keyType, H handler) {
         handlers.put(keyType, handler);
     }
 
+    /**
+     * Finds the handler registered for the runtime type of the given key.
+     *
+     * @param key the key whose handler is requested
+     * @return the matching handler
+     * @throws ConversionException if no handler is registered for the key type
+     */
     protected H findHandler(K key) throws ConversionException {
         @SuppressWarnings("unchecked")
         Class<? extends K> keyClass = (Class<? extends K>) key.getClass();

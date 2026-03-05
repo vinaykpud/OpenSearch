@@ -26,6 +26,7 @@ import org.opensearch.search.builder.SearchSourceBuilder;
  */
 public class FromSizeConverter extends AbstractClauseConverter {
 
+    /** Creates a new FromSizeConverter for the LIMIT phase. */
     public FromSizeConverter() {
         super(PipelinePhase.LIMIT);
     }
@@ -35,14 +36,6 @@ public class FromSizeConverter extends AbstractClauseConverter {
         SearchSourceBuilder ss = ctx.getSearchSource();
         int from = ss.from() != -1 ? ss.from() : 0;
         int size = ss.size() != -1 ? ss.size() : 10;
-
-        // Skip when size=0 with aggregations (aggregation-only queries)
-        boolean hasAggregations = ss.aggregations() != null
-            && ss.aggregations().getAggregatorFactories() != null
-            && !ss.aggregations().getAggregatorFactories().isEmpty();
-        if (size == 0 && hasAggregations) {
-            return false;
-        }
 
         // Skip when defaults (from=0, size=10)
         return !(from == 0 && size == 10);

@@ -26,6 +26,11 @@ public class QueryConverter extends AbstractClauseConverter {
 
     private final QueryHandlerRegistry queryRegistry;
 
+    /**
+     * Creates a new QueryConverter.
+     *
+     * @param queryRegistry the registry for resolving query handlers
+     */
     public QueryConverter(QueryHandlerRegistry queryRegistry) {
         super(PipelinePhase.FILTER);
         this.queryRegistry = queryRegistry;

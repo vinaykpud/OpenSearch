@@ -21,8 +21,9 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Converts a {@link BoolQueryBuilder} to a Calcite AND RexNode.
+ * Converts a {@link BoolQueryBuilder} to a Calcite RexNode.
  *
+ * Handles all four boolean clauses: must (AND), filter (AND), should (OR), must_not (AND NOT).
  * Uses the Composite pattern: delegates child query conversion back to the
  * {@link QueryHandlerRegistry}, allowing recursive composition of any
  * registered query types.
@@ -31,6 +32,11 @@ public class BoolQueryHandler implements QueryHandler {
 
     private final QueryHandlerRegistry registry;
 
+    /**
+     * Creates a new bool query handler.
+     *
+     * @param registry the query handler registry for recursive child conversion
+     */
     public BoolQueryHandler(QueryHandlerRegistry registry) {
         this.registry = registry;
     }
@@ -61,8 +67,35 @@ public class BoolQueryHandler implements QueryHandler {
             }
         }
 
+        // should → OR: combine all should clauses into a single OR condition
+        if (!boolQuery.should().isEmpty()) {
+            List<RexNode> shouldConditions = new ArrayList<>();
+            for (QueryBuilder shouldClause : boolQuery.should()) {
+                RexNode condition = registry.convert(shouldClause, ctx);
+                if (condition != null) {
+                    shouldConditions.add(condition);
+                }
+            }
+            if (shouldConditions.size() == 1) {
+                conditions.add(shouldConditions.get(0));
+            } else if (shouldConditions.size() > 1) {
+                ctx.requireOperatorSupported(SqlStdOperatorTable.OR);
+                List<RexNode> flatOr = flattenConditions(shouldConditions, SqlStdOperatorTable.OR);
+                conditions.add(rexBuilder.makeCall(SqlStdOperatorTable.OR, flatOr));
+            }
+        }
+
+        // must_not → AND NOT: negate each must_not clause
+        for (QueryBuilder mustNotClause : boolQuery.mustNot()) {
+            RexNode condition = registry.convert(mustNotClause, ctx);
+            if (condition != null) {
+                ctx.requireOperatorSupported(SqlStdOperatorTable.NOT);
+                conditions.add(rexBuilder.makeCall(SqlStdOperatorTable.NOT, condition));
+            }
+        }
+
         // Flatten nested ANDs to satisfy Calcite's RexUtil.isFlat requirement
-        List<RexNode> flattenedConditions = flattenAndConditions(conditions);
+        List<RexNode> flattenedConditions = flattenConditions(conditions, SqlStdOperatorTable.AND);
 
         if (flattenedConditions.isEmpty()) {
             return rexBuilder.makeLiteral(true);
@@ -74,11 +107,11 @@ public class BoolQueryHandler implements QueryHandler {
         }
     }
 
-    private List<RexNode> flattenAndConditions(List<RexNode> conditions) {
+    private List<RexNode> flattenConditions(List<RexNode> conditions, org.apache.calcite.sql.SqlOperator operator) {
         List<RexNode> flattened = new ArrayList<>();
         for (RexNode condition : conditions) {
             if (condition instanceof RexCall call
-                && call.getOperator() == SqlStdOperatorTable.AND) {
+                && call.getOperator() == operator) {
                 flattened.addAll(call.getOperands());
             } else {
                 flattened.add(condition);

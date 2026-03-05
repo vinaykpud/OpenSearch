@@ -21,6 +21,9 @@ import org.opensearch.index.query.TermQueryBuilder;
  */
 public class TermQueryHandler implements QueryHandler {
 
+    /** Creates a new term query handler. */
+    public TermQueryHandler() {}
+
     @Override
     public Class<? extends QueryBuilder> getQueryType() {
         return TermQueryBuilder.class;

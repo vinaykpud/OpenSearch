@@ -37,6 +37,15 @@ public class ConversionContext {
     // Mutable shared state
     private AggregationMetadata aggregationMetadata;
 
+    /**
+     * Creates a new conversion context.
+     *
+     * @param searchSource the original search request
+     * @param indexName    the target index name
+     * @param indexSchema  the resolved index schema
+     * @param cluster      the Calcite cluster for plan construction
+     * @param capabilities downstream execution capabilities
+     */
     public ConversionContext(
         SearchSourceBuilder searchSource,
         String indexName,
@@ -53,44 +62,63 @@ public class ConversionContext {
 
     // --- Immutable accessors ---
 
+    /** Returns the original search source builder. */
     public SearchSourceBuilder getSearchSource() {
         return searchSource;
     }
 
+    /** Returns the target index name. */
     public String getIndexName() {
         return indexName;
     }
 
+    /** Returns the resolved index schema. */
     public RelDataType getIndexSchema() {
         return indexSchema;
     }
 
+    /** Returns the Calcite cluster used for plan construction. */
     public RelOptCluster getCluster() {
         return cluster;
     }
 
+    /** Returns the {@link RexBuilder} from the cluster. */
     public RexBuilder getRexBuilder() {
         return cluster.getRexBuilder();
     }
 
+    /** Returns the downstream execution capabilities. */
     public DownstreamCapabilities getCapabilities() {
         return capabilities;
     }
 
     // --- Mutable shared state ---
 
+    /** Returns the aggregation metadata, or {@code null} if not yet set. */
     public AggregationMetadata getAggregationMetadata() {
         return aggregationMetadata;
     }
 
+    /**
+     * Sets the aggregation metadata produced by the aggregation converter.
+     *
+     * @param aggregationMetadata the metadata to store
+     */
     public void setAggregationMetadata(AggregationMetadata aggregationMetadata) {
         this.aggregationMetadata = aggregationMetadata;
     }
 
+    /** Returns the row type of the index schema. */
     public RelDataType getRowType() {
         return indexSchema;
     }
 
+    /**
+     * Throws if the given SQL operator is not supported downstream.
+     *
+     * @param operator the operator to check
+     * @throws ConversionException if the operator is unsupported
+     */
     public void requireOperatorSupported(SqlOperator operator) throws ConversionException {
         if (!capabilities.isOperatorSupported(operator)) {
             throw ConversionException.unsupportedOperator(operator.getName());
@@ -99,6 +127,12 @@ public class ConversionContext {
 
     // --- Validation convenience methods ---
 
+    /**
+     * Throws if the given RelNode type is not supported downstream.
+     *
+     * @param type the RelNode class to check
+     * @throws ConversionException if the RelNode type is unsupported
+     */
     public void requireRelNodeSupported(Class<? extends RelNode> type) throws ConversionException {
         if (!capabilities.isRelNodeSupported(type)) {
             throw ConversionException.unsupportedRelNode(type.getSimpleName());

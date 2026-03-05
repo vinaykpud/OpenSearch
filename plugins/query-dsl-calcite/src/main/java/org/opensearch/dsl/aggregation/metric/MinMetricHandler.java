@@ -8,6 +8,7 @@
 
 package org.opensearch.dsl.aggregation.metric;
 
+import org.apache.calcite.sql.SqlAggFunction;
 import org.apache.calcite.sql.fun.SqlStdOperatorTable;
 import org.opensearch.search.aggregations.metrics.MinAggregationBuilder;
 
@@ -16,13 +17,16 @@ import org.opensearch.search.aggregations.metrics.MinAggregationBuilder;
  */
 public class MinMetricHandler extends AbstractMetricHandler<MinAggregationBuilder> {
 
+    /** Creates a new MIN metric handler. */
+    public MinMetricHandler() {}
+
     @Override
     public Class<MinAggregationBuilder> getAggregationType() {
         return MinAggregationBuilder.class;
     }
 
     @Override
-    protected org.apache.calcite.sql.SqlAggFunction getAggFunction() {
+    protected SqlAggFunction getAggFunction() {
         return SqlStdOperatorTable.MIN;
     }
 

@@ -25,6 +25,9 @@ import java.util.List;
  */
 public class RangeQueryHandler implements QueryHandler {
 
+    /** Creates a new range query handler. */
+    public RangeQueryHandler() {}
+
     @Override
     public Class<? extends QueryBuilder> getQueryType() {
         return RangeQueryBuilder.class;

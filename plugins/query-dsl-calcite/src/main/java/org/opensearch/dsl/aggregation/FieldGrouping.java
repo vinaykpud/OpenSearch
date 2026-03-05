@@ -25,6 +25,11 @@ public class FieldGrouping implements GroupingInfo {
 
     private final List<String> fieldNames;
 
+    /**
+     * Creates a field grouping with the given field names.
+     *
+     * @param fieldNames the field names to group by
+     */
     public FieldGrouping(List<String> fieldNames) {
         this.fieldNames = List.copyOf(fieldNames);
     }

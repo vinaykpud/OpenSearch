@@ -26,8 +26,18 @@ import java.util.Collections;
  */
 public abstract class AbstractMetricHandler<T extends AggregationBuilder> implements MetricAggregationHandler<T> {
 
+    /** Creates a new abstract metric handler. */
+    protected AbstractMetricHandler() {}
+
+    /** Returns the SQL aggregate function for this metric (e.g., AVG, SUM). */
     protected abstract SqlAggFunction getAggFunction();
 
+    /**
+     * Returns the field name from the aggregation builder.
+     *
+     * @param agg the aggregation builder
+     * @return the field name
+     */
     protected abstract String getFieldName(T agg);
 
     @Override
