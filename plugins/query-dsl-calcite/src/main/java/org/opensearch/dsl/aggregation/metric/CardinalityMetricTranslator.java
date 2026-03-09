@@ -12,10 +12,10 @@ import org.apache.calcite.sql.SqlAggFunction;
 import org.apache.calcite.sql.fun.SqlStdOperatorTable;
 import org.opensearch.search.aggregations.metrics.CardinalityAggregationBuilder;
 
-public class CardinalityMetricHandler extends AbstractMetricHandler<CardinalityAggregationBuilder> {
+public class CardinalityMetricTranslator extends AbstractMetricTranslator<CardinalityAggregationBuilder> {
 
-    /** Creates a new Distinct Count metric handler. */
-    public CardinalityMetricHandler() {}
+    /** Creates a new Distinct Count metric translator. */
+    public CardinalityMetricTranslator() {}
 
     @Override
     public Class<CardinalityAggregationBuilder> getAggregationType() {

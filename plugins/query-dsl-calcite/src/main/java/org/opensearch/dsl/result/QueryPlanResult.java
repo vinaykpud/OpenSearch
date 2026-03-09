@@ -8,15 +8,14 @@
 
 package org.opensearch.dsl.result;
 
-import org.opensearch.dsl.ExecutionPath;
-import org.opensearch.dsl.QueryPlan;
+import org.opensearch.dsl.QueryPlans;
 
 import java.util.List;
 import java.util.Optional;
 
 /**
- * Aggregate result from executing all paths of a {@link QueryPlan}.
- * Each {@link ExecutionResult} is tagged with its role so the response builder
+ * Aggregate result from executing all query plans in a {@link QueryPlans}.
+ * Each {@link ExecutionResult} is tagged with its type so the response builder
  * can assemble the correct parts of the SearchResponse.
  */
 public final class QueryPlanResult {
@@ -26,7 +25,7 @@ public final class QueryPlanResult {
     /**
      * Creates a query plan result from the given list of execution results.
      *
-     * @param results the execution results, one per executed path
+     * @param results the execution results, one per executed query plan
      */
     public QueryPlanResult(List<ExecutionResult> results) {
         this.results = List.copyOf(results);
@@ -42,14 +41,14 @@ public final class QueryPlanResult {
     }
 
     /**
-     * Returns the first execution result matching the given role, if any.
+     * Returns the first execution result matching the given type, if any.
      *
-     * @param role the path role to look up
+     * @param type the type to look up
      * @return an optional containing the matching result, or empty if none found
      */
-    public Optional<ExecutionResult> getResult(ExecutionPath.PathRole role) {
+    public Optional<ExecutionResult> getResult(QueryPlans.Type type) {
         return results.stream()
-            .filter(r -> r.getRole() == role)
+            .filter(r -> r.getType() == type)
             .findFirst();
     }
 }

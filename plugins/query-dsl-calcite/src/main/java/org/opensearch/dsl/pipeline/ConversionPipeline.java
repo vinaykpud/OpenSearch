@@ -16,16 +16,16 @@ import java.util.Comparator;
 import java.util.List;
 
 /**
- * Executes a sequence of {@link ClauseConverter}s to build a Calcite RelNode tree.
+ * Executes a sequence of {@link DslConverter}s to build a Calcite RelNode tree.
  *
  * Converters are executed in order. Each converter receives the output of the previous converter
  * and the shared {@link ConversionContext}.
  */
 public class ConversionPipeline {
 
-    private final List<ClauseConverter> converters;
+    private final List<DslConverter> converters;
 
-    private ConversionPipeline(List<ClauseConverter> converters) {
+    private ConversionPipeline(List<DslConverter> converters) {
         this.converters = converters;
     }
 
@@ -51,7 +51,7 @@ public class ConversionPipeline {
      */
     public RelNode execute(ConversionContext context, RelNode initialInput) throws ConversionException {
         RelNode relNode = initialInput;
-        for (ClauseConverter converter : converters) {
+        for (DslConverter converter : converters) {
             relNode = converter.convert(relNode, context);
         }
         return relNode;
@@ -64,15 +64,15 @@ public class ConversionPipeline {
         /** Creates a new empty pipeline builder. */
         public Builder() {}
 
-        private final List<ClauseConverter> converters = new ArrayList<>();
+        private final List<DslConverter> converters = new ArrayList<>();
 
         /**
          * Adds a converter to the pipeline.
          *
-         * @param converter the clause converter to add
+         * @param converter the DSL converter to add
          * @return this builder for chaining
          */
-        public Builder addConverter(ClauseConverter converter) {
+        public Builder addConverter(DslConverter converter) {
             converters.add(converter);
             return this;
         }
@@ -83,7 +83,7 @@ public class ConversionPipeline {
          * @return the constructed {@link ConversionPipeline}
          */
         public ConversionPipeline build() {
-            List<ClauseConverter> sorted = new ArrayList<>(converters);
+            List<DslConverter> sorted = new ArrayList<>(converters);
             sorted.sort(Comparator.comparingInt(c -> c.getPhase().getOrder()));
             return new ConversionPipeline(List.copyOf(sorted));
         }

@@ -6,14 +6,14 @@
  * compatible open source license.
  */
 
-package org.opensearch.dsl.pipeline.clause;
+package org.opensearch.dsl.pipeline.converter;
 
 import org.apache.calcite.rel.RelCollation;
 import org.apache.calcite.rel.RelCollations;
 import org.apache.calcite.rel.RelFieldCollation;
 import org.apache.calcite.rel.RelNode;
 import org.apache.calcite.rel.logical.LogicalSort;
-import org.opensearch.dsl.pipeline.AbstractClauseConverter;
+import org.opensearch.dsl.pipeline.AbstractDslConverter;
 import org.opensearch.dsl.pipeline.CollationResolver;
 import org.opensearch.dsl.pipeline.ConversionContext;
 import org.opensearch.dsl.pipeline.PipelinePhase;
@@ -27,10 +27,10 @@ import java.util.List;
  * Uses {@link CollationResolver} to resolve bucket orders against the actual
  * post-aggregation schema from the LogicalAggregate node.
  */
-public class BucketOrderConverter extends AbstractClauseConverter {
+public class PostAggregateConverter extends AbstractDslConverter {
 
-    /** Creates a new BucketOrderConverter for the POST_AGGREGATE phase. */
-    public BucketOrderConverter() {
+    /** Creates a new PostAggregateConverter for the POST_AGGREGATE phase. */
+    public PostAggregateConverter() {
         super(PipelinePhase.POST_AGGREGATE);
     }
 

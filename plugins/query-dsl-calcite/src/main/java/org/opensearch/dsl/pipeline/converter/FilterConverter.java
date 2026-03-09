@@ -6,15 +6,15 @@
  * compatible open source license.
  */
 
-package org.opensearch.dsl.pipeline.clause;
+package org.opensearch.dsl.pipeline.converter;
 
 import org.apache.calcite.rel.RelNode;
 import org.apache.calcite.rel.logical.LogicalFilter;
 import org.apache.calcite.rex.RexNode;
-import org.opensearch.dsl.pipeline.AbstractClauseConverter;
+import org.opensearch.dsl.pipeline.AbstractDslConverter;
 import org.opensearch.dsl.pipeline.ConversionContext;
 import org.opensearch.dsl.pipeline.PipelinePhase;
-import org.opensearch.dsl.query.QueryHandlerRegistry;
+import org.opensearch.dsl.query.QueryRegistry;
 import org.opensearch.dsl.exception.ConversionException;
 import org.opensearch.index.query.MatchAllQueryBuilder;
 
@@ -22,16 +22,16 @@ import org.opensearch.index.query.MatchAllQueryBuilder;
  * Converts the DSL query to a Calcite LogicalFilter.
  * Skips match_all since LogicalTableScan already returns all rows.
  */
-public class QueryConverter extends AbstractClauseConverter {
+public class FilterConverter extends AbstractDslConverter {
 
-    private final QueryHandlerRegistry queryRegistry;
+    private final QueryRegistry queryRegistry;
 
     /**
-     * Creates a new QueryConverter.
+     * Creates a new FilterConverter.
      *
-     * @param queryRegistry the registry for resolving query handlers
+     * @param queryRegistry the registry for resolving query translators
      */
-    public QueryConverter(QueryHandlerRegistry queryRegistry) {
+    public FilterConverter(QueryRegistry queryRegistry) {
         super(PipelinePhase.FILTER);
         this.queryRegistry = queryRegistry;
     }

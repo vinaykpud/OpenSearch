@@ -8,41 +8,41 @@
 
 package org.opensearch.dsl.result;
 
-import org.opensearch.dsl.ExecutionPath;
+import org.opensearch.dsl.QueryPlans;
 
 import java.util.List;
 
 /**
- * Result from executing a single {@link ExecutionPath}.
- * Contains the tabular results and the role identifying what part of the
+ * Result from executing a single {@link QueryPlans.QueryPlan}.
+ * Contains the tabular results and the type identifying what part of the
  * SearchResponse this result populates.
  */
 public final class ExecutionResult {
 
-    private final ExecutionPath.PathRole role;
+    private final QueryPlans.Type type;
     private final Object[][] rows;
     private final List<String> fieldNames;
 
     /**
      * Creates an execution result.
      *
-     * @param role       the path role identifying what part of the response this result populates
+     * @param type       the type identifying what part of the response this result populates
      * @param rows       the tabular result data
      * @param fieldNames the field names corresponding to columns in the rows
      */
-    public ExecutionResult(ExecutionPath.PathRole role, Object[][] rows, List<String> fieldNames) {
-        this.role = role;
+    public ExecutionResult(QueryPlans.Type type, Object[][] rows, List<String> fieldNames) {
+        this.type = type;
         this.rows = rows;
         this.fieldNames = List.copyOf(fieldNames);
     }
 
     /**
-     * Returns the role of this execution result.
+     * Returns the type of this execution result.
      *
-     * @return the path role
+     * @return the type
      */
-    public ExecutionPath.PathRole getRole() {
-        return role;
+    public QueryPlans.Type getType() {
+        return type;
     }
 
     /**

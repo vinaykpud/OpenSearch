@@ -6,7 +6,7 @@
  * compatible open source license.
  */
 
-package org.opensearch.dsl.pipeline.clause;
+package org.opensearch.dsl.pipeline.converter;
 
 import org.apache.calcite.plan.RelOptTable;
 import org.apache.calcite.prepare.RelOptTableImpl;
@@ -16,7 +16,7 @@ import org.apache.calcite.rel.type.RelDataType;
 import org.apache.calcite.rel.type.RelDataTypeFactory;
 import org.apache.calcite.schema.Table;
 import org.apache.calcite.schema.impl.AbstractTable;
-import org.opensearch.dsl.pipeline.AbstractClauseConverter;
+import org.opensearch.dsl.pipeline.AbstractDslConverter;
 import org.opensearch.dsl.pipeline.ConversionContext;
 import org.opensearch.dsl.pipeline.PipelinePhase;
 import org.opensearch.dsl.exception.ConversionException;
@@ -29,11 +29,11 @@ import java.util.List;
  * Schema resolution (I/O, type mapping, caching) happens before the pipeline
  * runs — this converter only creates the Calcite plan node.
  */
-public class IndexScanConverter extends AbstractClauseConverter {
+public class ScanConverter extends AbstractDslConverter {
 
-    /** Creates an IndexScanConverter in the {@link PipelinePhase#SCHEMA} phase. */
-    public IndexScanConverter() {
-        super(PipelinePhase.SCHEMA);
+    /** Creates a ScanConverter in the {@link PipelinePhase#SCAN} phase. */
+    public ScanConverter() {
+        super(PipelinePhase.SCAN);
     }
 
     @Override

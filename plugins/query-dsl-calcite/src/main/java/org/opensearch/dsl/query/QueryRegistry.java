@@ -15,36 +15,36 @@ import org.opensearch.dsl.pipeline.HandlerRegistry;
 import org.opensearch.index.query.QueryBuilder;
 
 /**
- * Registry of {@link QueryHandler} strategies.
+ * Registry of {@link QueryTranslator} strategies.
  *
  * Uses a map keyed by concrete QueryBuilder class for O(1) lookup.
  */
-public class QueryHandlerRegistry extends HandlerRegistry<QueryBuilder, QueryHandler> {
+public class QueryRegistry extends HandlerRegistry<QueryBuilder, QueryTranslator> {
 
-    /** Creates a new query handler registry. */
-    public QueryHandlerRegistry() {
+    /** Creates a new query translator registry. */
+    public QueryRegistry() {
         super("query");
     }
 
     /**
-     * Registers a query handler.
+     * Registers a query translator.
      *
-     * @param handler the handler to register
+     * @param handler the translator to register
      */
-    public void register(QueryHandler handler) {
+    public void register(QueryTranslator handler) {
         doRegister(handler.getQueryType(), handler);
     }
 
     /**
-     * Converts a query to a Calcite RexNode using the registered handler.
+     * Converts a query to a Calcite RexNode using the registered translator.
      *
      * @param query the query builder to convert
      * @param ctx the conversion context
      * @return the resulting RexNode filter expression
-     * @throws ConversionException if no handler is found or conversion fails
+     * @throws ConversionException if no translator is found or conversion fails
      */
     public RexNode convert(QueryBuilder query, ConversionContext ctx) throws ConversionException {
-        QueryHandler handler = findHandler(query);
+        QueryTranslator handler = findHandler(query);
         return handler.convert(query, ctx);
     }
 }

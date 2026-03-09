@@ -82,7 +82,7 @@ public class AggregationMetadataBuilder {
 
     /**
      * Requests that an implicit COUNT(*) be added as {@code _count}.
-     * Idempotent — nested bucket handlers can call this multiple times;
+     * Idempotent — nested bucket shapes can call this multiple times;
      * only one COUNT(*) is created at build time.
      */
     public void requestImplicitCount() {

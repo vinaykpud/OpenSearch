@@ -25,19 +25,19 @@ import java.util.List;
  *
  * Handles all four boolean clauses: must (AND), filter (AND), should (OR), must_not (AND NOT).
  * Uses the Composite pattern: delegates child query conversion back to the
- * {@link QueryHandlerRegistry}, allowing recursive composition of any
+ * {@link QueryRegistry}, allowing recursive composition of any
  * registered query types.
  */
-public class BoolQueryHandler implements QueryHandler {
+public class BoolQueryTranslator implements QueryTranslator {
 
-    private final QueryHandlerRegistry registry;
+    private final QueryRegistry registry;
 
     /**
-     * Creates a new bool query handler.
+     * Creates a new bool query translator.
      *
-     * @param registry the query handler registry for recursive child conversion
+     * @param registry the query translator registry for recursive child conversion
      */
-    public BoolQueryHandler(QueryHandlerRegistry registry) {
+    public BoolQueryTranslator(QueryRegistry registry) {
         this.registry = registry;
     }
 

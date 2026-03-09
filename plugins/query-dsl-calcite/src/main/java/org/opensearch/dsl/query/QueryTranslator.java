@@ -14,15 +14,15 @@ import org.opensearch.dsl.pipeline.ConversionContext;
 import org.opensearch.index.query.QueryBuilder;
 
 /**
- * Strategy interface for handling a single OpenSearch query type to a Calcite RexNode.
+ * Translates a single OpenSearch query type to a Calcite RexNode.
  *
  * One implementation per query type. New query types are added by creating a new
- * implementation and registering it in {@link QueryHandlerRegistry} — no existing
+ * implementation and registering it in {@link QueryRegistry} — no existing
  * code needs to change.
  */
-public interface QueryHandler {
+public interface QueryTranslator {
 
-    /** Returns the concrete QueryBuilder class this handler handles. */
+    /** Returns the concrete QueryBuilder class this translator handles. */
     Class<? extends QueryBuilder> getQueryType();
 
     /**

@@ -13,12 +13,12 @@ import org.apache.calcite.sql.fun.SqlStdOperatorTable;
 import org.opensearch.search.aggregations.metrics.AvgAggregationBuilder;
 
 /**
- * Handles {@link AvgAggregationBuilder} — AVG metric aggregation.
+ * Translates {@link \1} — \1 metric aggregation.
  */
-public class AvgMetricHandler extends AbstractMetricHandler<AvgAggregationBuilder> {
+public class AvgMetricTranslator extends AbstractMetricTranslator<AvgAggregationBuilder> {
 
-    /** Creates a new AVG metric handler. */
-    public AvgMetricHandler() {}
+    /** Creates a new AVG metric translator. */
+    public AvgMetricTranslator() {}
 
     @Override
     public Class<AvgAggregationBuilder> getAggregationType() {

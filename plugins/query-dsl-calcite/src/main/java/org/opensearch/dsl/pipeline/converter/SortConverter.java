@@ -6,7 +6,7 @@
  * compatible open source license.
  */
 
-package org.opensearch.dsl.pipeline.clause;
+package org.opensearch.dsl.pipeline.converter;
 
 import org.apache.calcite.rel.RelCollation;
 import org.apache.calcite.rel.RelCollations;
@@ -15,10 +15,13 @@ import org.apache.calcite.rel.RelNode;
 import org.apache.calcite.rel.logical.LogicalSort;
 import org.apache.calcite.rel.type.RelDataType;
 import org.apache.calcite.rel.type.RelDataTypeField;
-import org.opensearch.dsl.pipeline.AbstractClauseConverter;
+import org.apache.calcite.rex.RexNode;
+import org.apache.calcite.sql.type.SqlTypeName;
+import org.opensearch.dsl.pipeline.AbstractDslConverter;
 import org.opensearch.dsl.pipeline.ConversionContext;
 import org.opensearch.dsl.pipeline.PipelinePhase;
 import org.opensearch.dsl.exception.ConversionException;
+import org.opensearch.search.builder.SearchSourceBuilder;
 import org.opensearch.search.sort.FieldSortBuilder;
 import org.opensearch.search.sort.SortBuilder;
 import org.opensearch.search.sort.SortOrder;
@@ -27,9 +30,10 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Converts top-level sort clauses to a LogicalSort before aggregation.
+ * Converts DSL sort and from/size into a single LogicalSort node
+ * with collation (ordering) and offset/fetch (pagination).
  */
-public class SortConverter extends AbstractClauseConverter {
+public class SortConverter extends AbstractDslConverter {
 
     /** Creates a new SortConverter for the SORT phase. */
     public SortConverter() {
@@ -38,7 +42,7 @@ public class SortConverter extends AbstractClauseConverter {
 
     @Override
     protected boolean isApplicable(ConversionContext ctx) {
-        return ctx.getSearchSource().sorts() != null && !ctx.getSearchSource().sorts().isEmpty();
+        return hasSort(ctx) || hasNonDefaultPagination(ctx);
     }
 
     @Override
@@ -48,6 +52,18 @@ public class SortConverter extends AbstractClauseConverter {
 
     @Override
     protected RelNode doConvert(RelNode input, ConversionContext ctx) throws ConversionException {
+        RelCollation collation = buildCollation(input, ctx);
+        RexNode offset = buildOffset(ctx);
+        RexNode fetch = buildFetch(ctx);
+
+        return LogicalSort.create(input, collation, offset, fetch);
+    }
+
+    private RelCollation buildCollation(RelNode input, ConversionContext ctx) throws ConversionException {
+        if (!hasSort(ctx)) {
+            return RelCollations.EMPTY;
+        }
+
         RelDataType rowType = input.getRowType();
         List<RelFieldCollation> fieldCollations = new ArrayList<>();
 
@@ -58,7 +74,6 @@ public class SortConverter extends AbstractClauseConverter {
                 if (field == null) {
                     throw ConversionException.invalidField(fieldName);
                 }
-                int fieldIndex = field.getIndex();
 
                 RelFieldCollation.Direction direction = (fieldSort.order() == SortOrder.ASC)
                     ? RelFieldCollation.Direction.ASCENDING
@@ -68,7 +83,7 @@ public class SortConverter extends AbstractClauseConverter {
                     ? RelFieldCollation.NullDirection.LAST
                     : RelFieldCollation.NullDirection.FIRST;
 
-                fieldCollations.add(new RelFieldCollation(fieldIndex, direction, nullDirection));
+                fieldCollations.add(new RelFieldCollation(field.getIndex(), direction, nullDirection));
             } else {
                 throw new UnsupportedOperationException(
                     "Sort type not supported: " + sortBuilder.getClass().getSimpleName()
@@ -76,7 +91,37 @@ public class SortConverter extends AbstractClauseConverter {
             }
         }
 
-        RelCollation collation = RelCollations.of(fieldCollations);
-        return LogicalSort.create(input, collation, null, null);
+        return RelCollations.of(fieldCollations);
+    }
+
+    private RexNode buildOffset(ConversionContext ctx) {
+        SearchSourceBuilder ss = ctx.getSearchSource();
+        int from = ss.from() != -1 ? ss.from() : 0;
+        if (from <= 0) {
+            return null;
+        }
+        return ctx.getRexBuilder().makeLiteral(from,
+            ctx.getCluster().getTypeFactory().createSqlType(SqlTypeName.INTEGER), false);
+    }
+
+    private RexNode buildFetch(ConversionContext ctx) {
+        if (!hasNonDefaultPagination(ctx)) {
+            return null;
+        }
+        SearchSourceBuilder ss = ctx.getSearchSource();
+        int size = ss.size() != -1 ? ss.size() : 10;
+        return ctx.getRexBuilder().makeLiteral(size,
+            ctx.getCluster().getTypeFactory().createSqlType(SqlTypeName.INTEGER), false);
+    }
+
+    private static boolean hasSort(ConversionContext ctx) {
+        return ctx.getSearchSource().sorts() != null && !ctx.getSearchSource().sorts().isEmpty();
+    }
+
+    private static boolean hasNonDefaultPagination(ConversionContext ctx) {
+        SearchSourceBuilder ss = ctx.getSearchSource();
+        int from = ss.from() != -1 ? ss.from() : 0;
+        int size = ss.size() != -1 ? ss.size() : 10;
+        return !(from == 0 && size == 10);
     }
 }

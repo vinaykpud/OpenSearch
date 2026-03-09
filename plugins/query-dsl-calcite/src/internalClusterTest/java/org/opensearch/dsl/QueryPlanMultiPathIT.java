@@ -17,12 +17,12 @@ import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.not;
 
 /**
- * Integration tests for multi-path QueryPlan conversion.
+ * Integration tests for multi-entry QueryPlan conversion.
  *
- * Verifies that DSL queries produce the correct number of execution paths:
- * - Query only (no aggs): 1 path → HITS
- * - Aggs with size=0: 1 path → FILTER_AGGREGATION
- * - Aggs with size>0: 2 paths → HITS + FILTER_AGGREGATION
+ * Verifies that DSL queries produce the correct number of entries:
+ * - Query only (no aggs): 1 entry → HITS
+ * - Aggs with size=0: 1 entry → AGGREGATION
+ * - Aggs with size>0: 2 entries → HITS + AGGREGATION
  */
 public class QueryPlanMultiPathIT extends DslLogicalPlanIntegrationTestBase {
 
@@ -49,23 +49,23 @@ public class QueryPlanMultiPathIT extends DslLogicalPlanIntegrationTestBase {
 
     /**
      * Scenario: Query only, no aggregations.
-     * Expected: 1 path → HITS
+     * Expected: 1 entry → HITS
      */
-    public void testQueryOnlyProducesSingleHitsPath() throws Exception {
+    public void testQueryOnlyProducesSingleHitsEntry() throws Exception {
         createTestIndex();
 
         SearchSourceBuilder searchSource = new SearchSourceBuilder();
         searchSource.query(QueryBuilders.termQuery("category", "electronics"));
 
-        QueryPlan plan = getConverterService().convert(searchSource, INDEX_NAME);
+        QueryPlans plans = getConverterService().convert(searchSource, INDEX_NAME);
 
-        assertEquals("Should have exactly 1 path", 1, plan.getAllPaths().size());
-        assertTrue("Should have HITS path", plan.hasPath(ExecutionPath.PathRole.HITS));
-        assertFalse("Should NOT have FILTER_AGGREGATION path",
-            plan.hasPath(ExecutionPath.PathRole.FILTER_AGGREGATION));
+        assertEquals("Should have exactly 1 entry", 1, plans.getAll().size());
+        assertTrue("Should have HITS entry", plans.has(QueryPlans.Type.HITS));
+        assertFalse("Should NOT have AGGREGATION entry",
+            plans.has(QueryPlans.Type.AGGREGATION));
 
-        // Verify the HITS path contains a LogicalFilter
-        RelNode hitsRelNode = plan.getPath(ExecutionPath.PathRole.HITS).get().getRelNode();
+        // Verify the HITS entry contains a LogicalFilter
+        RelNode hitsRelNode = plans.get(QueryPlans.Type.HITS).get().relNode();
         String hitsExplain = hitsRelNode.explain();
         assertThat(hitsExplain, containsString("LogicalFilter"));
         assertThat(hitsExplain, containsString("LogicalTableScan"));
@@ -75,9 +75,9 @@ public class QueryPlanMultiPathIT extends DslLogicalPlanIntegrationTestBase {
 
     /**
      * Scenario: Aggregation with size=0 (aggregation-only query).
-     * Expected: 1 path → FILTER_AGGREGATION
+     * Expected: 1 entry → AGGREGATION
      */
-    public void testAggWithSizeZeroProducesSingleAggPath() throws Exception {
+    public void testAggWithSizeZeroProducesSingleAggEntry() throws Exception {
         createTestIndex();
 
         SearchSourceBuilder searchSource = new SearchSourceBuilder();
@@ -89,15 +89,15 @@ public class QueryPlanMultiPathIT extends DslLogicalPlanIntegrationTestBase {
         );
         searchSource.size(0);
 
-        QueryPlan plan = getConverterService().convert(searchSource, INDEX_NAME);
+        QueryPlans plans = getConverterService().convert(searchSource, INDEX_NAME);
 
-        assertEquals("Should have exactly 1 path", 1, plan.getAllPaths().size());
-        assertFalse("Should NOT have HITS path", plan.hasPath(ExecutionPath.PathRole.HITS));
-        assertTrue("Should have FILTER_AGGREGATION path",
-            plan.hasPath(ExecutionPath.PathRole.FILTER_AGGREGATION));
+        assertEquals("Should have exactly 1 entry", 1, plans.getAll().size());
+        assertFalse("Should NOT have HITS entry", plans.has(QueryPlans.Type.HITS));
+        assertTrue("Should have AGGREGATION entry",
+            plans.has(QueryPlans.Type.AGGREGATION));
 
-        // Verify the FILTER_AGGREGATION path contains LogicalAggregate
-        RelNode aggRelNode = plan.getPath(ExecutionPath.PathRole.FILTER_AGGREGATION).get().getRelNode();
+        // Verify the AGGREGATION entry contains LogicalAggregate
+        RelNode aggRelNode = plans.get(QueryPlans.Type.AGGREGATION).get().relNode();
         String aggExplain = aggRelNode.explain();
         assertThat(aggExplain, containsString("LogicalAggregate"));
         assertThat(aggExplain, containsString("LogicalFilter"));
@@ -106,9 +106,9 @@ public class QueryPlanMultiPathIT extends DslLogicalPlanIntegrationTestBase {
 
     /**
      * Scenario: Aggregation with size > 0 (need both hits and aggs).
-     * Expected: 2 paths → HITS + FILTER_AGGREGATION
+     * Expected: 2 entries → HITS + AGGREGATION
      */
-    public void testAggWithSizeGreaterThanZeroProducesTwoPaths() throws Exception {
+    public void testAggWithSizeGreaterThanZeroProducesTwoEntries() throws Exception {
         createTestIndex();
 
         SearchSourceBuilder searchSource = new SearchSourceBuilder();
@@ -120,23 +120,23 @@ public class QueryPlanMultiPathIT extends DslLogicalPlanIntegrationTestBase {
         );
         searchSource.size(10);
 
-        QueryPlan plan = getConverterService().convert(searchSource, INDEX_NAME);
+        QueryPlans plans = getConverterService().convert(searchSource, INDEX_NAME);
 
-        assertEquals("Should have exactly 2 paths", 2, plan.getAllPaths().size());
-        assertTrue("Should have HITS path", plan.hasPath(ExecutionPath.PathRole.HITS));
-        assertTrue("Should have FILTER_AGGREGATION path",
-            plan.hasPath(ExecutionPath.PathRole.FILTER_AGGREGATION));
+        assertEquals("Should have exactly 2 entries", 2, plans.getAll().size());
+        assertTrue("Should have HITS entry", plans.has(QueryPlans.Type.HITS));
+        assertTrue("Should have AGGREGATION entry",
+            plans.has(QueryPlans.Type.AGGREGATION));
 
-        // Verify the HITS path does NOT contain aggregation
-        RelNode hitsRelNode = plan.getPath(ExecutionPath.PathRole.HITS).get().getRelNode();
+        // Verify the HITS entry does NOT contain aggregation
+        RelNode hitsRelNode = plans.get(QueryPlans.Type.HITS).get().relNode();
         String hitsExplain = hitsRelNode.explain();
         assertThat(hitsExplain, containsString("LogicalFilter"));
         assertThat(hitsExplain, containsString("LogicalTableScan"));
-        assertThat("HITS path should NOT have LogicalAggregate",
+        assertThat("HITS entry should NOT have LogicalAggregate",
             hitsExplain, not(containsString("LogicalAggregate")));
 
-        // Verify the FILTER_AGGREGATION path contains aggregation
-        RelNode aggRelNode = plan.getPath(ExecutionPath.PathRole.FILTER_AGGREGATION).get().getRelNode();
+        // Verify the AGGREGATION entry contains aggregation
+        RelNode aggRelNode = plans.get(QueryPlans.Type.AGGREGATION).get().relNode();
         String aggExplain = aggRelNode.explain();
         assertThat(aggExplain, containsString("LogicalAggregate"));
         assertThat(aggExplain, containsString("LogicalFilter"));
@@ -145,10 +145,10 @@ public class QueryPlanMultiPathIT extends DslLogicalPlanIntegrationTestBase {
 
     /**
      * Scenario: Aggregation with default size (no explicit size set).
-     * Default size is 10 (> 0), so should produce 2 paths.
-     * Expected: 2 paths → HITS + FILTER_AGGREGATION
+     * Default size is 10 (> 0), so should produce 2 entries.
+     * Expected: 2 entries → HITS + AGGREGATION
      */
-    public void testAggWithDefaultSizeProducesTwoPaths() throws Exception {
+    public void testAggWithDefaultSizeProducesTwoEntries() throws Exception {
         createTestIndex();
 
         SearchSourceBuilder searchSource = new SearchSourceBuilder();
@@ -158,36 +158,36 @@ public class QueryPlanMultiPathIT extends DslLogicalPlanIntegrationTestBase {
         );
         // No explicit size — defaults to 10
 
-        QueryPlan plan = getConverterService().convert(searchSource, INDEX_NAME);
+        QueryPlans plans = getConverterService().convert(searchSource, INDEX_NAME);
 
-        assertEquals("Should have exactly 2 paths", 2, plan.getAllPaths().size());
-        assertTrue("Should have HITS path", plan.hasPath(ExecutionPath.PathRole.HITS));
-        assertTrue("Should have FILTER_AGGREGATION path",
-            plan.hasPath(ExecutionPath.PathRole.FILTER_AGGREGATION));
+        assertEquals("Should have exactly 2 entries", 2, plans.getAll().size());
+        assertTrue("Should have HITS entry", plans.has(QueryPlans.Type.HITS));
+        assertTrue("Should have AGGREGATION entry",
+            plans.has(QueryPlans.Type.AGGREGATION));
     }
 
     /**
      * Scenario: No query, no aggregation (bare search).
-     * Expected: 1 path → HITS
+     * Expected: 1 entry → HITS
      */
-    public void testBareSearchProducesSingleHitsPath() throws Exception {
+    public void testBareSearchProducesSingleHitsEntry() throws Exception {
         createTestIndex();
 
         SearchSourceBuilder searchSource = new SearchSourceBuilder();
 
-        QueryPlan plan = getConverterService().convert(searchSource, INDEX_NAME);
+        QueryPlans plans = getConverterService().convert(searchSource, INDEX_NAME);
 
-        assertEquals("Should have exactly 1 path", 1, plan.getAllPaths().size());
-        assertTrue("Should have HITS path", plan.hasPath(ExecutionPath.PathRole.HITS));
-        assertFalse("Should NOT have FILTER_AGGREGATION path",
-            plan.hasPath(ExecutionPath.PathRole.FILTER_AGGREGATION));
+        assertEquals("Should have exactly 1 entry", 1, plans.getAll().size());
+        assertTrue("Should have HITS entry", plans.has(QueryPlans.Type.HITS));
+        assertFalse("Should NOT have AGGREGATION entry",
+            plans.has(QueryPlans.Type.AGGREGATION));
     }
 
     /**
-     * Scenario: Aggregation with size > 0, verify both paths share the same filter.
-     * Both HITS and FILTER_AGGREGATION paths should contain the same filter condition.
+     * Scenario: Aggregation with size > 0, verify both entries share the same filter.
+     * Both HITS and AGGREGATION entries should contain the same filter condition.
      */
-    public void testBothPathsShareSameFilter() throws Exception {
+    public void testBothEntriesShareSameFilter() throws Exception {
         createTestIndex();
 
         SearchSourceBuilder searchSource = new SearchSourceBuilder();
@@ -197,13 +197,13 @@ public class QueryPlanMultiPathIT extends DslLogicalPlanIntegrationTestBase {
         );
         searchSource.size(5);
 
-        QueryPlan plan = getConverterService().convert(searchSource, INDEX_NAME);
+        QueryPlans plans = getConverterService().convert(searchSource, INDEX_NAME);
 
-        assertEquals("Should have 2 paths", 2, plan.getAllPaths().size());
+        assertEquals("Should have 2 entries", 2, plans.getAll().size());
 
-        // Both paths should contain the same filter
-        String hitsExplain = plan.getPath(ExecutionPath.PathRole.HITS).get().getRelNode().explain();
-        String aggExplain = plan.getPath(ExecutionPath.PathRole.FILTER_AGGREGATION).get().getRelNode().explain();
+        // Both entries should contain the same filter
+        String hitsExplain = plans.get(QueryPlans.Type.HITS).get().relNode().explain();
+        String aggExplain = plans.get(QueryPlans.Type.AGGREGATION).get().relNode().explain();
 
         assertThat(hitsExplain, containsString("'electronics')"));
         assertThat(aggExplain, containsString("'electronics')"));
@@ -211,9 +211,9 @@ public class QueryPlanMultiPathIT extends DslLogicalPlanIntegrationTestBase {
 
     /**
      * Scenario: Aggregation with size > 0 and pagination.
-     * HITS path should have offset/fetch, FILTER_AGGREGATION path should NOT.
+     * HITS entry should have offset/fetch, AGGREGATION entry should NOT.
      */
-    public void testHitsPathHasPaginationAggPathDoesNot() throws Exception {
+    public void testHitsEntryHasPaginationAggEntryDoesNot() throws Exception {
         createTestIndex();
 
         SearchSourceBuilder searchSource = new SearchSourceBuilder();
@@ -224,26 +224,26 @@ public class QueryPlanMultiPathIT extends DslLogicalPlanIntegrationTestBase {
         searchSource.from(10);
         searchSource.size(20);
 
-        QueryPlan plan = getConverterService().convert(searchSource, INDEX_NAME);
+        QueryPlans plans = getConverterService().convert(searchSource, INDEX_NAME);
 
-        assertEquals("Should have 2 paths", 2, plan.getAllPaths().size());
+        assertEquals("Should have 2 entries", 2, plans.getAll().size());
 
-        // HITS path should have pagination (LogicalSort with offset/fetch)
-        String hitsExplain = plan.getPath(ExecutionPath.PathRole.HITS).get().getRelNode().explain();
-        assertThat("HITS path should have offset", hitsExplain, containsString("offset"));
-        assertThat("HITS path should have fetch", hitsExplain, containsString("fetch"));
+        // HITS entry should have pagination (LogicalSort with offset/fetch)
+        String hitsExplain = plans.get(QueryPlans.Type.HITS).get().relNode().explain();
+        assertThat("HITS entry should have offset", hitsExplain, containsString("offset"));
+        assertThat("HITS entry should have fetch", hitsExplain, containsString("fetch"));
 
-        // FILTER_AGGREGATION path should NOT have pagination
-        String aggExplain = plan.getPath(ExecutionPath.PathRole.FILTER_AGGREGATION).get().getRelNode().explain();
-        assertThat("AGG path should NOT have offset", aggExplain, not(containsString("offset")));
-        assertThat("AGG path should NOT have fetch", aggExplain, not(containsString("fetch")));
+        // AGGREGATION entry should NOT have pagination
+        String aggExplain = plans.get(QueryPlans.Type.AGGREGATION).get().relNode().explain();
+        assertThat("AGG entry should NOT have offset", aggExplain, not(containsString("offset")));
+        assertThat("AGG entry should NOT have fetch", aggExplain, not(containsString("fetch")));
     }
 
     /**
-     * Scenario: Verify convertDsl still works end-to-end with multi-path queries.
+     * Scenario: Verify convertDsl still works end-to-end with multi-entry queries.
      * The full pipeline (convert → execute → build response) should not throw.
      */
-    public void testConvertDslEndToEndWithMultiPath() throws Exception {
+    public void testConvertDslEndToEndWithMultiEntry() throws Exception {
         createTestIndex();
 
         SearchSourceBuilder searchSource = new SearchSourceBuilder();

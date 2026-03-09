@@ -18,7 +18,7 @@ import org.opensearch.dsl.exception.ConversionException;
  * Context for aggregation-to-AggregateCall conversion.
  *
  * Wraps the row type, type factory, and downstream capabilities needed
- * by individual aggregation handler implementations.
+ * by individual aggregation type implementations.
  */
 public class AggregationConversionContext {
 

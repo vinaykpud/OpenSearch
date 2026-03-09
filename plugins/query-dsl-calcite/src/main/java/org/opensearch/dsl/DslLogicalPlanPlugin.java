@@ -8,8 +8,6 @@
 
 package org.opensearch.dsl;
 
-import org.apache.calcite.rel.metadata.JaninoRelMetadataProvider;
-import org.apache.calcite.rel.metadata.RelMetadataQueryBase;
 import org.opensearch.action.search.SearchResponse;
 import org.opensearch.cluster.metadata.IndexNameExpressionResolver;
 import org.opensearch.cluster.service.ClusterService;
@@ -82,7 +80,7 @@ public class DslLogicalPlanPlugin extends Plugin implements DslConverterPlugin, 
     }
 
     /**
-     * Returns the converter service for direct access to QueryPlan conversion.
+     * Returns the converter service for direct access to QueryPlans conversion.
      * Visible for testing.
      */
     DslLogicalPlanService getConverterService() {
@@ -94,8 +92,8 @@ public class DslLogicalPlanPlugin extends Plugin implements DslConverterPlugin, 
             String indexName) throws Exception {
         long startTime = System.currentTimeMillis();
 
-        QueryPlan plan = converterService.convert(source, indexName);
-        QueryPlanResult result = queryPlanExecutor.execute(plan);
+        QueryPlans plans = converterService.convert(source, indexName);
+        QueryPlanResult result = queryPlanExecutor.execute(plans);
 
         long tookInMillis = System.currentTimeMillis() - startTime;
         return SearchResponseBuilder.build(result, tookInMillis);

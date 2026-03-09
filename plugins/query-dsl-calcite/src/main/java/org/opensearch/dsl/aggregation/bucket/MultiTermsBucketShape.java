@@ -20,12 +20,12 @@ import java.util.Collection;
 import java.util.List;
 
 /**
- * Handles {@link MultiTermsAggregationBuilder} — multi-field bucket aggregation.
+ * Bucket shape for {@link MultiTermsAggregationBuilder} — multi-field bucket aggregation.
  */
-public class MultiTermsBucketHandler implements BucketAggregationHandler<MultiTermsAggregationBuilder> {
+public class MultiTermsBucketShape implements BucketShape<MultiTermsAggregationBuilder> {
 
-    /** Creates a new multi-terms bucket handler. */
-    public MultiTermsBucketHandler() {}
+    /** Creates a new multi-terms bucket shape. */
+    public MultiTermsBucketShape() {}
 
     @Override
     public Class<MultiTermsAggregationBuilder> getAggregationType() {

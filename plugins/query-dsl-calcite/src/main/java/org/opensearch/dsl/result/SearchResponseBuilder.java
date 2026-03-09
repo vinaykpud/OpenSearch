@@ -16,7 +16,7 @@ import org.opensearch.common.document.DocumentField;
 import org.opensearch.core.common.bytes.BytesReference;
 import org.opensearch.core.xcontent.XContentBuilder;
 import org.opensearch.common.xcontent.XContentFactory;
-import org.opensearch.dsl.ExecutionPath;
+import org.opensearch.dsl.QueryPlans;
 import org.opensearch.search.DocValueFormat;
 import org.opensearch.search.SearchHit;
 import org.opensearch.search.SearchHits;
@@ -35,9 +35,9 @@ import java.util.Map;
 /**
  * Converts execution results into OpenSearch {@link SearchResponse}.
  *
- * Builds role-specific dummy data for each execution path present in the
- * {@link QueryPlanResult}: dummy hits for the HITS path and dummy aggregations
- * for the FILTER_AGGREGATION path.
+ * Builds role-specific dummy data for each query plan present in the
+ * {@link QueryPlanResult}: dummy hits for the HITS plan and dummy aggregations
+ * for the AGGREGATION plan.
  */
 public final class SearchResponseBuilder {
 
@@ -45,8 +45,8 @@ public final class SearchResponseBuilder {
 
     /**
      * Builds a {@link SearchResponse} from the given query plan result.
-     * Produces dummy hits if a HITS path is present and dummy aggregations
-     * if a FILTER_AGGREGATION path is present.
+     * Produces dummy hits if a HITS entry is present and dummy aggregations
+     * if an AGGREGATION entry is present.
      *
      * @param planResult    the results from executing a query plan
      * @param tookInMillis  elapsed time in milliseconds
@@ -56,11 +56,11 @@ public final class SearchResponseBuilder {
         SearchHit[] hits = new SearchHit[0];
         InternalAggregations aggs = null;
 
-        if (planResult.getResult(ExecutionPath.PathRole.HITS).isPresent()) {
+        if (planResult.getResult(QueryPlans.Type.HITS).isPresent()) {
             hits = buildDummyHits();
         }
 
-        if (planResult.getResult(ExecutionPath.PathRole.FILTER_AGGREGATION).isPresent()) {
+        if (planResult.getResult(QueryPlans.Type.AGGREGATION).isPresent()) {
             aggs = buildDummyAggregations();
         }
 

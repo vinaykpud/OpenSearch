@@ -23,10 +23,10 @@ import java.util.List;
 /**
  * Converts a {@link RangeQueryBuilder} to Calcite comparison RexNodes.
  */
-public class RangeQueryHandler implements QueryHandler {
+public class RangeQueryTranslator implements QueryTranslator {
 
-    /** Creates a new range query handler. */
-    public RangeQueryHandler() {}
+    /** Creates a new range query translator. */
+    public RangeQueryTranslator() {}
 
     @Override
     public Class<? extends QueryBuilder> getQueryType() {

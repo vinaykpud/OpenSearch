@@ -13,12 +13,12 @@ import org.apache.calcite.sql.fun.SqlStdOperatorTable;
 import org.opensearch.search.aggregations.metrics.SumAggregationBuilder;
 
 /**
- * Handles {@link SumAggregationBuilder} — SUM metric aggregation.
+ * Translates {@link \1} — \1 metric aggregation.
  */
-public class SumMetricHandler extends AbstractMetricHandler<SumAggregationBuilder> {
+public class SumMetricTranslator extends AbstractMetricTranslator<SumAggregationBuilder> {
 
-    /** Creates a new SUM metric handler. */
-    public SumMetricHandler() {}
+    /** Creates a new SUM metric translator. */
+    public SumMetricTranslator() {}
 
     @Override
     public Class<SumAggregationBuilder> getAggregationType() {

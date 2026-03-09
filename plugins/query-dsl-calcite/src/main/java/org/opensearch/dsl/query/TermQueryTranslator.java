@@ -19,10 +19,10 @@ import org.opensearch.index.query.TermQueryBuilder;
 /**
  * Converts a {@link TermQueryBuilder} to a Calcite EQUALS RexNode.
  */
-public class TermQueryHandler implements QueryHandler {
+public class TermQueryTranslator implements QueryTranslator {
 
-    /** Creates a new term query handler. */
-    public TermQueryHandler() {}
+    /** Creates a new term query translator. */
+    public TermQueryTranslator() {}
 
     @Override
     public Class<? extends QueryBuilder> getQueryType() {

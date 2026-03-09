@@ -17,7 +17,7 @@ import org.opensearch.dsl.exception.ConversionException;
  * Each converter transforms a RelNode (or null for the initial converter) into a new RelNode,
  * using shared state from the {@link ConversionContext}.
  */
-public interface ClauseConverter {
+public interface DslConverter {
 
     /**
      * Returns the pipeline phase this converter belongs to.

@@ -17,14 +17,14 @@ import org.opensearch.index.query.QueryBuilder;
 /**
  * Converts a {@link MatchAllQueryBuilder} to a boolean TRUE literal.
  *
- * While top-level match_all is skipped by QueryConverter (a table scan already
+ * While top-level match_all is skipped by FilterConverter (a table scan already
  * returns all rows), match_all can appear nested inside bool queries and
- * needs a handler for that case.
+ * needs a translator for that case.
  */
-public class MatchAllQueryHandler implements QueryHandler {
+public class MatchAllQueryTranslator implements QueryTranslator {
 
-    /** Creates a new match-all query handler. */
-    public MatchAllQueryHandler() {}
+    /** Creates a new match-all query translator. */
+    public MatchAllQueryTranslator() {}
 
     @Override
     public Class<? extends QueryBuilder> getQueryType() {

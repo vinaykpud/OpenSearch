@@ -18,12 +18,12 @@ import java.util.Collection;
 import java.util.List;
 
 /**
- * Handles {@link TermsAggregationBuilder} — single-field bucket aggregation.
+ * Bucket shape for {@link TermsAggregationBuilder} — single-field bucket aggregation.
  */
-public class TermsBucketHandler implements BucketAggregationHandler<TermsAggregationBuilder> {
+public class TermsBucketShape implements BucketShape<TermsAggregationBuilder> {
 
-    /** Creates a new terms bucket handler. */
-    public TermsBucketHandler() {}
+    /** Creates a new terms bucket shape. */
+    public TermsBucketShape() {}
 
     @Override
     public Class<TermsAggregationBuilder> getAggregationType() {

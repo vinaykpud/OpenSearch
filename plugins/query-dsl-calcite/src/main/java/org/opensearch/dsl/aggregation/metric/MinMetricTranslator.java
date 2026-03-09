@@ -13,12 +13,12 @@ import org.apache.calcite.sql.fun.SqlStdOperatorTable;
 import org.opensearch.search.aggregations.metrics.MinAggregationBuilder;
 
 /**
- * Handles {@link MinAggregationBuilder} — MIN metric aggregation.
+ * Translates {@link \1} — \1 metric aggregation.
  */
-public class MinMetricHandler extends AbstractMetricHandler<MinAggregationBuilder> {
+public class MinMetricTranslator extends AbstractMetricTranslator<MinAggregationBuilder> {
 
-    /** Creates a new MIN metric handler. */
-    public MinMetricHandler() {}
+    /** Creates a new MIN metric translator. */
+    public MinMetricTranslator() {}
 
     @Override
     public Class<MinAggregationBuilder> getAggregationType() {

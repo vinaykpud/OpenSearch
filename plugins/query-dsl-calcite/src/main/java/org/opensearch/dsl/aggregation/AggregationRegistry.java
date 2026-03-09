@@ -13,36 +13,36 @@ import org.opensearch.dsl.pipeline.HandlerRegistry;
 import org.opensearch.search.aggregations.AggregationBuilder;
 
 /**
- * Registry of {@link AggregationHandler} strategies.
+ * Registry of {@link AggregationType} implementations.
  *
  * Uses a map keyed by concrete AggregationBuilder class for O(1) lookup.
  */
-public class AggregationHandlerRegistry extends HandlerRegistry<AggregationBuilder, AggregationHandler<?>> {
+public class AggregationRegistry extends HandlerRegistry<AggregationBuilder, AggregationType<?>> {
 
-    /** Creates a new aggregation handler registry. */
-    public AggregationHandlerRegistry() {
+    /** Creates a new aggregation type registry. */
+    public AggregationRegistry() {
         super("aggregation");
     }
 
     /**
-     * Registers an aggregation handler.
+     * Registers an aggregation type.
      *
-     * @param handler the handler to register
+     * @param handler the aggregation type to register
      */
-    public void register(AggregationHandler<?> handler) {
+    public void register(AggregationType<?> handler) {
         doRegister(handler.getAggregationType(), handler);
     }
 
     /**
-     * Finds the handler for the given aggregation builder.
+     * Finds the aggregation type for the given aggregation builder.
      *
      * @param agg the aggregation builder
      * @param <T> the aggregation builder type
-     * @return the matching handler
-     * @throws ConversionException if no handler is registered for the aggregation type
+     * @return the matching aggregation type
+     * @throws ConversionException if no aggregation type is registered
      */
     @SuppressWarnings("unchecked")
-    public <T extends AggregationBuilder> AggregationHandler<T> findHandler(T agg) throws ConversionException {
-        return (AggregationHandler<T>) super.findHandler(agg);
+    public <T extends AggregationBuilder> AggregationType<T> findHandler(T agg) throws ConversionException {
+        return (AggregationType<T>) super.findHandler(agg);
     }
 }

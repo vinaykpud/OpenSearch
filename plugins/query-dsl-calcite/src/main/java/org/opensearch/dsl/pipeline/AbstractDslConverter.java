@@ -21,7 +21,7 @@ import org.opensearch.dsl.exception.ConversionException;
  *   <li><b>Conversion</b> — {@link #doConvert(RelNode, ConversionContext)}: perform the conversion</li>
  * </ol>
  */
-public abstract class AbstractClauseConverter implements ClauseConverter {
+public abstract class AbstractDslConverter implements DslConverter {
 
     private final PipelinePhase phase;
 
@@ -30,7 +30,7 @@ public abstract class AbstractClauseConverter implements ClauseConverter {
      *
      * @param phase the pipeline phase this converter belongs to
      */
-    protected AbstractClauseConverter(PipelinePhase phase) {
+    protected AbstractDslConverter(PipelinePhase phase) {
         this.phase = phase;
     }
 

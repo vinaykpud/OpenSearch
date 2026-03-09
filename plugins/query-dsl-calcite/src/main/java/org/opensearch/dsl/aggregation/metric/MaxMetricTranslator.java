@@ -13,12 +13,12 @@ import org.apache.calcite.sql.fun.SqlStdOperatorTable;
 import org.opensearch.search.aggregations.metrics.MaxAggregationBuilder;
 
 /**
- * Handles {@link MaxAggregationBuilder} — MAX metric aggregation.
+ * Translates {@link \1} — \1 metric aggregation.
  */
-public class MaxMetricHandler extends AbstractMetricHandler<MaxAggregationBuilder> {
+public class MaxMetricTranslator extends AbstractMetricTranslator<MaxAggregationBuilder> {
 
-    /** Creates a new MAX metric handler. */
-    public MaxMetricHandler() {}
+    /** Creates a new MAX metric translator. */
+    public MaxMetricTranslator() {}
 
     @Override
     public Class<MaxAggregationBuilder> getAggregationType() {

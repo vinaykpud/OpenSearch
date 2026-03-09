@@ -20,14 +20,14 @@ import org.opensearch.search.aggregations.AggregationBuilder;
 import java.util.Collections;
 
 /**
- * Base class for metric aggregation handlers. Provides the common
+ * Base class for metric translators. Provides the common
  * {@link #toAggregateCall} logic, leaving subclasses to supply the
  * SQL aggregate function and field name extraction.
  */
-public abstract class AbstractMetricHandler<T extends AggregationBuilder> implements MetricAggregationHandler<T> {
+public abstract class AbstractMetricTranslator<T extends AggregationBuilder> implements MetricTranslator<T> {
 
-    /** Creates a new abstract metric handler. */
-    protected AbstractMetricHandler() {}
+    /** Creates a new abstract metric translator. */
+    protected AbstractMetricTranslator() {}
 
     /** Returns the SQL aggregate function for this metric (e.g., AVG, SUM). */
     protected abstract SqlAggFunction getAggFunction();
