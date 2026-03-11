@@ -10,17 +10,19 @@ package org.opensearch.dsl.aggregation.bucket;
 
 import org.opensearch.dsl.aggregation.AggregationType;
 import org.opensearch.dsl.aggregation.GroupingInfo;
+import org.opensearch.dsl.result.BucketEntry;
 import org.opensearch.search.aggregations.AggregationBuilder;
 import org.opensearch.search.aggregations.BucketOrder;
+import org.opensearch.search.aggregations.InternalAggregation;
 
 import java.util.Collection;
+import java.util.List;
 
 /**
  * Shape interface for bucket aggregations (terms, multi_terms, etc.).
  *
- * Provides structural information that the
- * {@link org.opensearch.dsl.aggregation.AggregationTreeWalker} uses to build the
- * multi-granularity tree: grouping fields, bucket order, and sub-aggregations.
+ * Provides structural information for building Calcite plans and
+ * response conversion back to OpenSearch InternalAggregation.
  */
 public interface BucketShape<T extends AggregationBuilder> extends AggregationType<T> {
 
@@ -47,4 +49,13 @@ public interface BucketShape<T extends AggregationBuilder> extends AggregationTy
      * @return the sub-aggregations
      */
     Collection<AggregationBuilder> getSubAggregations(T agg);
+
+    /**
+     * Constructs an InternalAggregation from grouped bucket entries.
+     *
+     * @param agg     the original aggregation builder (for name, order, etc.)
+     * @param buckets the bucket entries with keys, doc counts, and sub-aggs
+     * @return the constructed bucket InternalAggregation
+     */
+    InternalAggregation toBucketAggregation(T agg, List<BucketEntry> buckets);
 }

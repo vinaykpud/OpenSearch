@@ -10,10 +10,15 @@ package org.opensearch.dsl.aggregation.metric;
 
 import org.apache.calcite.sql.SqlAggFunction;
 import org.apache.calcite.sql.fun.SqlStdOperatorTable;
+import org.opensearch.search.DocValueFormat;
+import org.opensearch.search.aggregations.InternalAggregation;
 import org.opensearch.search.aggregations.metrics.AvgAggregationBuilder;
+import org.opensearch.search.aggregations.metrics.InternalAvg;
+
+import java.util.Map;
 
 /**
- * Translates {@link \1} — \1 metric aggregation.
+ * Translates AVG metric aggregation to/from Calcite.
  */
 public class AvgMetricTranslator extends AbstractMetricTranslator<AvgAggregationBuilder> {
 
@@ -33,5 +38,13 @@ public class AvgMetricTranslator extends AbstractMetricTranslator<AvgAggregation
     @Override
     protected String getFieldName(AvgAggregationBuilder agg) {
         return agg.field();
+    }
+
+    @Override
+    public InternalAggregation toInternalAggregation(String name, Object value) {
+        if (value == null) {
+            return new InternalAvg(name, 0.0, 0, DocValueFormat.RAW, Map.of());
+        }
+        return new InternalAvg(name, ((Number) value).doubleValue(), 1, DocValueFormat.RAW, Map.of());
     }
 }

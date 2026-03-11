@@ -9,6 +9,7 @@
 package org.opensearch.dsl;
 
 import org.apache.calcite.rel.RelNode;
+import org.opensearch.dsl.aggregation.AggregationMetadata;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -35,9 +36,23 @@ public final class QueryPlans {
 
     /**
      * A single query plan within {@link QueryPlans}, pairing a Calcite RelNode
-     * with its type for constructing the final SearchResponse.
+     * with its type and optional aggregation metadata for constructing the final SearchResponse.
+     *
+     * @param type the type identifying what part of the response this plan populates
+     * @param relNode the Calcite relational node to execute
+     * @param aggregationMetadata the aggregation metadata for AGGREGATION plans, null for HITS
      */
-    public record QueryPlan(Type type, RelNode relNode) {}
+    public record QueryPlan(Type type, RelNode relNode, AggregationMetadata aggregationMetadata) {
+        /**
+         * Convenience constructor for plans without aggregation metadata (e.g., HITS).
+         *
+         * @param type the type identifying what part of the response this plan populates
+         * @param relNode the Calcite relational node to execute
+         */
+        public QueryPlan(Type type, RelNode relNode) {
+            this(type, relNode, null);
+        }
+    }
 
     private final List<QueryPlan> plans;
 

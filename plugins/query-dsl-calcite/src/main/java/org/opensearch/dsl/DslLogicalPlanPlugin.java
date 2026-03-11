@@ -96,6 +96,6 @@ public class DslLogicalPlanPlugin extends Plugin implements DslConverterPlugin, 
         QueryPlanResult result = queryPlanExecutor.execute(plans);
 
         long tookInMillis = System.currentTimeMillis() - startTime;
-        return SearchResponseBuilder.build(result, tookInMillis);
+        return SearchResponseBuilder.build(result, source, converterService.getAggregationRegistry(), tookInMillis);
     }
 }

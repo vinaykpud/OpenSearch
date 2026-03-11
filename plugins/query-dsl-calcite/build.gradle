@@ -126,7 +126,7 @@ missingJavadoc {
     javadocMissingIgnore = [
         'org.opensearch.dsl',
         'org.opensearch.dsl.pipeline',
-        'org.opensearch.dsl.pipeline.clause',
+        'org.opensearch.dsl.pipeline.converter',
         'org.opensearch.dsl.aggregation',
         'org.opensearch.dsl.query',
         'org.opensearch.dsl.capabilities',

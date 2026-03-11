@@ -11,14 +11,15 @@ package org.opensearch.dsl.aggregation.metric;
 import org.apache.calcite.rel.core.AggregateCall;
 import org.opensearch.dsl.aggregation.AggregationConversionContext;
 import org.opensearch.dsl.aggregation.AggregationType;
-import org.opensearch.dsl.aggregation.AggregationMetadataBuilder;
 import org.opensearch.dsl.exception.ConversionException;
 import org.opensearch.search.aggregations.AggregationBuilder;
+import org.opensearch.search.aggregations.InternalAggregation;
 
 /**
  * Translator interface for metric aggregations (AVG, SUM, MIN, MAX, etc.).
  *
- * Each implementation converts one metric aggregation type to a Calcite AggregateCall.
+ * Each implementation converts one metric aggregation type to a Calcite AggregateCall
+ * and can also convert a raw result value back to an InternalAggregation.
  */
 public interface MetricTranslator<T extends AggregationBuilder> extends AggregationType<T> {
 
@@ -39,4 +40,13 @@ public interface MetricTranslator<T extends AggregationBuilder> extends Aggregat
      * @return The aggregate field name
      */
     String getAggregateFieldName(T agg);
+
+    /**
+     * Converts a raw result value from Calcite execution into an OpenSearch InternalAggregation.
+     *
+     * @param name  the aggregation name
+     * @param value the raw value from the execution result (may be null)
+     * @return the corresponding InternalAggregation
+     */
+    InternalAggregation toInternalAggregation(String name, Object value);
 }

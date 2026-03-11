@@ -154,7 +154,7 @@ public class DslLogicalPlanService {
             for (AggregationMetadata metadata : metadataList) {
                 ctx.setAggregationMetadata(metadata);
                 RelNode aggTree = aggPipeline.execute(ctx);
-                builder.add(new QueryPlans.QueryPlan(QueryPlans.Type.AGGREGATION, aggTree));
+                builder.add(new QueryPlans.QueryPlan(QueryPlans.Type.AGGREGATION, aggTree, metadata));
             }
         }
 
@@ -173,6 +173,11 @@ public class DslLogicalPlanService {
             aggCtx,
             ctx.getIndexSchema()
         );
+    }
+
+    /** Returns the aggregation registry used for DSL-to-Calcite and response conversion. */
+    public AggregationRegistry getAggregationRegistry() {
+        return aggRegistry;
     }
 
     private static boolean hasAggregations(SearchSourceBuilder searchSource) {

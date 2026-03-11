@@ -31,11 +31,7 @@ public final class QueryPlanResult {
         this.results = List.copyOf(results);
     }
 
-    /**
-     * Returns all execution results.
-     *
-     * @return an unmodifiable list of execution results
-     */
+    /** Returns all execution results. */
     public List<ExecutionResult> getAllResults() {
         return results;
     }
@@ -50,5 +46,17 @@ public final class QueryPlanResult {
         return results.stream()
             .filter(r -> r.getType() == type)
             .findFirst();
+    }
+
+    /**
+     * Returns all execution results matching the given type.
+     *
+     * @param type the type to filter by
+     * @return list of matching results (may be empty)
+     */
+    public List<ExecutionResult> getResults(QueryPlans.Type type) {
+        return results.stream()
+            .filter(r -> r.getType() == type)
+            .toList();
     }
 }

@@ -16,13 +16,14 @@ import org.apache.calcite.sql.SqlAggFunction;
 import org.opensearch.dsl.aggregation.AggregationConversionContext;
 import org.opensearch.dsl.exception.ConversionException;
 import org.opensearch.search.aggregations.AggregationBuilder;
+import org.opensearch.search.aggregations.InternalAggregation;
 
 import java.util.Collections;
 
 /**
  * Base class for metric translators. Provides the common
  * {@link #toAggregateCall} logic, leaving subclasses to supply the
- * SQL aggregate function and field name extraction.
+ * SQL aggregate function, field name extraction, and response conversion.
  */
 public abstract class AbstractMetricTranslator<T extends AggregationBuilder> implements MetricTranslator<T> {
 
@@ -70,4 +71,15 @@ public abstract class AbstractMetricTranslator<T extends AggregationBuilder> imp
     public String getAggregateFieldName(T agg) {
         return agg.getName();
     }
+
+    /**
+     * Converts a raw result value to an InternalAggregation.
+     * Subclasses must implement this to create the correct InternalAggregation subclass.
+     *
+     * @param name  the aggregation name
+     * @param value the raw value from execution (may be null)
+     * @return the InternalAggregation
+     */
+    @Override
+    public abstract InternalAggregation toInternalAggregation(String name, Object value);
 }

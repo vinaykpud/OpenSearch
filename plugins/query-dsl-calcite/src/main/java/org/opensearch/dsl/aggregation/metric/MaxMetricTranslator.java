@@ -10,10 +10,15 @@ package org.opensearch.dsl.aggregation.metric;
 
 import org.apache.calcite.sql.SqlAggFunction;
 import org.apache.calcite.sql.fun.SqlStdOperatorTable;
+import org.opensearch.search.DocValueFormat;
+import org.opensearch.search.aggregations.InternalAggregation;
+import org.opensearch.search.aggregations.metrics.InternalMax;
 import org.opensearch.search.aggregations.metrics.MaxAggregationBuilder;
 
+import java.util.Map;
+
 /**
- * Translates {@link \1} — \1 metric aggregation.
+ * Translates MAX metric aggregation to/from Calcite.
  */
 public class MaxMetricTranslator extends AbstractMetricTranslator<MaxAggregationBuilder> {
 
@@ -33,5 +38,11 @@ public class MaxMetricTranslator extends AbstractMetricTranslator<MaxAggregation
     @Override
     protected String getFieldName(MaxAggregationBuilder agg) {
         return agg.field();
+    }
+
+    @Override
+    public InternalAggregation toInternalAggregation(String name, Object value) {
+        double v = value == null ? Double.NEGATIVE_INFINITY : ((Number) value).doubleValue();
+        return new InternalMax(name, v, DocValueFormat.RAW, Map.of());
     }
 }
