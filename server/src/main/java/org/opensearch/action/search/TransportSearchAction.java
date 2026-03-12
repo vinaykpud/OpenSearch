@@ -104,7 +104,6 @@ import org.opensearch.transport.client.Client;
 import org.opensearch.transport.client.OriginSettingClient;
 import org.opensearch.transport.client.node.NodeClient;
 import org.opensearch.wlm.WorkloadGroupTask;
-import org.opensearch.plugins.DslConverterPlugin;
 import org.opensearch.plugins.PluginsService;
 
 import java.util.ArrayList;
@@ -329,25 +328,6 @@ public class TransportSearchAction extends HandledTransportAction<SearchRequest,
                 e -> {}
             );
         }
-        // Execute via DSL converter plugin
-        if (searchRequest.source() != null) {
-            List<DslConverterPlugin> converters = pluginsService.filterPlugins(DslConverterPlugin.class);
-            if (!converters.isEmpty()) {
-                String indexName = searchRequest.indices() != null && searchRequest.indices().length > 0
-                    ? searchRequest.indices()[0] : null;
-                if (indexName != null) {
-                    try {
-                        SearchResponse response = converters.get(0).convertDsl(searchRequest.source(), indexName);
-                        listener.onResponse(response);
-                        return;
-                    } catch (Exception e) {
-                        listener.onFailure(e);
-                        return;
-                    }
-                }
-            }
-        }
-
         executeRequest(task, searchRequest, this::searchAsyncAction, listener);
     }
 

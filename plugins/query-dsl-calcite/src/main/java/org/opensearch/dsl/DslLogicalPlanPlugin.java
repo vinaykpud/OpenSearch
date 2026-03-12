@@ -8,7 +8,7 @@
 
 package org.opensearch.dsl;
 
-import org.opensearch.action.search.SearchResponse;
+import org.opensearch.action.support.ActionFilter;
 import org.opensearch.cluster.metadata.IndexNameExpressionResolver;
 import org.opensearch.cluster.service.ClusterService;
 import org.opensearch.common.settings.Setting;
@@ -16,14 +16,10 @@ import org.opensearch.common.settings.Settings;
 import org.opensearch.core.common.io.stream.NamedWriteableRegistry;
 import org.opensearch.core.xcontent.NamedXContentRegistry;
 import org.opensearch.dsl.queryplanner.DefaultQueryPlanExecutor;
-import org.opensearch.dsl.queryplanner.LoggingRelNodeExecutor;
 import org.opensearch.dsl.queryplanner.QueryPlanExecutor;
-import org.opensearch.dsl.result.QueryPlanResult;
-import org.opensearch.dsl.result.SearchResponseBuilder;
 import org.opensearch.env.Environment;
 import org.opensearch.env.NodeEnvironment;
-import org.opensearch.plugins.DslConverterPlugin;
-import org.opensearch.plugins.ExtensiblePlugin;
+import org.opensearch.plugins.ActionPlugin;
 import org.opensearch.plugins.Plugin;
 import org.opensearch.repositories.RepositoriesService;
 import org.opensearch.script.ScriptService;
@@ -40,12 +36,14 @@ import java.util.function.Supplier;
  * Plugin entry point for the OpenSearch DSL to Calcite converter.
  *
  * Converts OpenSearch DSL queries into Apache Calcite logical plans (RelNode),
- * executes them, and returns a SearchResponse.
+ * executes them via an ActionFilter re-route (bypassing TransportSearchAction),
+ * and returns a SearchResponse.
  */
-public class DslLogicalPlanPlugin extends Plugin implements DslConverterPlugin, ExtensiblePlugin {
+public class DslLogicalPlanPlugin extends Plugin implements ActionPlugin {
 
     private DslLogicalPlanService converterService;
     private QueryPlanExecutor queryPlanExecutor;
+    private DslRerouteFilter rerouteFilter;
 
     /**
      * Creates a new DSL logical plan plugin instance.
@@ -70,13 +68,14 @@ public class DslLogicalPlanPlugin extends Plugin implements DslConverterPlugin, 
         Supplier<RepositoriesService> repositoriesServiceSupplier
     ) {
         converterService = new DslLogicalPlanService(client);
-        queryPlanExecutor = new DefaultQueryPlanExecutor(new LoggingRelNodeExecutor());
+        queryPlanExecutor = new DefaultQueryPlanExecutor();
+        rerouteFilter = new DslRerouteFilter(converterService, queryPlanExecutor);
         return List.of(converterService, queryPlanExecutor);
     }
 
     @Override
-    public List<Setting<?>> getSettings() {
-        return Collections.emptyList();
+    public List<ActionFilter> getActionFilters() {
+        return List.of(rerouteFilter);
     }
 
     /**
@@ -87,15 +86,11 @@ public class DslLogicalPlanPlugin extends Plugin implements DslConverterPlugin, 
         return converterService;
     }
 
-    @Override
-    public SearchResponse convertDsl(org.opensearch.search.builder.SearchSourceBuilder source,
-            String indexName) throws Exception {
-        long startTime = System.currentTimeMillis();
-
-        QueryPlans plans = converterService.convert(source, indexName);
-        QueryPlanResult result = queryPlanExecutor.execute(plans);
-
-        long tookInMillis = System.currentTimeMillis() - startTime;
-        return SearchResponseBuilder.build(result, source, converterService.getAggregationRegistry(), tookInMillis);
+    /**
+     * Returns the query plan executor.
+     * Visible for testing.
+     */
+    QueryPlanExecutor getQueryPlanExecutor() {
+        return queryPlanExecutor;
     }
 }

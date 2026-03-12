@@ -255,8 +255,7 @@ public class QueryPlanMultiPathIT extends DslLogicalPlanIntegrationTestBase {
         );
         searchSource.size(10);
 
-        DslLogicalPlanPlugin plugin = getPlugin(DslLogicalPlanPlugin.class);
         assertNotNull("convertDsl should return non-null response",
-            plugin.convertDsl(searchSource, INDEX_NAME));
+            convertDsl(searchSource, INDEX_NAME));
     }
 }

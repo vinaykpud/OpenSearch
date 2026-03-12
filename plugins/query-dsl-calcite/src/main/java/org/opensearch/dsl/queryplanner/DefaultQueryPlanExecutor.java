@@ -8,6 +8,10 @@
 
 package org.opensearch.dsl.queryplanner;
 
+import org.apache.calcite.rel.metadata.JaninoRelMetadataProvider;
+import org.apache.calcite.rel.metadata.RelMetadataQueryBase;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.opensearch.dsl.QueryPlans;
 import org.opensearch.dsl.result.ExecutionResult;
 import org.opensearch.dsl.result.QueryPlanResult;
@@ -17,24 +21,13 @@ import java.util.List;
 
 /**
  * Executes {@link QueryPlans} by delegating each query plan's RelNode to a
- * {@link RelNodeExecutor}. All plans are dispatched in parallel, then
  * results are collected by blocking on each future.
  *
  * Currently returns hardcoded test data for the nested aggregation example:
  * avg_price + terms(brand) → [brand_avg, terms(region) → region_avg]
  */
 public class DefaultQueryPlanExecutor implements QueryPlanExecutor {
-
-    private final RelNodeExecutor relNodeExecutor;
-
-    /**
-     * Creates a new executor that delegates RelNode execution to the given adapter.
-     *
-     * @param relNodeExecutor the adapter for executing individual RelNodes
-     */
-    public DefaultQueryPlanExecutor(RelNodeExecutor relNodeExecutor) {
-        this.relNodeExecutor = relNodeExecutor;
-    }
+    private static final Logger logger = LogManager.getLogger(DefaultQueryPlanExecutor.class);
 
     @Override
     public QueryPlanResult execute(QueryPlans plans) throws Exception {
@@ -42,6 +35,13 @@ public class DefaultQueryPlanExecutor implements QueryPlanExecutor {
         List<ExecutionResult> results = new ArrayList<>(queryPlans.size());
 
         for (QueryPlans.QueryPlan plan : queryPlans) {
+
+            RelMetadataQueryBase.THREAD_PROVIDERS.set(
+                JaninoRelMetadataProvider.of(plan.relNode().getCluster().getMetadataProvider())
+            );
+            plan.relNode().getCluster().invalidateMetadataQuery();
+            logger.info("Executing RelNode:\n{}", plan.relNode().explain());
+
             List<String> fieldNames = plan.relNode().getRowType().getFieldNames();
             Object[][] rows = resolveHardcodedRows(plan.type(), fieldNames);
             results.add(new ExecutionResult(plan.type(), rows, fieldNames, plan.aggregationMetadata()));

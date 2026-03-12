@@ -8,8 +8,13 @@
 
 package org.opensearch.dsl;
 
+import org.opensearch.action.search.SearchResponse;
+import org.opensearch.dsl.queryplanner.QueryPlanExecutor;
+import org.opensearch.dsl.result.QueryPlanResult;
+import org.opensearch.dsl.result.SearchResponseBuilder;
 import org.opensearch.plugins.Plugin;
 import org.opensearch.plugins.PluginsService;
+import org.opensearch.search.builder.SearchSourceBuilder;
 import org.opensearch.test.OpenSearchIntegTestCase;
 
 import java.util.Arrays;
@@ -44,6 +49,29 @@ public abstract class DslLogicalPlanIntegrationTestBase extends OpenSearchIntegT
             }
         }
         throw new IllegalStateException("Plugin " + pluginClass.getName() + " not found");
+    }
+
+    /**
+     * Converts a DSL query using the plugin's converter service and executor.
+     * This bypasses the ActionFilter path and calls the conversion logic directly,
+     * which is useful for unit-testing the conversion without a full search round-trip.
+     *
+     * @param source The SearchSourceBuilder containing the DSL query
+     * @param indexName The target index name
+     * @return A SearchResponse built from the converted query plans
+     * @throws Exception if conversion or execution fails
+     */
+    protected SearchResponse convertDsl(SearchSourceBuilder source, String indexName) throws Exception {
+        DslLogicalPlanPlugin plugin = getPlugin(DslLogicalPlanPlugin.class);
+        DslLogicalPlanService converterService = plugin.getConverterService();
+        QueryPlanExecutor executor = plugin.getQueryPlanExecutor();
+
+        long startTime = System.currentTimeMillis();
+        QueryPlans plans = converterService.convert(source, indexName);
+        QueryPlanResult result = executor.execute(plans);
+        long tookInMillis = System.currentTimeMillis() - startTime;
+
+        return SearchResponseBuilder.build(result, source, converterService.getAggregationRegistry(), tookInMillis);
     }
 
     /**

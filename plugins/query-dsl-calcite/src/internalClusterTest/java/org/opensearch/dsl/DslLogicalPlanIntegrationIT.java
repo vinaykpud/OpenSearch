@@ -62,8 +62,7 @@ public class DslLogicalPlanIntegrationIT extends DslLogicalPlanIntegrationTestBa
         searchSource.query(QueryBuilders.termQuery("category", "electronics"));
 
         // Get plugin instance and call convertDsl
-        DslLogicalPlanPlugin plugin = getPlugin(DslLogicalPlanPlugin.class);
-        SearchResponse response = plugin.convertDsl(searchSource, indexName);
+        SearchResponse response = convertDsl(searchSource, indexName);
 
         // Verify RelNode structure
         assertNotNull("SearchResponse should not be null", response);
@@ -109,8 +108,7 @@ public class DslLogicalPlanIntegrationIT extends DslLogicalPlanIntegrationTestBa
         searchSource.query(QueryBuilders.rangeQuery("price").gte(100).lte(500));
 
         // Get plugin instance and call convertDsl
-        DslLogicalPlanPlugin plugin = getPlugin(DslLogicalPlanPlugin.class);
-        SearchResponse response = plugin.convertDsl(searchSource, indexName);
+        SearchResponse response = convertDsl(searchSource, indexName);
 
         // Verify RelNode structure
         assertNotNull("SearchResponse should not be null", response);
@@ -167,8 +165,7 @@ public class DslLogicalPlanIntegrationIT extends DslLogicalPlanIntegrationTestBa
         );
 
         // Get plugin instance and call convertDsl
-        DslLogicalPlanPlugin plugin = getPlugin(DslLogicalPlanPlugin.class);
-        SearchResponse response = plugin.convertDsl(searchSource, indexName);
+        SearchResponse response = convertDsl(searchSource, indexName);
 
         // Verify RelNode structure
         assertNotNull("SearchResponse should not be null", response);
@@ -214,8 +211,7 @@ public class DslLogicalPlanIntegrationIT extends DslLogicalPlanIntegrationTestBa
         searchSource.sort("price", org.opensearch.search.sort.SortOrder.ASC);
 
         // Get plugin instance and call convertDsl
-        DslLogicalPlanPlugin plugin = getPlugin(DslLogicalPlanPlugin.class);
-        SearchResponse response = plugin.convertDsl(searchSource, indexName);
+        SearchResponse response = convertDsl(searchSource, indexName);
 
         // Verify RelNode structure
         assertNotNull("SearchResponse should not be null", response);
@@ -258,8 +254,7 @@ public class DslLogicalPlanIntegrationIT extends DslLogicalPlanIntegrationTestBa
         searchSource.size(20);
 
         // Get plugin instance and call convertDsl
-        DslLogicalPlanPlugin plugin = getPlugin(DslLogicalPlanPlugin.class);
-        SearchResponse response = plugin.convertDsl(searchSource, indexName);
+        SearchResponse response = convertDsl(searchSource, indexName);
 
         // Verify RelNode structure
         assertNotNull("SearchResponse should not be null", response);
@@ -303,8 +298,7 @@ public class DslLogicalPlanIntegrationIT extends DslLogicalPlanIntegrationTestBa
         searchSource.fetchSource(new String[]{"title", "price"}, null);
 
         // Get plugin instance and call convertDsl
-        DslLogicalPlanPlugin plugin = getPlugin(DslLogicalPlanPlugin.class);
-        SearchResponse response = plugin.convertDsl(searchSource, indexName);
+        SearchResponse response = convertDsl(searchSource, indexName);
 
         // Verify RelNode structure
         assertNotNull("SearchResponse should not be null", response);
@@ -354,8 +348,7 @@ public class DslLogicalPlanIntegrationIT extends DslLogicalPlanIntegrationTestBa
         searchSource.size(0); // Only return aggregation results
 
         // Get plugin instance and call convertDsl
-        DslLogicalPlanPlugin plugin = getPlugin(DslLogicalPlanPlugin.class);
-        SearchResponse response = plugin.convertDsl(searchSource, indexName);
+        SearchResponse response = convertDsl(searchSource, indexName);
 
         // Verify RelNode structure
         assertNotNull("SearchResponse should not be null", response);
@@ -418,8 +411,7 @@ public class DslLogicalPlanIntegrationIT extends DslLogicalPlanIntegrationTestBa
         searchSource.size(0); // Only return aggregation results
 
         // Get plugin instance and call convertDsl
-        DslLogicalPlanPlugin plugin = getPlugin(DslLogicalPlanPlugin.class);
-        SearchResponse response = plugin.convertDsl(searchSource, indexName);
+        SearchResponse response = convertDsl(searchSource, indexName);
 
         // Verify RelNode structure
         assertNotNull("SearchResponse should not be null", response);
@@ -488,8 +480,7 @@ public class DslLogicalPlanIntegrationIT extends DslLogicalPlanIntegrationTestBa
         searchSource.size(0); // Only return aggregation results
 
         // Get plugin instance and call convertDsl
-        DslLogicalPlanPlugin plugin = getPlugin(DslLogicalPlanPlugin.class);
-        SearchResponse response = plugin.convertDsl(searchSource, indexName);
+        SearchResponse response = convertDsl(searchSource, indexName);
 
         // Verify RelNode structure
         assertNotNull("SearchResponse should not be null", response);
@@ -552,8 +543,7 @@ public class DslLogicalPlanIntegrationIT extends DslLogicalPlanIntegrationTestBa
         searchSource.from(0);
         searchSource.size(10);
 
-        DslLogicalPlanPlugin plugin = getPlugin(DslLogicalPlanPlugin.class);
-        SearchResponse response = plugin.convertDsl(searchSource, indexName);
+        SearchResponse response = convertDsl(searchSource, indexName);
 
         assertNotNull("SearchResponse should not be null", response);
 
@@ -620,8 +610,7 @@ public class DslLogicalPlanIntegrationIT extends DslLogicalPlanIntegrationTestBa
                 .subAggregation(AggregationBuilders.max("max-memory").field("memory"))
         );
 
-        DslLogicalPlanPlugin plugin = getPlugin(DslLogicalPlanPlugin.class);
-        SearchResponse response = plugin.convertDsl(searchSource, indexName);
+        SearchResponse response = convertDsl(searchSource, indexName);
 
         assertNotNull("SearchResponse should not be null", response);
 
@@ -682,8 +671,7 @@ public class DslLogicalPlanIntegrationIT extends DslLogicalPlanIntegrationTestBa
                 ))
         );
 
-        DslLogicalPlanPlugin plugin = getPlugin(DslLogicalPlanPlugin.class);
-        SearchResponse response = plugin.convertDsl(searchSource, indexName);
+        SearchResponse response = convertDsl(searchSource, indexName);
 
         assertNotNull("SearchResponse should not be null", response);
 
@@ -740,8 +728,7 @@ public class DslLogicalPlanIntegrationIT extends DslLogicalPlanIntegrationTestBa
                 .order(BucketOrder.count(false))
         );
 
-        DslLogicalPlanPlugin plugin = getPlugin(DslLogicalPlanPlugin.class);
-        SearchResponse response = plugin.convertDsl(searchSource, indexName);
+        SearchResponse response = convertDsl(searchSource, indexName);
 
         assertNotNull("SearchResponse should not be null", response);
 
@@ -788,11 +775,10 @@ public class DslLogicalPlanIntegrationIT extends DslLogicalPlanIntegrationTestBa
         searchSource.query(QueryBuilders.termQuery("invalid_field", "test_value"));
 
         // Get plugin instance and call convertDsl
-        DslLogicalPlanPlugin plugin = getPlugin(DslLogicalPlanPlugin.class);
 
         // Expect an exception or error message
         try {
-            SearchResponse response = plugin.convertDsl(searchSource, indexName);
+            SearchResponse response = convertDsl(searchSource, indexName);
 
             // If no exception is thrown, check if the result contains an error message
             // Some implementations may return error strings instead of throwing exceptions
