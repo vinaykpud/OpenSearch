@@ -93,8 +93,8 @@ public class DefaultQueryPlanExecutor implements QueryPlanExecutor {
             };
         }
 
-        // AGGREGATION paths — distinguish by fieldNames
-        if (fieldNames.contains("region")) {
+        // AGGREGATION paths — distinguish by fieldNames (exact schema matching)
+        if (fieldNames.contains("brand") && fieldNames.contains("region")) {
             // Granularity "brand,region": [brand, region, region_avg, _count]
             return new Object[][] {
                 { "Apple",   "US", 1299.0, 1L },
@@ -111,9 +111,14 @@ public class DefaultQueryPlanExecutor implements QueryPlanExecutor {
             };
         }
 
-        // Granularity "": [avg_price]
-        return new Object[][] {
-            { 1032.33 },
-        };
+        if (fieldNames.contains("avg_price")) {
+            // Granularity "": [avg_price]
+            return new Object[][] {
+                { 1032.33 },
+            };
+        }
+
+        // Unrecognized schema — return empty result to avoid shape mismatches
+        return new Object[0][];
     }
 }
