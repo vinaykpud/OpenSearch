@@ -10,6 +10,7 @@ package org.opensearch.dsl.aggregation;
 
 import org.apache.calcite.rel.core.AggregateCall;
 import org.apache.calcite.util.ImmutableBitSet;
+import org.opensearch.dsl.converter.CollationResolver;
 import org.opensearch.search.aggregations.BucketOrder;
 
 import java.util.List;
@@ -22,7 +23,7 @@ import java.util.List;
  * {@code LogicalAggregate} and {@code LogicalSort} nodes.
  *
  * Does NOT compute collations — that is the responsibility of
- * {@link org.opensearch.dsl.pipeline.CollationResolver}, which has access
+ * {@link CollationResolver}, which has access
  * to the actual post-aggregation schema.
  *
  * Constructed exclusively by {@link AggregationMetadataBuilder#build}.

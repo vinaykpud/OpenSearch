@@ -6,7 +6,7 @@
  * compatible open source license.
  */
 
-package org.opensearch.dsl.pipeline.converter;
+package org.opensearch.dsl.converter;
 
 import org.apache.calcite.rel.RelCollation;
 import org.apache.calcite.rel.RelCollations;
@@ -17,9 +17,7 @@ import org.apache.calcite.rel.type.RelDataType;
 import org.apache.calcite.rel.type.RelDataTypeField;
 import org.apache.calcite.rex.RexNode;
 import org.apache.calcite.sql.type.SqlTypeName;
-import org.opensearch.dsl.pipeline.AbstractDslConverter;
-import org.opensearch.dsl.pipeline.ConversionContext;
-import org.opensearch.dsl.pipeline.PipelinePhase;
+import org.opensearch.dsl.ConversionContext;
 import org.opensearch.dsl.exception.ConversionException;
 import org.opensearch.search.builder.SearchSourceBuilder;
 import org.opensearch.search.sort.FieldSortBuilder;
@@ -35,10 +33,8 @@ import java.util.List;
  */
 public class SortConverter extends AbstractDslConverter {
 
-    /** Creates a new SortConverter for the SORT phase. */
-    public SortConverter() {
-        super(PipelinePhase.SORT);
-    }
+    /** Creates a new SortConverter. */
+    public SortConverter() {}
 
     @Override
     protected boolean isApplicable(ConversionContext ctx) {

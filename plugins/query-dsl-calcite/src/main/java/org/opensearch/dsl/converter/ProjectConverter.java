@@ -6,7 +6,7 @@
  * compatible open source license.
  */
 
-package org.opensearch.dsl.pipeline.converter;
+package org.opensearch.dsl.converter;
 
 import org.apache.calcite.rel.RelNode;
 import org.apache.calcite.rel.logical.LogicalProject;
@@ -14,9 +14,7 @@ import org.apache.calcite.rel.type.RelDataType;
 import org.apache.calcite.rel.type.RelDataTypeField;
 import org.apache.calcite.rex.RexBuilder;
 import org.apache.calcite.rex.RexNode;
-import org.opensearch.dsl.pipeline.AbstractDslConverter;
-import org.opensearch.dsl.pipeline.ConversionContext;
-import org.opensearch.dsl.pipeline.PipelinePhase;
+import org.opensearch.dsl.ConversionContext;
 import org.opensearch.dsl.exception.ConversionException;
 import org.opensearch.search.fetch.subphase.FetchSourceContext;
 
@@ -29,10 +27,8 @@ import java.util.List;
  */
 public class ProjectConverter extends AbstractDslConverter {
 
-    /** Creates a ProjectConverter in the {@link PipelinePhase#PROJECT} phase. */
-    public ProjectConverter() {
-        super(PipelinePhase.PROJECT);
-    }
+    /** Creates a new ProjectConverter. */
+    public ProjectConverter() {}
 
     @Override
     protected boolean isApplicable(ConversionContext ctx) {

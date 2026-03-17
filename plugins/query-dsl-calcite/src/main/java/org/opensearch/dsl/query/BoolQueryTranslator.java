@@ -13,7 +13,7 @@ import org.apache.calcite.rex.RexCall;
 import org.apache.calcite.rex.RexNode;
 import org.apache.calcite.sql.fun.SqlStdOperatorTable;
 import org.opensearch.dsl.exception.ConversionException;
-import org.opensearch.dsl.pipeline.ConversionContext;
+import org.opensearch.dsl.ConversionContext;
 import org.opensearch.index.query.BoolQueryBuilder;
 import org.opensearch.index.query.QueryBuilder;
 

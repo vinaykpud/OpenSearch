@@ -6,7 +6,7 @@
  * compatible open source license.
  */
 
-package org.opensearch.dsl.pipeline;
+package org.opensearch.dsl;
 
 import org.apache.calcite.plan.RelOptCluster;
 import org.apache.calcite.rel.RelNode;

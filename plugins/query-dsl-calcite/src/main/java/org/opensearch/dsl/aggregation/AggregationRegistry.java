@@ -9,7 +9,7 @@
 package org.opensearch.dsl.aggregation;
 
 import org.opensearch.dsl.exception.ConversionException;
-import org.opensearch.dsl.pipeline.HandlerRegistry;
+import org.opensearch.dsl.HandlerRegistry;
 import org.opensearch.search.aggregations.AggregationBuilder;
 
 /**

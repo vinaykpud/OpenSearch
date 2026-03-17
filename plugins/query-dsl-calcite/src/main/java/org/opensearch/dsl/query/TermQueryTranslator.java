@@ -12,7 +12,7 @@ import org.apache.calcite.rel.type.RelDataTypeField;
 import org.apache.calcite.rex.RexNode;
 import org.apache.calcite.sql.fun.SqlStdOperatorTable;
 import org.opensearch.dsl.exception.ConversionException;
-import org.opensearch.dsl.pipeline.ConversionContext;
+import org.opensearch.dsl.ConversionContext;
 import org.opensearch.index.query.QueryBuilder;
 import org.opensearch.index.query.TermQueryBuilder;
 

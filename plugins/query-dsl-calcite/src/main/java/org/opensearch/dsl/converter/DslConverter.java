@@ -6,24 +6,20 @@
  * compatible open source license.
  */
 
-package org.opensearch.dsl.pipeline;
+package org.opensearch.dsl.converter;
 
 import org.apache.calcite.rel.RelNode;
 import org.opensearch.dsl.exception.ConversionException;
+import org.opensearch.dsl.ConversionContext;
 
 /**
- * A single converter in the DSL-to-Calcite conversion pipeline.
+ * A single converter in the DSL-to-Calcite conversion.
  *
- * Each converter transforms a RelNode (or null for the initial converter) into a new RelNode,
+ * Each converter maps to one or more top-level DSL fields and transforms
+ * a RelNode (or null for the initial converter) into a new RelNode,
  * using shared state from the {@link ConversionContext}.
  */
 public interface DslConverter {
-
-    /**
-     * Returns the pipeline phase this converter belongs to.
-     * The pipeline auto-sorts converters by phase at build time.
-     */
-    PipelinePhase getPhase();
 
     /**
      * Converts this DSL section into a Calcite RelNode.

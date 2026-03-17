@@ -8,6 +8,8 @@
 
 package org.opensearch.dsl.aggregation;
 
+import org.opensearch.dsl.aggregation.bucket.BucketShape;
+import org.opensearch.dsl.aggregation.metric.MetricTranslator;
 import org.opensearch.search.aggregations.AggregationBuilder;
 
 /**
@@ -16,9 +18,9 @@ import org.opensearch.search.aggregations.AggregationBuilder;
  * Provides only type identification for the {@link AggregationRegistry}.
  * Bucket and metric subtypes define their own contracts:
  * <ul>
- *   <li>{@link org.opensearch.dsl.aggregation.bucket.BucketShape} — structural
+ *   <li>{@link BucketShape} — structural
  *       (grouping, order, sub-aggregations)</li>
- *   <li>{@link org.opensearch.dsl.aggregation.metric.MetricTranslator} — data
+ *   <li>{@link MetricTranslator} — data
  *       (aggregate calls contributed to a builder)</li>
  * </ul>
  */

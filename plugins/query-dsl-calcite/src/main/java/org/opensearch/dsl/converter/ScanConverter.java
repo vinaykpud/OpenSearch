@@ -6,7 +6,7 @@
  * compatible open source license.
  */
 
-package org.opensearch.dsl.pipeline.converter;
+package org.opensearch.dsl.converter;
 
 import org.apache.calcite.plan.RelOptTable;
 import org.apache.calcite.prepare.RelOptTableImpl;
@@ -16,9 +16,7 @@ import org.apache.calcite.rel.type.RelDataType;
 import org.apache.calcite.rel.type.RelDataTypeFactory;
 import org.apache.calcite.schema.Table;
 import org.apache.calcite.schema.impl.AbstractTable;
-import org.opensearch.dsl.pipeline.AbstractDslConverter;
-import org.opensearch.dsl.pipeline.ConversionContext;
-import org.opensearch.dsl.pipeline.PipelinePhase;
+import org.opensearch.dsl.ConversionContext;
 import org.opensearch.dsl.exception.ConversionException;
 
 import java.util.List;
@@ -31,10 +29,8 @@ import java.util.List;
  */
 public class ScanConverter extends AbstractDslConverter {
 
-    /** Creates a ScanConverter in the {@link PipelinePhase#SCAN} phase. */
-    public ScanConverter() {
-        super(PipelinePhase.SCAN);
-    }
+    /** Creates a new ScanConverter. */
+    public ScanConverter() {}
 
     @Override
     protected boolean isApplicable(ConversionContext ctx) {

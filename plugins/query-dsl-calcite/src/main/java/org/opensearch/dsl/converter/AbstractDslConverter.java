@@ -6,10 +6,11 @@
  * compatible open source license.
  */
 
-package org.opensearch.dsl.pipeline;
+package org.opensearch.dsl.converter;
 
 import org.apache.calcite.rel.RelNode;
 import org.opensearch.dsl.exception.ConversionException;
+import org.opensearch.dsl.ConversionContext;
 
 /**
  * Template Method base class for DSL converters.
@@ -22,22 +23,6 @@ import org.opensearch.dsl.exception.ConversionException;
  * </ol>
  */
 public abstract class AbstractDslConverter implements DslConverter {
-
-    private final PipelinePhase phase;
-
-    /**
-     * Creates a converter assigned to the given pipeline phase.
-     *
-     * @param phase the pipeline phase this converter belongs to
-     */
-    protected AbstractDslConverter(PipelinePhase phase) {
-        this.phase = phase;
-    }
-
-    @Override
-    public final PipelinePhase getPhase() {
-        return phase;
-    }
 
     @Override
     public final RelNode convert(RelNode input, ConversionContext ctx) throws ConversionException {

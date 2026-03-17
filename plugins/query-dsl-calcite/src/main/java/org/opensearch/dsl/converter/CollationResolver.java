@@ -6,7 +6,7 @@
  * compatible open source license.
  */
 
-package org.opensearch.dsl.pipeline;
+package org.opensearch.dsl.converter;
 
 import org.apache.calcite.rel.RelFieldCollation;
 import org.apache.calcite.rel.type.RelDataType;

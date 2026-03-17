@@ -11,45 +11,21 @@ package org.opensearch.dsl;
 import org.apache.calcite.plan.RelOptCluster;
 import org.apache.calcite.plan.hep.HepPlanner;
 import org.apache.calcite.plan.hep.HepProgram;
-import org.apache.calcite.rel.RelNode;
 import org.apache.calcite.rel.type.RelDataType;
 import org.apache.calcite.rel.type.RelDataTypeFactory;
 import org.apache.calcite.rel.type.RelDataTypeSystem;
 import org.apache.calcite.rex.RexBuilder;
 import org.apache.calcite.sql.type.SqlTypeFactoryImpl;
-import org.opensearch.dsl.aggregation.AggregationConversionContext;
 import org.opensearch.dsl.aggregation.AggregationRegistry;
-import org.opensearch.dsl.aggregation.AggregationMetadata;
-import org.opensearch.dsl.aggregation.AggregationTreeWalker;
-import org.opensearch.dsl.aggregation.bucket.MultiTermsBucketShape;
-import org.opensearch.dsl.aggregation.bucket.TermsBucketShape;
-import org.opensearch.dsl.aggregation.metric.AvgMetricTranslator;
-import org.opensearch.dsl.aggregation.metric.CardinalityMetricTranslator;
-import org.opensearch.dsl.aggregation.metric.MaxMetricTranslator;
-import org.opensearch.dsl.aggregation.metric.MinMetricTranslator;
-import org.opensearch.dsl.aggregation.metric.SumMetricTranslator;
+import org.opensearch.dsl.aggregation.AggregationRegistryFactory;
 import org.opensearch.dsl.capabilities.AllSupportedCapabilities;
 import org.opensearch.dsl.capabilities.DownstreamCapabilities;
-import org.opensearch.dsl.exception.ConversionException;
+import org.opensearch.dsl.converter.SearchSourceBuilderConverter;
 import org.opensearch.dsl.mapping.IndexMappingClient;
-import org.opensearch.dsl.pipeline.ConversionContext;
-import org.opensearch.dsl.pipeline.ConversionPipeline;
-import org.opensearch.dsl.pipeline.converter.AggregateConverter;
-import org.opensearch.dsl.pipeline.converter.PostAggregateConverter;
-import org.opensearch.dsl.pipeline.converter.ScanConverter;
-import org.opensearch.dsl.pipeline.converter.FilterConverter;
-import org.opensearch.dsl.pipeline.converter.SortConverter;
-import org.opensearch.dsl.pipeline.converter.ProjectConverter;
-import org.opensearch.dsl.query.BoolQueryTranslator;
-import org.opensearch.dsl.query.MatchAllQueryTranslator;
 import org.opensearch.dsl.query.QueryRegistry;
-import org.opensearch.dsl.query.RangeQueryTranslator;
-import org.opensearch.dsl.query.TermQueryTranslator;
-import org.opensearch.search.aggregations.AggregatorFactories;
+import org.opensearch.dsl.query.QueryRegistryFactory;
 import org.opensearch.search.builder.SearchSourceBuilder;
 import org.opensearch.transport.client.Client;
-
-import java.util.List;
 
 /**
  * Converts OpenSearch SearchSourceBuilder queries into Calcite logical plans (RelNode).
@@ -57,18 +33,19 @@ import java.util.List;
  * Maintains a shared schema cache so that index mappings discovered during one
  * conversion are reused by subsequent conversions without additional cluster calls.
  *
- * Builds separate RelNode trees for hits and aggregation paths:
- * <ul>
- *   <li><b>hitsPipeline</b>: Scan → Filter → Project → Sort</li>
- *   <li><b>aggPipeline</b>: Scan → Filter → Aggregate → PostAggregate</li>
- * </ul>
+ * Delegates to {@link SearchSourceBuilderConverter} which wires DSL field converters
+ * in fixed relational algebra order:
+ * <pre>
+ *     Scan → Filter
+ *              ├── Project → Sort           (HITS plan)
+ *              └── Aggregate → PostAggregate (AGGREGATION plan)
+ * </pre>
  */
 public class DslLogicalPlanService {
     private final RelOptCluster cluster;
     private final IndexMappingClient mappingClient;
     private final DownstreamCapabilities capabilities;
-    private final ConversionPipeline hitsPipeline;
-    private final ConversionPipeline aggPipeline;
+    private final SearchSourceBuilderConverter converter;
     private final AggregationRegistry aggRegistry;
 
     /**
@@ -87,6 +64,19 @@ public class DslLogicalPlanService {
      * @param capabilities The downstream capability checker
      */
     public DslLogicalPlanService(Client client, DownstreamCapabilities capabilities) {
+        this(client, capabilities, QueryRegistryFactory.create(), AggregationRegistryFactory.create());
+    }
+
+    /**
+     * Creates a new DslLogicalPlanService with explicit registries (testable injection point).
+     *
+     * @param client The OpenSearch client for querying index mappings
+     * @param capabilities The downstream capability checker
+     * @param queryRegistry The query translator registry
+     * @param aggRegistry The aggregation type registry
+     */
+    public DslLogicalPlanService(Client client, DownstreamCapabilities capabilities,
+            QueryRegistry queryRegistry, AggregationRegistry aggRegistry) {
         this.capabilities = capabilities;
         this.mappingClient = new IndexMappingClient(client);
 
@@ -94,22 +84,8 @@ public class DslLogicalPlanService {
         HepPlanner planner = new HepPlanner(HepProgram.builder().build());
         this.cluster = RelOptCluster.create(planner, new RexBuilder(typeFactory));
 
-        QueryRegistry queryRegistry = createQueryRegistry();
-        this.aggRegistry = createAggregationRegistry();
-
-        this.hitsPipeline = new ConversionPipeline.Builder()
-            .addConverter(new ScanConverter())
-            .addConverter(new FilterConverter(queryRegistry))
-            .addConverter(new ProjectConverter())
-            .addConverter(new SortConverter())
-            .build();
-
-        this.aggPipeline = new ConversionPipeline.Builder()
-            .addConverter(new ScanConverter())
-            .addConverter(new FilterConverter(queryRegistry))
-            .addConverter(new AggregateConverter())
-            .addConverter(new PostAggregateConverter())
-            .build();
+        this.aggRegistry = aggRegistry;
+        this.converter = new SearchSourceBuilderConverter(queryRegistry, aggRegistry);
     }
 
     /**
@@ -139,40 +115,7 @@ public class DslLogicalPlanService {
             capabilities
         );
 
-        QueryPlans.Builder builder = new QueryPlans.Builder();
-
-        int size = searchSource.size() != -1 ? searchSource.size() : 10;
-        boolean hasAggs = hasAggregations(searchSource);
-
-        if (size > 0 || !hasAggs) {
-            RelNode hitsTree = hitsPipeline.execute(ctx);
-            builder.add(new QueryPlans.QueryPlan(QueryPlans.Type.HITS, hitsTree));
-        }
-
-        if (hasAggs) {
-            List<AggregationMetadata> metadataList = walkAggregations(ctx);
-            for (AggregationMetadata metadata : metadataList) {
-                ctx.setAggregationMetadata(metadata);
-                RelNode aggTree = aggPipeline.execute(ctx);
-                builder.add(new QueryPlans.QueryPlan(QueryPlans.Type.AGGREGATION, aggTree, metadata));
-            }
-        }
-
-        return builder.build();
-    }
-
-    private List<AggregationMetadata> walkAggregations(ConversionContext ctx) throws ConversionException {
-        AggregationConversionContext aggCtx = new AggregationConversionContext(
-            ctx.getIndexSchema(),
-            ctx.getCluster().getTypeFactory(),
-            ctx.getCapabilities()
-        );
-        AggregationTreeWalker walker = new AggregationTreeWalker(aggRegistry);
-        return walker.walk(
-            ctx.getSearchSource().aggregations().getAggregatorFactories(),
-            aggCtx,
-            ctx.getIndexSchema()
-        );
+        return converter.convert(ctx);
     }
 
     /** Returns the aggregation registry used for DSL-to-Calcite and response conversion. */
@@ -180,31 +123,4 @@ public class DslLogicalPlanService {
         return aggRegistry;
     }
 
-    private static boolean hasAggregations(SearchSourceBuilder searchSource) {
-        AggregatorFactories.Builder aggs = searchSource.aggregations();
-        return aggs != null
-            && aggs.getAggregatorFactories() != null
-            && !aggs.getAggregatorFactories().isEmpty();
-    }
-
-    private static QueryRegistry createQueryRegistry() {
-        QueryRegistry registry = new QueryRegistry();
-        registry.register(new TermQueryTranslator());
-        registry.register(new RangeQueryTranslator());
-        registry.register(new MatchAllQueryTranslator());
-        registry.register(new BoolQueryTranslator(registry));
-        return registry;
-    }
-
-    private static AggregationRegistry createAggregationRegistry() {
-        AggregationRegistry registry = new AggregationRegistry();
-        registry.register(new TermsBucketShape());
-        registry.register(new MultiTermsBucketShape());
-        registry.register(new AvgMetricTranslator());
-        registry.register(new SumMetricTranslator());
-        registry.register(new MinMetricTranslator());
-        registry.register(new MaxMetricTranslator());
-        registry.register(new CardinalityMetricTranslator());
-        return registry;
-    }
 }

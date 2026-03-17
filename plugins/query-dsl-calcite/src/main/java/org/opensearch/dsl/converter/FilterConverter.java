@@ -6,14 +6,12 @@
  * compatible open source license.
  */
 
-package org.opensearch.dsl.pipeline.converter;
+package org.opensearch.dsl.converter;
 
 import org.apache.calcite.rel.RelNode;
 import org.apache.calcite.rel.logical.LogicalFilter;
 import org.apache.calcite.rex.RexNode;
-import org.opensearch.dsl.pipeline.AbstractDslConverter;
-import org.opensearch.dsl.pipeline.ConversionContext;
-import org.opensearch.dsl.pipeline.PipelinePhase;
+import org.opensearch.dsl.ConversionContext;
 import org.opensearch.dsl.query.QueryRegistry;
 import org.opensearch.dsl.exception.ConversionException;
 import org.opensearch.index.query.MatchAllQueryBuilder;
@@ -32,7 +30,6 @@ public class FilterConverter extends AbstractDslConverter {
      * @param queryRegistry the registry for resolving query translators
      */
     public FilterConverter(QueryRegistry queryRegistry) {
-        super(PipelinePhase.FILTER);
         this.queryRegistry = queryRegistry;
     }
 

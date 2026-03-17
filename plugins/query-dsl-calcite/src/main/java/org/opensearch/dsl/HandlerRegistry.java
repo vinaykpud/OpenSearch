@@ -6,7 +6,7 @@
  * compatible open source license.
  */
 
-package org.opensearch.dsl.pipeline;
+package org.opensearch.dsl;
 
 import org.opensearch.dsl.exception.ConversionException;
 

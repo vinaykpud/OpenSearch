@@ -10,7 +10,7 @@ package org.opensearch.dsl.query;
 
 import org.apache.calcite.rex.RexNode;
 import org.opensearch.dsl.exception.ConversionException;
-import org.opensearch.dsl.pipeline.ConversionContext;
+import org.opensearch.dsl.ConversionContext;
 import org.opensearch.index.query.MatchAllQueryBuilder;
 import org.opensearch.index.query.QueryBuilder;
 

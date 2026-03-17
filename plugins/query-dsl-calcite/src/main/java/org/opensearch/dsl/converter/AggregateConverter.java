@@ -6,29 +6,26 @@
  * compatible open source license.
  */
 
-package org.opensearch.dsl.pipeline.converter;
+package org.opensearch.dsl.converter;
 
 import org.apache.calcite.rel.RelNode;
 import org.apache.calcite.rel.logical.LogicalAggregate;
 import org.opensearch.dsl.aggregation.AggregationMetadata;
-import org.opensearch.dsl.pipeline.AbstractDslConverter;
-import org.opensearch.dsl.pipeline.ConversionContext;
-import org.opensearch.dsl.pipeline.PipelinePhase;
+import org.opensearch.dsl.aggregation.AggregationTreeWalker;
+import org.opensearch.dsl.ConversionContext;
 import org.opensearch.dsl.exception.ConversionException;
 
 /**
  * Creates a {@code LogicalAggregate} from pre-computed {@link AggregationMetadata}
  * stored on the {@link ConversionContext}.
  *
- * The metadata is produced by {@link org.opensearch.dsl.aggregation.AggregationTreeWalker}
+ * The metadata is produced by {@link AggregationTreeWalker}
  * and set on the context by the service layer before running this pipeline step.
  */
 public class AggregateConverter extends AbstractDslConverter {
 
-    /** Creates a new AggregateConverter for the AGGREGATE phase. */
-    public AggregateConverter() {
-        super(PipelinePhase.AGGREGATE);
-    }
+    /** Creates a new AggregateConverter. */
+    public AggregateConverter() {}
 
     @Override
     protected boolean isApplicable(ConversionContext ctx) {
