@@ -795,4 +795,108 @@ public class DslLogicalPlanIntegrationIT extends DslLogicalPlanIntegrationTestBa
                 errorMessage.contains("unknown"));
         }
     }
+
+    /**
+     * Test: Exists query conversion.
+     * Verifies that an exists query is converted to a LogicalFilter with IS NOT NULL condition.
+     *
+     * DSL Query:
+     * {
+     *   "query": {
+     *     "exists": {
+     *       "field": "description"
+     *     }
+     *   }
+     * }
+     *
+     * Expected Calcite Plan:
+     * LogicalFilter(condition=[IS NOT NULL($0)])
+     *   LogicalTableScan(table=[[test-exists-query]])
+     */
+    public void testExistsQueryConversion() throws Exception {
+        String indexName = "test-exists-query";
+        String mapping = "{"
+            + "\"properties\": {"
+            + "  \"description\": {\"type\": \"text\"},"
+            + "  \"price\": {\"type\": \"long\"}"
+            + "}"
+            + "}";
+        client().admin().indices().prepareCreate(indexName)
+            .setMapping(mapping)
+            .get();
+        ensureGreen(indexName);
+
+        SearchSourceBuilder searchSource = new SearchSourceBuilder();
+        searchSource.query(QueryBuilders.existsQuery("description"));
+
+        SearchResponse response = convertDsl(searchSource, indexName);
+
+        assertNotNull("SearchResponse should not be null", response);
+    }
+
+    /**
+     * Test: Exists query combined with bool query.
+     * Verifies that exists query works correctly within bool query context.
+     *
+     * DSL Query:
+     * {
+     *   "query": {
+     *     "bool": {
+     *       "must": [
+     *         { "exists": { "field": "description" } }
+     *       ],
+     *       "filter": [
+     *         { "range": { "price": { "gte": 100 } } }
+     *       ]
+     *     }
+     *   }
+     * }
+     *
+     * Expected Calcite Plan:
+     * LogicalFilter(condition=[AND(IS NOT NULL($0), >=($1, 100))])
+     *   LogicalTableScan(table=[[test-exists-bool-query]])
+     */
+    public void testExistsQueryWithBoolQuery() throws Exception {
+        String indexName = "test-exists-bool-query";
+        String mapping = "{"
+            + "\"properties\": {"
+            + "  \"description\": {\"type\": \"text\"},"
+            + "  \"price\": {\"type\": \"long\"}"
+            + "}"
+            + "}";
+        client().admin().indices().prepareCreate(indexName)
+            .setMapping(mapping)
+            .get();
+        ensureGreen(indexName);
+
+        SearchSourceBuilder searchSource = new SearchSourceBuilder();
+        searchSource.query(
+            QueryBuilders.boolQuery()
+                .must(QueryBuilders.existsQuery("description"))
+                .filter(QueryBuilders.rangeQuery("price").gte(100))
+        );
+
+        SearchResponse response = convertDsl(searchSource, indexName);
+
+        assertNotNull("SearchResponse should not be null", response);
+    }
+
+    public void testExistsQueryWithBoostNotSupported() throws Exception {
+        String indexName = "test-exists-boost";
+        String mapping = "{"
+            + "\"properties\": {"
+            + "  \"description\": {\"type\": \"text\"}"
+            + "}"
+            + "}";
+        client().admin().indices().prepareCreate(indexName)
+            .setMapping(mapping)
+            .get();
+        ensureGreen(indexName);
+
+        SearchSourceBuilder searchSource = new SearchSourceBuilder();
+        searchSource.query(QueryBuilders.existsQuery("description").boost(2.0f));
+
+        RuntimeException exception = expectThrows(RuntimeException.class, () -> convertDsl(searchSource, indexName));
+        assertTrue(exception.getMessage().contains("boost is unsupported for Exists query type"));
+    }
 }
