@@ -71,6 +71,92 @@ public class DslLogicalPlanIntegrationIT extends DslLogicalPlanIntegrationTestBa
     }
 
     /**
+     * Test: Terms query conversion.
+     * Verifies that a terms query is converted to a LogicalFilter with IN condition.
+     *
+     * DSL Query:
+     * {
+     *   "query": {
+     *     "terms": {
+     *       "category": ["electronics", "computers", "laptops"]
+     *     }
+     *   }
+     * }
+     *
+     * Expected Calcite Plan:
+     * LogicalFilter(condition=[IN($0, 'electronics', 'computers', 'laptops')])
+     *   LogicalTableScan(table=[[test-terms-query]])
+     */
+    public void testTermsQueryConversion() throws Exception {
+        String indexName = "test-terms-query";
+        String mapping = "{"
+            + "\"properties\": {"
+            + "  \"category\": {\"type\": \"keyword\"},"
+            + "  \"price\": {\"type\": \"long\"}"
+            + "}"
+            + "}";
+        client().admin().indices().prepareCreate(indexName)
+            .setMapping(mapping)
+            .get();
+        ensureGreen(indexName);
+
+        SearchSourceBuilder searchSource = new SearchSourceBuilder();
+        searchSource.query(QueryBuilders.termsQuery("category", "electronics", "computers", "laptops"));
+
+        SearchResponse response = convertDsl(searchSource, indexName);
+        assertNotNull("SearchResponse should not be null", response);
+    }
+
+    /**
+     * Test: Terms query with non-default boost throws RuntimeException.
+     */
+    public void testTermsQueryWithBoostThrowsException() throws Exception {
+        String indexName = "test-terms-boost";
+        String mapping = "{\"properties\": {\"category\": {\"type\": \"keyword\"}}}";
+        client().admin().indices().prepareCreate(indexName).setMapping(mapping).get();
+        ensureGreen(indexName);
+
+        SearchSourceBuilder searchSource = new SearchSourceBuilder();
+        searchSource.query(QueryBuilders.termsQuery("category", "electronics").boost(2.0f));
+
+        RuntimeException exception = expectThrows(RuntimeException.class, () -> convertDsl(searchSource, indexName));
+        assertThat(exception.getMessage(), containsString("does not support non-default boost"));
+    }
+
+    /**
+     * Test: Terms query with _name throws RuntimeException.
+     */
+    public void testTermsQueryWithNameThrowsException() throws Exception {
+        String indexName = "test-terms-name";
+        String mapping = "{\"properties\": {\"category\": {\"type\": \"keyword\"}}}";
+        client().admin().indices().prepareCreate(indexName).setMapping(mapping).get();
+        ensureGreen(indexName);
+
+        SearchSourceBuilder searchSource = new SearchSourceBuilder();
+        searchSource.query(QueryBuilders.termsQuery("category", "electronics").queryName("my_query"));
+
+        RuntimeException exception = expectThrows(RuntimeException.class, () -> convertDsl(searchSource, indexName));
+        assertThat(exception.getMessage(), containsString("does not support _name"));
+    }
+
+    /**
+     * Test: Terms query with non-default value_type throws RuntimeException.
+     */
+    public void testTermsQueryWithValueTypeThrowsException() throws Exception {
+        String indexName = "test-terms-valuetype";
+        String mapping = "{\"properties\": {\"category\": {\"type\": \"keyword\"}}}";
+        client().admin().indices().prepareCreate(indexName).setMapping(mapping).get();
+        ensureGreen(indexName);
+
+        SearchSourceBuilder searchSource = new SearchSourceBuilder();
+        searchSource.query(QueryBuilders.termsQuery("category", "electronics").valueType(
+            org.opensearch.index.query.TermsQueryBuilder.ValueType.BITMAP));
+
+        RuntimeException exception = expectThrows(RuntimeException.class, () -> convertDsl(searchSource, indexName));
+        assertThat(exception.getMessage(), containsString("does not support non-default value_type"));
+    }
+
+    /**
      * Test: Range query conversion.
      * Verifies that a range query is converted to a LogicalFilter with comparison operators.
      *
