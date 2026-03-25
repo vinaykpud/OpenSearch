@@ -71,6 +71,43 @@ public class DslLogicalPlanIntegrationIT extends DslLogicalPlanIntegrationTestBa
     }
 
     /**
+     * Test: Terms query conversion.
+     * Verifies that a terms query is converted to a LogicalFilter with IN condition.
+     *
+     * DSL Query:
+     * {
+     *   "query": {
+     *     "terms": {
+     *       "category": ["electronics", "computers", "laptops"]
+     *     }
+     *   }
+     * }
+     *
+     * Expected Calcite Plan:
+     * LogicalFilter(condition=[IN($0, 'electronics', 'computers', 'laptops')])
+     *   LogicalTableScan(table=[[test-terms-query]])
+     */
+    public void testTermsQueryConversion() throws Exception {
+        String indexName = "test-terms-query";
+        String mapping = "{"
+            + "\"properties\": {"
+            + "  \"category\": {\"type\": \"keyword\"},"
+            + "  \"price\": {\"type\": \"long\"}"
+            + "}"
+            + "}";
+        client().admin().indices().prepareCreate(indexName)
+            .setMapping(mapping)
+            .get();
+        ensureGreen(indexName);
+
+        SearchSourceBuilder searchSource = new SearchSourceBuilder();
+        searchSource.query(QueryBuilders.termsQuery("category", "electronics", "computers", "laptops"));
+
+        SearchResponse response = convertDsl(searchSource, indexName);
+        assertNotNull("SearchResponse should not be null", response);
+    }
+
+    /**
      * Test: Range query conversion.
      * Verifies that a range query is converted to a LogicalFilter with comparison operators.
      *
