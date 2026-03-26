@@ -6,7 +6,7 @@ An OpenSearch plugin that converts OpenSearch Query DSL to Apache Calcite logica
 
 This plugin integrates with OpenSearch's search pipeline to convert DSL queries into Calcite's logical plan representation. It supports:
 
-- **Query Types**: Term, Range, Bool (must + filter), Match All
+- **Query Types**: Term, Terms, Range, Bool (must + filter), Match All
 - **Aggregations**: Metric (avg, sum, min, max, count) and bucket (terms, multi\_terms)
 - **Sorting**: Pre-aggregation and post-aggregation sorting with BucketOrder
 - **Pagination**: Offset and fetch (limit)
@@ -64,6 +64,7 @@ RelNode (Calcite Logical Plan)
 | DSL Query | Calcite Representation                                                    |
 |-----------|---------------------------------------------------------------------------|
 | `term` | `=($field, value)` — equality filter                                      |
+| `terms` | `SEARCH($field, Sarg[value1, value2, ...])` — multi-value equality filter |
 | `range` (gte, lte, gt, lt) | `AND(>=($field, min), <=($field, max))` — range filter                    |
 | `bool` (must + filter) | `AND(condition1, condition2, ...)` — flattened conjunction                |
 | `match_all` | Skipped (boolean literal `TRUE`)                                          |
@@ -407,7 +408,7 @@ Current limitations:
 
 1. **Read-only** — converts queries to logical plans but does not execute them
 2. **Logging only** — converted plans are logged, not used for query execution
-3. **Limited query types** — only `term`, `range`, `bool` (must + filter), and `match_all`
+3. **Limited query types** — only `term`, `terms`, `range`, `bool` (must + filter), and `match_all`
 4. **Bool query** — `should` and `must_not` clauses are not yet supported
 5. **Nested objects** — flattened using dot notation, no true nested query support
 6. **Pagination with aggregations** — `from`/`size` is not applied when aggregations are present
