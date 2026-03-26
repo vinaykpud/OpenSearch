@@ -22,6 +22,7 @@ public class QueryRegistryFactory {
         registry.register(new RangeQueryTranslator());
         registry.register(new MatchAllQueryTranslator());
         registry.register(new BoolQueryTranslator(registry));
+        registry.register(new ExistsQueryTranslator());
         return registry;
     }
 }

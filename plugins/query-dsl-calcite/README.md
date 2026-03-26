@@ -61,12 +61,13 @@ RelNode (Calcite Logical Plan)
 
 ### Queries
 
-| DSL Query | Calcite Representation |
-|-----------|------------------------|
-| `term` | `=($field, value)` — equality filter |
-| `range` (gte, lte, gt, lt) | `AND(>=($field, min), <=($field, max))` — range filter |
-| `bool` (must + filter) | `AND(condition1, condition2, ...)` — flattened conjunction |
-| `match_all` | Skipped (boolean literal `TRUE`) |
+| DSL Query | Calcite Representation                                                    |
+|-----------|---------------------------------------------------------------------------|
+| `term` | `=($field, value)` — equality filter                                      |
+| `range` (gte, lte, gt, lt) | `AND(>=($field, min), <=($field, max))` — range filter                    |
+| `bool` (must + filter) | `AND(condition1, condition2, ...)` — flattened conjunction                |
+| `match_all` | Skipped (boolean literal `TRUE`)                                          |
+| `exists` | `IS NOT NULL($field)` — field existence check & boost not supported check |
 
 ### Aggregations
 
