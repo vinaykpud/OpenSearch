@@ -19,7 +19,6 @@ public class QueryRegistryFactory {
     public static QueryRegistry create() {
         QueryRegistry registry = new QueryRegistry();
         registry.register(new TermQueryTranslator());
-        registry.register(new TermsQueryTranslator());
         registry.register(new RangeQueryTranslator());
         registry.register(new MatchAllQueryTranslator());
         registry.register(new BoolQueryTranslator(registry));

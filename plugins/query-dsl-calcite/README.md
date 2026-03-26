@@ -64,7 +64,6 @@ RelNode (Calcite Logical Plan)
 | DSL Query | Calcite Representation                                                    |
 |-----------|---------------------------------------------------------------------------|
 | `term` | `=($field, value)` — equality filter                                      |
-| `terms` | `IN($field, value1, value2, ...)` — multi-value IN filter                 |
 | `range` (gte, lte, gt, lt) | `AND(>=($field, min), <=($field, max))` — range filter                    |
 | `bool` (must + filter) | `AND(condition1, condition2, ...)` — flattened conjunction                |
 | `match_all` | Skipped (boolean literal `TRUE`)                                          |
@@ -121,45 +120,7 @@ LogicalFilter(condition=[=($0, 'electronics')])
   LogicalTableScan(table=[[test-term-query]])
 ```
 
-### 2. Terms Query
-
-```json
-{
-  "query": {
-    "terms": { 
-      "category": ["electronics", "computers", "laptops"] 
-    }
-  }
-}
-```
-**Mapping:** `category: keyword, price: long`
-```
-LogicalFilter(condition=[IN($0, 'electronics', 'computers', 'laptops')])
-  LogicalTableScan(table=[[test-terms-query]])
-```
-
-**Conversion Details:**
-- DSL `terms` query → Calcite `IN` clause
-- Supports multiple values for a single field
-- More efficient than chaining multiple `OR` conditions
-- Values are type-checked against field type
-
-**Test Coverage:**
-```java
-// Test: Terms query with string values
-assertTermsQuery("category", List.of("electronics", "computers"), 
-                 "IN($0, 'electronics', 'computers')");
-
-// Test: Terms query with numeric values
-assertTermsQuery("price", List.of(100, 200, 300), 
-                 "IN($0, 100, 200, 300)");
-
-// Test: Terms query with single value (equivalent to term query)
-assertTermsQuery("status", List.of("active"), 
-                 "IN($0, 'active')");
-```
-
-### 3. Range Query
+### 2. Range Query
 
 ```json
 {
@@ -446,7 +407,7 @@ Current limitations:
 
 1. **Read-only** — converts queries to logical plans but does not execute them
 2. **Logging only** — converted plans are logged, not used for query execution
-3. **Limited query types** — only `term`, `terms`, `range`, `bool` (must + filter), and `match_all`
+3. **Limited query types** — only `term`, `range`, `bool` (must + filter), and `match_all`
 4. **Bool query** — `should` and `must_not` clauses are not yet supported
 5. **Nested objects** — flattened using dot notation, no true nested query support
 6. **Pagination with aggregations** — `from`/`size` is not applied when aggregations are present
