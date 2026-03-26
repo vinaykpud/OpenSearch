@@ -72,19 +72,19 @@ public class DslLogicalPlanIntegrationIT extends DslLogicalPlanIntegrationTestBa
 
     /**
      * Test: Terms query conversion.
-     * Verifies that a terms query is converted to a LogicalFilter with IN condition.
+     * Verifies that a terms query is converted to a LogicalFilter with SEARCH condition using Sarg.
      *
      * DSL Query:
      * {
      *   "query": {
      *     "terms": {
-     *       "category": ["electronics", "computers", "laptops"]
+     *       "category": ["electronics", "furniture"]
      *     }
      *   }
      * }
      *
      * Expected Calcite Plan:
-     * LogicalFilter(condition=[IN($0, 'electronics', 'computers', 'laptops')])
+     * LogicalFilter(condition=[SEARCH($0, Sarg['electronics':VARCHAR, 'furniture':VARCHAR]:VARCHAR)])
      *   LogicalTableScan(table=[[test-terms-query]])
      */
     public void testTermsQueryConversion() throws Exception {
@@ -101,10 +101,20 @@ public class DslLogicalPlanIntegrationIT extends DslLogicalPlanIntegrationTestBa
         ensureGreen(indexName);
 
         SearchSourceBuilder searchSource = new SearchSourceBuilder();
-        searchSource.query(QueryBuilders.termsQuery("category", "electronics", "computers", "laptops"));
+        searchSource.query(QueryBuilders.termsQuery("category", "electronics", "furniture"));
 
         SearchResponse response = convertDsl(searchSource, indexName);
         assertNotNull("SearchResponse should not be null", response);
+
+        DslLogicalPlanPlugin plugin = getPlugin(DslLogicalPlanPlugin.class);
+        QueryPlans plans = plugin.getConverterService().convert(searchSource, indexName);
+        String plan = plans.get(QueryPlans.Type.HITS).get().relNode().toString();
+
+        assertTrue("Plan should contain LogicalFilter", plan.contains("LogicalFilter"));
+        assertTrue("Plan should contain SEARCH operator", plan.contains("SEARCH"));
+        assertTrue("Plan should contain Sarg", plan.contains("Sarg"));
+        assertTrue("Plan should contain 'electronics'", plan.contains("electronics"));
+        assertTrue("Plan should contain 'furniture'", plan.contains("furniture"));
     }
 
     /**
