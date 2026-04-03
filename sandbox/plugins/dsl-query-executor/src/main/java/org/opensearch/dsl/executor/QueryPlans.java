@@ -46,18 +46,6 @@ public final class QueryPlans {
             Objects.requireNonNull(type, "type must not be null");
             Objects.requireNonNull(relNode, "relNode must not be null");
         }
-
-        /** Returns what part of the response this plan produces. */
-        @Override
-        public Type type() {
-            return type;
-        }
-
-        /** Returns the Calcite logical plan to execute. */
-        @Override
-        public RelNode relNode() {
-            return relNode;
-        }
     }
 
     private final List<QueryPlan> plans;
@@ -106,11 +94,8 @@ public final class QueryPlans {
             return this;
         }
 
-        /** Builds the plans. At least one must have been added. */
+        /** Builds the plans. May be empty (e.g. size=0, no aggs — only metadata response). */
         public QueryPlans build() {
-            if (plans.isEmpty()) {
-                throw new IllegalStateException("QueryPlans must have at least one plan");
-            }
             return new QueryPlans(plans);
         }
     }
