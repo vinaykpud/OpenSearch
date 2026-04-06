@@ -156,9 +156,7 @@ public class AnalyticsSearchServiceTests extends OpenSearchTestCase {
             0,
             "task-1",
             new ShardId(new Index("test_index", "_na_"), 0),
-            "lucene",
-            null,
-            null
+            List.of(new FragmentExecutionRequest.PlanAlternative("lucene", null))
         );
 
         IllegalStateException ex = expectThrows(IllegalStateException.class, () -> service.executeFragment(request, mockShard));

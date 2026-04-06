@@ -8,7 +8,6 @@
 
 package org.opensearch.analytics.exec;
 
-import org.apache.calcite.rel.RelNode;
 import org.opensearch.action.ActionRequest;
 import org.opensearch.action.ActionRequestValidationException;
 import org.opensearch.core.common.io.stream.StreamInput;
@@ -16,10 +15,17 @@ import org.opensearch.core.common.io.stream.StreamOutput;
 import org.opensearch.core.index.shard.ShardId;
 
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
- * Transport request carrying a plan fragment to a data node for shard-level execution.
- * The {@code fragment} field is transient — set only for local dispatch and never serialized.
+ * Transport request carrying plan fragment alternatives to a data node for shard-level execution.
+ *
+ * <p>Each {@link PlanAlternative} represents a backend-specific serialized plan produced by
+ * {@code FragmentConversionDriver}. The data node selects the best alternative based on
+ * available backend capabilities.
+ *
+ * @opensearch.internal
  */
 public class FragmentExecutionRequest extends ActionRequest {
 
@@ -27,42 +33,33 @@ public class FragmentExecutionRequest extends ActionRequest {
     private final int stageId;
     private final String taskId;
     private final ShardId shardId;
-    private final String backendId;
-    private final byte[] fragmentBytes;   // Backend serializable plan (null for Lucene)
-    private final RelNode fragment;       // transient — not serialized, for local execution only
+    private final List<PlanAlternative> planAlternatives;
 
     public FragmentExecutionRequest(
         String queryId,
         int stageId,
         String taskId,
         ShardId shardId,
-        String backendId,
-        byte[] fragmentBytes,
-        RelNode fragment
+        List<PlanAlternative> planAlternatives
     ) {
         this.queryId = queryId;
         this.stageId = stageId;
         this.taskId = taskId;
         this.shardId = shardId;
-        this.backendId = backendId;
-        this.fragmentBytes = fragmentBytes;
-        this.fragment = fragment;
+        this.planAlternatives = planAlternatives;
     }
 
-    /**
-     * Deserialization constructor. The transient {@code fragment} field is always null
-     * after deserialization — it is only set for local dispatch.
-     */
     public FragmentExecutionRequest(StreamInput in) throws IOException {
         super(in);
         this.queryId = in.readString();
         this.stageId = in.readInt();
         this.taskId = in.readString();
         this.shardId = new ShardId(in);
-        this.backendId = in.readString();
-        byte[] bytes = in.readByteArray();
-        this.fragmentBytes = (bytes.length == 0) ? null : bytes;
-        this.fragment = null; // transient — not read from the wire
+        int numAlternatives = in.readVInt();
+        this.planAlternatives = new ArrayList<>(numAlternatives);
+        for (int i = 0; i < numAlternatives; i++) {
+            planAlternatives.add(new PlanAlternative(in));
+        }
     }
 
     @Override
@@ -72,42 +69,47 @@ public class FragmentExecutionRequest extends ActionRequest {
         out.writeInt(stageId);
         out.writeString(taskId);
         shardId.writeTo(out);
-        out.writeString(backendId);
-        // Serialize null fragmentBytes as zero-length marker
-        out.writeByteArray(fragmentBytes != null ? fragmentBytes : new byte[0]);
-        // fragment is transient — not written to the wire
+        out.writeVInt(planAlternatives.size());
+        for (PlanAlternative alt : planAlternatives) {
+            alt.writeTo(out);
+        }
     }
 
-    public String getQueryId() {
-        return queryId;
-    }
-
-    public int getStageId() {
-        return stageId;
-    }
-
-    public String getTaskId() {
-        return taskId;
-    }
-
-    public ShardId getShardId() {
-        return shardId;
-    }
-
-    public String getBackendId() {
-        return backendId;
-    }
-
-    public byte[] getFragmentBytes() {
-        return fragmentBytes;
-    }
-
-    public RelNode getFragment() {
-        return fragment;
-    }
+    public String getQueryId() { return queryId; }
+    public int getStageId() { return stageId; }
+    public String getTaskId() { return taskId; }
+    public ShardId getShardId() { return shardId; }
+    public List<PlanAlternative> getPlanAlternatives() { return planAlternatives; }
 
     @Override
-    public ActionRequestValidationException validate() {
-        return null;
+    public ActionRequestValidationException validate() { return null; }
+
+    /**
+     * A single plan alternative: a backend ID paired with its serialized fragment bytes.
+     * Produced by {@code FragmentConversionDriver.convert()} using the backend's
+     * {@code FragmentConvertor}.
+     */
+    public static class PlanAlternative {
+        private final String backendId;
+        private final byte[] fragmentBytes;
+
+        public PlanAlternative(String backendId, byte[] fragmentBytes) {
+            this.backendId = backendId;
+            this.fragmentBytes = fragmentBytes;
+        }
+
+        public PlanAlternative(StreamInput in) throws IOException {
+            this.backendId = in.readString();
+            byte[] bytes = in.readByteArray();
+            this.fragmentBytes = (bytes.length == 0) ? null : bytes;
+        }
+
+        public void writeTo(StreamOutput out) throws IOException {
+            out.writeString(backendId);
+            out.writeByteArray(fragmentBytes != null ? fragmentBytes : new byte[0]);
+        }
+
+        public String getBackendId() { return backendId; }
+        public byte[] getFragmentBytes() { return fragmentBytes; }
     }
 }

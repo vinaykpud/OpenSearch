@@ -37,6 +37,8 @@ import org.opensearch.cluster.routing.RoutingTable;
 import org.opensearch.cluster.routing.ShardRouting;
 import org.opensearch.core.index.Index;
 import org.opensearch.core.index.shard.ShardId;
+import org.opensearch.analytics.spi.AnalyticsSearchBackendPlugin;
+import org.opensearch.analytics.spi.FragmentConvertor;
 import org.opensearch.test.OpenSearchTestCase;
 
 import java.util.ArrayList;
@@ -44,6 +46,8 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -64,6 +68,19 @@ public class PlanWalkerResolveTargetsTests extends OpenSearchTestCase {
         HepPlanner planner = new HepPlanner(new HepProgramBuilder().build());
         cluster = RelOptCluster.create(planner, rexBuilder);
         rowType = typeFactory.builder().add("field_0", SqlTypeName.VARCHAR).build();
+    }
+
+    private Map<String, AnalyticsSearchBackendPlugin> mockBackends(String... backendIds) {
+        Map<String, AnalyticsSearchBackendPlugin> map = new HashMap<>();
+        for (String id : backendIds) {
+            AnalyticsSearchBackendPlugin backend = mock(AnalyticsSearchBackendPlugin.class);
+            FragmentConvertor convertor = mock(FragmentConvertor.class);
+            when(convertor.convertScanFragment(anyString(), any())).thenReturn(new byte[0]);
+            when(convertor.convertShuffleReadFragment(anyString(), any())).thenReturn(new byte[0]);
+            when(backend.getFragmentConvertor()).thenReturn(convertor);
+            map.put(id, backend);
+        }
+        return map;
     }
 
     private OpenSearchTableScan buildTableScan(String tableName, List<String> viableBackends) {
@@ -127,7 +144,7 @@ public class PlanWalkerResolveTargetsTests extends OpenSearchTestCase {
             listener.onResponse(new FragmentExecutionResponse(List.of(), List.of()));
         };
 
-        PlanWalker walker = new PlanWalker(dag, clusterState);
+        PlanWalker walker = new PlanWalker(dag, clusterState, mockBackends("lucene"));
         walker.walk(submitter, future);
         future.actionGet();
 
@@ -165,7 +182,7 @@ public class PlanWalkerResolveTargetsTests extends OpenSearchTestCase {
             listener.onResponse(new FragmentExecutionResponse(List.of(), List.of()));
         };
 
-        PlanWalker walker = new PlanWalker(dag, clusterState);
+        PlanWalker walker = new PlanWalker(dag, clusterState, mockBackends("lucene"));
         walker.walk(submitter, future);
         future.actionGet();
 
@@ -197,7 +214,7 @@ public class PlanWalkerResolveTargetsTests extends OpenSearchTestCase {
             listener.onResponse(new FragmentExecutionResponse(List.of(), List.of()));
         };
 
-        PlanWalker walker = new PlanWalker(dag, clusterState);
+        PlanWalker walker = new PlanWalker(dag, clusterState, mockBackends("lucene"));
         walker.walk(submitter, future);
         future.actionGet();
 
@@ -228,7 +245,7 @@ public class PlanWalkerResolveTargetsTests extends OpenSearchTestCase {
             listener.onResponse(new FragmentExecutionResponse(List.of(), List.of()));
         };
 
-        PlanWalker walker = new PlanWalker(dag, clusterState);
+        PlanWalker walker = new PlanWalker(dag, clusterState, mockBackends("lucene"));
         walker.walk(submitter, future);
 
         RuntimeException ex = expectThrows(RuntimeException.class, future::actionGet);

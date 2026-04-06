@@ -8,12 +8,11 @@
 
 package org.opensearch.analytics.backend;
 
-import org.apache.calcite.rel.RelNode;
 import org.opensearch.action.search.SearchShardTask;
 import org.opensearch.index.engine.exec.IndexReaderProvider.Reader;
 
 /**
- * Execution context carrying reader and delegation state through
+ * Execution context carrying reader and plan state through
  * the query execution lifecycle.
  *
  * @opensearch.internal
@@ -23,7 +22,7 @@ public class ExecutionContext {
     private final String tableName;
     private final Reader reader;
     private final SearchShardTask task;
-    private RelNode fragment;
+    private byte[] fragmentBytes;
 
     /**
      * Constructs an execution context.
@@ -52,13 +51,13 @@ public class ExecutionContext {
         return reader;
     }
 
-    /** Returns the transient plan fragment, or null if not set. */
-    public RelNode getFragment() {
-        return fragment;
+    /** Returns the backend-specific serialized plan fragment bytes, or null if not set. */
+    public byte[] getFragmentBytes() {
+        return fragmentBytes;
     }
 
-    /** Sets the transient plan fragment. Not serialized. */
-    public void setFragment(RelNode fragment) {
-        this.fragment = fragment;
+    /** Sets the backend-specific serialized plan fragment bytes. */
+    public void setFragmentBytes(byte[] fragmentBytes) {
+        this.fragmentBytes = fragmentBytes;
     }
 }

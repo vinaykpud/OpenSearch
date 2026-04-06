@@ -56,15 +56,31 @@ public class AnalyticsSearchService {
             throw new IllegalStateException("No CompositeEngine on " + shard.shardId());
         }
 
+        // Select the first available plan alternative whose backend is registered on this node.
+        // TODO: smarter selection based on data node capabilities/load
+        FragmentExecutionRequest.PlanAlternative selectedPlan = null;
+        for (FragmentExecutionRequest.PlanAlternative alt : request.getPlanAlternatives()) {
+            if (backends.containsKey(alt.getBackendId())) {
+                selectedPlan = alt;
+                break;
+            }
+        }
+        if (selectedPlan == null) {
+            throw new IllegalArgumentException(
+                "No plan alternative matches available backends. Alternatives: "
+                    + request.getPlanAlternatives().stream()
+                        .map(FragmentExecutionRequest.PlanAlternative::getBackendId)
+                        .toList()
+                    + ". Available: " + backends.keySet()
+            );
+        }
+
         try (GatedCloseable<Reader> gatedReader = compositeEngine.acquireReader()) {
             SearchShardTask task = null; // TODO: real task for cancellation
             ExecutionContext ctx = new ExecutionContext(request.getShardId().getIndexName(), task, gatedReader.get());
-            ctx.setFragment(request.getFragment());
+            ctx.setFragmentBytes(selectedPlan.getFragmentBytes());
 
-            AnalyticsSearchBackendPlugin backend = backends.get(request.getBackendId());
-            if (backend == null) {
-                throw new IllegalArgumentException("Unknown backend: " + request.getBackendId() + ". Available: " + backends.keySet());
-            }
+            AnalyticsSearchBackendPlugin backend = backends.get(selectedPlan.getBackendId());
 
             // createSearchExecEngine calls prepare() internally — do NOT call prepare() again
             try (SearchExecEngine<ExecutionContext, EngineResultStream> engine = backend.createSearchExecEngine(ctx)) {

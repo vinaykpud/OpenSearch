@@ -16,7 +16,10 @@ import org.opensearch.analytics.planner.CapabilityRegistry;
 import org.opensearch.analytics.planner.PlannerContext;
 import org.opensearch.analytics.planner.PlannerImpl;
 import org.opensearch.analytics.planner.dag.QueryDAG;
+import org.opensearch.analytics.spi.AnalyticsSearchBackendPlugin;
 import org.opensearch.cluster.service.ClusterService;
+
+import java.util.Map;
 
 /**
  * Coordinator-level plan executor. Plans the query via the capability-aware planner
@@ -34,18 +37,25 @@ public class DefaultPlanExecutor implements QueryPlanExecutor<RelNode, Iterable<
     private final CapabilityRegistry capabilityRegistry;
     private final ClusterService clusterService;
     private final Scheduler scheduler;
+    private final Map<String, AnalyticsSearchBackendPlugin> backends;
 
-    public DefaultPlanExecutor(CapabilityRegistry capabilityRegistry, ClusterService clusterService, Scheduler scheduler) {
+    public DefaultPlanExecutor(
+        CapabilityRegistry capabilityRegistry,
+        ClusterService clusterService,
+        Scheduler scheduler,
+        Map<String, AnalyticsSearchBackendPlugin> backends
+    ) {
         this.capabilityRegistry = capabilityRegistry;
         this.clusterService = clusterService;
         this.scheduler = scheduler;
+        this.backends = backends;
     }
 
     @Override
     public Iterable<Object[]> execute(RelNode logicalFragment, Object context) {
         QueryDAG dag = PlannerImpl.createPlan(logicalFragment, new PlannerContext(capabilityRegistry, clusterService.state()));
         logger.info("[DefaultPlanExecutor] QueryDAG:\n{}", dag);
-        PlanWalker walker = new PlanWalker(dag, clusterService.state());
+        PlanWalker walker = new PlanWalker(dag, clusterService.state(), backends);
         PlainActionFuture<Iterable<Object[]>> future = new PlainActionFuture<>();
         scheduler.execute(walker, future);
         return future.actionGet();  // single blocking point — will become async when API changes

@@ -37,6 +37,8 @@ import org.opensearch.core.action.ActionListener;
 import org.opensearch.core.index.Index;
 import org.opensearch.core.index.shard.ShardId;
 import org.opensearch.test.OpenSearchTestCase;
+import org.opensearch.analytics.spi.AnalyticsSearchBackendPlugin;
+import org.opensearch.analytics.spi.FragmentConvertor;
 import org.opensearch.transport.TransportRequest;
 import org.opensearch.transport.TransportService;
 
@@ -74,6 +76,19 @@ public class SchedulerTests extends OpenSearchTestCase {
         HepPlanner planner = new HepPlanner(new HepProgramBuilder().build());
         cluster = RelOptCluster.create(planner, rexBuilder);
         rowType = typeFactory.builder().add("field_0", SqlTypeName.VARCHAR).build();
+    }
+
+    private Map<String, AnalyticsSearchBackendPlugin> mockBackends(String... backendIds) {
+        Map<String, AnalyticsSearchBackendPlugin> map = new HashMap<>();
+        for (String id : backendIds) {
+            AnalyticsSearchBackendPlugin backend = mock(AnalyticsSearchBackendPlugin.class);
+            FragmentConvertor convertor = mock(FragmentConvertor.class);
+            when(convertor.convertScanFragment(anyString(), any())).thenReturn(new byte[0]);
+            when(convertor.convertShuffleReadFragment(anyString(), any())).thenReturn(new byte[0]);
+            when(backend.getFragmentConvertor()).thenReturn(convertor);
+            map.put(id, backend);
+        }
+        return map;
     }
 
     private OpenSearchTableScan buildTableScan(String tableName, List<String> viableBackends) {
@@ -138,7 +153,7 @@ public class SchedulerTests extends OpenSearchTestCase {
         QueryDAG dag = new QueryDAG("test-query-success", stage);
 
         ClusterState clusterState = mock(ClusterState.class);
-        PlanWalker walker = new PlanWalker(dag, clusterState);
+        PlanWalker walker = new PlanWalker(dag, clusterState, mockBackends("lucene"));
 
         PlainActionFuture<Iterable<Object[]>> future = new PlainActionFuture<>();
         scheduler.execute(walker, future);
@@ -175,7 +190,7 @@ public class SchedulerTests extends OpenSearchTestCase {
             return null;
         }).when(transportService).sendRequest(any(DiscoveryNode.class), anyString(), any(TransportRequest.class), any(org.opensearch.transport.TransportResponseHandler.class));
 
-        PlanWalker walker = new PlanWalker(dag, clusterState);
+        PlanWalker walker = new PlanWalker(dag, clusterState, mockBackends("lucene"));
 
         PlainActionFuture<Iterable<Object[]>> future = new PlainActionFuture<>();
         scheduler.execute(walker, future);
@@ -209,7 +224,7 @@ public class SchedulerTests extends OpenSearchTestCase {
         stage.setPlanAlternatives(List.of(plan));
         QueryDAG dag = new QueryDAG("test-query-dispatch", stage);
 
-        PlanWalker walker = new PlanWalker(dag, clusterState);
+        PlanWalker walker = new PlanWalker(dag, clusterState, mockBackends("lucene"));
 
         PlainActionFuture<Iterable<Object[]>> future = new PlainActionFuture<>();
         scheduler.execute(walker, future);

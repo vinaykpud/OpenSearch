@@ -58,7 +58,10 @@ public class TransportAnalyticsShardActionTests extends OpenSearchTestCase {
 
         TransportAnalyticsShardAction action = createAction(indicesService, searchService);
 
-        FragmentExecutionRequest request = new FragmentExecutionRequest("query-1", 0, "task-1", shardId, "lucene", null, null);
+        FragmentExecutionRequest request = new FragmentExecutionRequest(
+            "query-1", 0, "task-1", shardId,
+            List.of(new FragmentExecutionRequest.PlanAlternative("lucene", null))
+        );
 
         ActionListener<FragmentExecutionResponse> listener = mock(ActionListener.class);
         action.doExecute(mock(Task.class), request, listener);
@@ -76,7 +79,10 @@ public class TransportAnalyticsShardActionTests extends OpenSearchTestCase {
         TransportAnalyticsShardAction action = createAction(indicesService, searchService);
 
         ShardId shardId = new ShardId(new Index("missing_index", "_na_"), 0);
-        FragmentExecutionRequest request = new FragmentExecutionRequest("query-2", 0, "task-2", shardId, "lucene", null, null);
+        FragmentExecutionRequest request = new FragmentExecutionRequest(
+            "query-2", 0, "task-2", shardId,
+            List.of(new FragmentExecutionRequest.PlanAlternative("lucene", null))
+        );
 
         ActionListener<FragmentExecutionResponse> listener = mock(ActionListener.class);
         action.doExecute(mock(Task.class), request, listener);
@@ -98,7 +104,10 @@ public class TransportAnalyticsShardActionTests extends OpenSearchTestCase {
 
         TransportAnalyticsShardAction action = createAction(indicesService, searchService);
 
-        FragmentExecutionRequest request = new FragmentExecutionRequest("query-3", 0, "task-3", shardId, "lucene", null, null);
+        FragmentExecutionRequest request = new FragmentExecutionRequest(
+            "query-3", 0, "task-3", shardId,
+            List.of(new FragmentExecutionRequest.PlanAlternative("lucene", null))
+        );
 
         ActionListener<FragmentExecutionResponse> listener = mock(ActionListener.class);
         action.doExecute(mock(Task.class), request, listener);

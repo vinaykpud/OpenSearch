@@ -12,11 +12,14 @@ import org.apache.calcite.rel.RelNode;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.opensearch.analytics.planner.dag.ExchangeInfo;
+import org.opensearch.analytics.planner.dag.FragmentConversionDriver;
 import org.opensearch.analytics.planner.dag.QueryDAG;
 import org.opensearch.analytics.planner.dag.Stage;
 import org.opensearch.analytics.planner.dag.StagePlan;
 import org.opensearch.analytics.planner.rel.OpenSearchRelNode;
 import org.opensearch.analytics.planner.rel.OpenSearchTableScan;
+import org.opensearch.analytics.spi.AnalyticsSearchBackendPlugin;
+import org.opensearch.analytics.spi.FragmentConvertor;
 import org.opensearch.cluster.ClusterState;
 import org.opensearch.cluster.node.DiscoveryNode;
 import org.opensearch.cluster.routing.IndexRoutingTable;
@@ -49,11 +52,13 @@ public class PlanWalker {
 
     private final QueryDAG dag;
     private final ClusterState clusterState;
+    private final Map<String, AnalyticsSearchBackendPlugin> backends;
     private final Map<Integer, ExchangeSink> stageSinks = new HashMap<>();
 
-    public PlanWalker(QueryDAG dag, ClusterState clusterState) {
+    public PlanWalker(QueryDAG dag, ClusterState clusterState, Map<String, AnalyticsSearchBackendPlugin> backends) {
         this.dag = dag;
         this.clusterState = clusterState;
+        this.backends = backends;
     }
 
     public String getQueryId() {
@@ -106,9 +111,6 @@ public class PlanWalker {
      * When all shard responses arrive, closes the sink and signals completion.
      */
     private void executeStage(Stage stage, TaskSubmitter submitter, ActionListener<Void> stageListener) {
-        StagePlan plan = stage.getPlanAlternatives().get(0);
-        String backendId = extractResolvedBackend(plan.resolvedFragment());
-
         List<TargetShard> targets = resolveTargets(stage);
 
         SimpleExchangeSink sink = new SimpleExchangeSink();
@@ -123,6 +125,17 @@ public class PlanWalker {
             return;
         }
 
+        // Convert all plan alternatives to backend-specific bytes via FragmentConversionDriver
+        // TODO: This should prob not be in the walker
+        List<FragmentExecutionRequest.PlanAlternative> planAlternatives = new ArrayList<>();
+        for (StagePlan plan : stage.getPlanAlternatives()) {
+            String backendId = extractResolvedBackend(plan.resolvedFragment());
+            AnalyticsSearchBackendPlugin backend = backends.get(backendId);
+            FragmentConvertor convertor = backend.getFragmentConvertor();
+            byte[] fragmentBytes = FragmentConversionDriver.convert(plan.resolvedFragment(), convertor);
+            planAlternatives.add(new FragmentExecutionRequest.PlanAlternative(backendId, fragmentBytes));
+        }
+
         // Submit ALL tasks at once — Scheduler gates per-node concurrency via PendingExecutions
         AtomicInteger remaining = new AtomicInteger(targets.size());
         AtomicReference<Exception> failure = new AtomicReference<>();
@@ -133,9 +146,7 @@ public class PlanWalker {
                 stage.getStageId(),
                 UUID.randomUUID().toString(),
                 target.shardId(),
-                backendId,
-                null,
-                plan.resolvedFragment()
+                planAlternatives
             );
 
             submitter.submit(request, target.node(), new ActionListener<>() {

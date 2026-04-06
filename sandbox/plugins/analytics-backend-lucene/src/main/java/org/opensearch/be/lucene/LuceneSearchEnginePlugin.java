@@ -14,6 +14,7 @@ import org.opensearch.analytics.backend.EngineResultStream;
 import org.opensearch.analytics.backend.ExecutionContext;
 import org.opensearch.analytics.backend.SearchExecEngine;
 import org.opensearch.analytics.spi.AnalyticsSearchBackendPlugin;
+import org.opensearch.analytics.spi.FragmentConvertor;
 import org.opensearch.analytics.spi.OperatorCapability;
 import org.opensearch.common.annotation.ExperimentalApi;
 import org.opensearch.index.IndexSettings;
@@ -81,6 +82,11 @@ public class LuceneSearchEnginePlugin extends Plugin
             OperatorCapability.PROJECT,
             OperatorCapability.SORT
         );
+    }
+
+    @Override
+    public FragmentConvertor getFragmentConvertor() {
+        return new LuceneFragmentConvertor();
     }
 
     @Override

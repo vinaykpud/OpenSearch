@@ -8,7 +8,6 @@
 
 package org.opensearch.analytics.exec;
 
-import org.apache.calcite.rel.RelNode;
 import org.opensearch.common.io.stream.BytesStreamOutput;
 import org.opensearch.core.common.io.stream.StreamInput;
 import org.opensearch.core.index.Index;
@@ -17,8 +16,7 @@ import org.opensearch.test.OpenSearchTestCase;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
-
-import static org.mockito.Mockito.mock;
+import java.util.List;
 
 /**
  * Tests for {@link FragmentExecutionRequest} serialization and getters.
@@ -30,19 +28,12 @@ public class FragmentExecutionRequestTests extends OpenSearchTestCase {
         int stageId = 7;
         String taskId = "task-abc";
         ShardId shardId = new ShardId(new Index("test-index", "uuid"), 0);
-        String backendId = "lucene";
-        byte[] fragmentBytes = "plan-bytes".getBytes(StandardCharsets.UTF_8);
-        RelNode fragment = mock(RelNode.class);
-
-        FragmentExecutionRequest original = new FragmentExecutionRequest(
-            queryId,
-            stageId,
-            taskId,
-            shardId,
-            backendId,
-            fragmentBytes,
-            fragment
+        List<FragmentExecutionRequest.PlanAlternative> alternatives = List.of(
+            new FragmentExecutionRequest.PlanAlternative("lucene", "plan-bytes".getBytes(StandardCharsets.UTF_8)),
+            new FragmentExecutionRequest.PlanAlternative("datafusion", "substrait-bytes".getBytes(StandardCharsets.UTF_8))
         );
+
+        FragmentExecutionRequest original = new FragmentExecutionRequest(queryId, stageId, taskId, shardId, alternatives);
 
         BytesStreamOutput out = new BytesStreamOutput();
         original.writeTo(out);
@@ -53,27 +44,31 @@ public class FragmentExecutionRequestTests extends OpenSearchTestCase {
         assertEquals(stageId, deserialized.getStageId());
         assertEquals(taskId, deserialized.getTaskId());
         assertEquals(shardId, deserialized.getShardId());
-        assertEquals(backendId, deserialized.getBackendId());
-        assertArrayEquals(fragmentBytes, deserialized.getFragmentBytes());
-        assertNull("Transient fragment should be null after deserialization", deserialized.getFragment());
+        assertEquals(2, deserialized.getPlanAlternatives().size());
+        assertEquals("lucene", deserialized.getPlanAlternatives().get(0).getBackendId());
+        assertArrayEquals("plan-bytes".getBytes(StandardCharsets.UTF_8), deserialized.getPlanAlternatives().get(0).getFragmentBytes());
+        assertEquals("datafusion", deserialized.getPlanAlternatives().get(1).getBackendId());
+        assertArrayEquals("substrait-bytes".getBytes(StandardCharsets.UTF_8), deserialized.getPlanAlternatives().get(1).getFragmentBytes());
     }
 
     public void testNullFragmentBytesRoundTrip() throws IOException {
         ShardId shardId = new ShardId(new Index("test-index", "uuid"), 0);
+        List<FragmentExecutionRequest.PlanAlternative> alternatives = List.of(
+            new FragmentExecutionRequest.PlanAlternative("lucene", null)
+        );
 
-        FragmentExecutionRequest original = new FragmentExecutionRequest("query-456", 2, "task-def", shardId, "datafusion", null, null);
+        FragmentExecutionRequest original = new FragmentExecutionRequest("query-456", 2, "task-def", shardId, alternatives);
 
         BytesStreamOutput out = new BytesStreamOutput();
         original.writeTo(out);
         StreamInput in = out.bytes().streamInput();
         FragmentExecutionRequest deserialized = new FragmentExecutionRequest(in);
 
-        assertNull("fragmentBytes should be null after round-trip of null value", deserialized.getFragmentBytes());
+        assertEquals(1, deserialized.getPlanAlternatives().size());
+        assertNull("fragmentBytes should be null after round-trip", deserialized.getPlanAlternatives().get(0).getFragmentBytes());
+        assertEquals("lucene", deserialized.getPlanAlternatives().get(0).getBackendId());
         assertEquals("query-456", deserialized.getQueryId());
         assertEquals(2, deserialized.getStageId());
-        assertEquals("task-def", deserialized.getTaskId());
-        assertEquals(shardId, deserialized.getShardId());
-        assertEquals("datafusion", deserialized.getBackendId());
     }
 
     public void testGetters() {
@@ -81,26 +76,19 @@ public class FragmentExecutionRequestTests extends OpenSearchTestCase {
         int stageId = 3;
         String taskId = "task-ghi";
         ShardId shardId = new ShardId(new Index("my-index", "my-uuid"), 5);
-        String backendId = "lucene";
         byte[] fragmentBytes = new byte[] { 1, 2, 3 };
-        RelNode fragment = mock(RelNode.class);
-
-        FragmentExecutionRequest request = new FragmentExecutionRequest(
-            queryId,
-            stageId,
-            taskId,
-            shardId,
-            backendId,
-            fragmentBytes,
-            fragment
+        List<FragmentExecutionRequest.PlanAlternative> alternatives = List.of(
+            new FragmentExecutionRequest.PlanAlternative("lucene", fragmentBytes)
         );
+
+        FragmentExecutionRequest request = new FragmentExecutionRequest(queryId, stageId, taskId, shardId, alternatives);
 
         assertEquals(queryId, request.getQueryId());
         assertEquals(stageId, request.getStageId());
         assertEquals(taskId, request.getTaskId());
         assertEquals(shardId, request.getShardId());
-        assertEquals(backendId, request.getBackendId());
-        assertArrayEquals(fragmentBytes, request.getFragmentBytes());
-        assertSame(fragment, request.getFragment());
+        assertEquals(1, request.getPlanAlternatives().size());
+        assertEquals("lucene", request.getPlanAlternatives().get(0).getBackendId());
+        assertArrayEquals(fragmentBytes, request.getPlanAlternatives().get(0).getFragmentBytes());
     }
 }

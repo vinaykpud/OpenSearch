@@ -128,7 +128,7 @@ public class AnalyticsPlugin extends Plugin implements ExtensiblePlugin, ActionP
         // TransportService is not yet created at createComponents() time, so we pass a lazy
         // supplier via transportServiceHolder (populated by Guice requestInjection in createGuiceModules).
         Scheduler scheduler = new Scheduler(() -> transportServiceHolder.get(), 5);
-        DefaultPlanExecutor executor = new DefaultPlanExecutor(capabilityRegistry, clusterService, scheduler);
+        DefaultPlanExecutor executor = new DefaultPlanExecutor(capabilityRegistry, clusterService, scheduler, backEndsMap);
         AnalyticsEngineService.setInstance(new AnalyticsEngineService(ctx, executor));
         return List.of(searchService, ctx, capabilityRegistry, executor);
     }
