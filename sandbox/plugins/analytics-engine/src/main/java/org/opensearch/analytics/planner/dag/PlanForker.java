@@ -10,6 +10,7 @@ package org.opensearch.analytics.planner.dag;
 
 import org.apache.calcite.rel.RelNode;
 import org.opensearch.analytics.planner.CapabilityRegistry;
+import org.opensearch.analytics.planner.RelNodeUtils;
 import org.opensearch.analytics.planner.rel.OpenSearchRelNode;
 import org.opensearch.analytics.planner.rel.OperatorAnnotation;
 import org.opensearch.analytics.spi.OperatorCapability;
@@ -51,7 +52,11 @@ public class PlanForker {
             return;
         }
         List<Resolved> alternatives = resolve(stage.getFragment(), registry);
-        stage.setPlanAlternatives(alternatives.stream().map(resolved -> new StagePlan(resolved.node)).toList());
+        stage.setPlanAlternatives(alternatives.stream()
+            .map(resolved -> new StagePlan(
+                resolved.node,
+                RelNodeUtils.extractLeafBackendFromResolvedFragment(resolved.node)))
+            .toList());
     }
 
     /** Resolved node paired with the backend chosen at this operator level. */

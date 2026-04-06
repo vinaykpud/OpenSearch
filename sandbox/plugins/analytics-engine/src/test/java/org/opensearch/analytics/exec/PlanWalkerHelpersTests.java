@@ -75,14 +75,14 @@ public class PlanWalkerHelpersTests extends OpenSearchTestCase {
         assertEquals("lucene", backend);
     }
 
-    public void testExtractResolvedBackendReturnsNullForStageInputScan() {
-        OpenSearchStageInputScan stageInput = new OpenSearchStageInputScan(cluster, RelTraitSet.createEmpty(), 0, rowType);
+    public void testExtractResolvedBackendReturnsBackendForStageInputScan() {
+        OpenSearchStageInputScan stageInput = new OpenSearchStageInputScan(cluster, RelTraitSet.createEmpty(), 0, rowType, List.of("mock-parquet"));
 
         RelNode wrapper = mock(RelNode.class);
         when(wrapper.getInputs()).thenReturn(List.of(stageInput));
 
         String backend = PlanWalker.extractResolvedBackend(wrapper);
-        assertNull(backend);
+        assertEquals("mock-parquet", backend);
     }
 
     public void testExtractTableNameFromTableScan() {
@@ -92,7 +92,7 @@ public class PlanWalkerHelpersTests extends OpenSearchTestCase {
     }
 
     public void testExtractTableNameReturnsNullForStageInputScan() {
-        OpenSearchStageInputScan stageInput = new OpenSearchStageInputScan(cluster, RelTraitSet.createEmpty(), 0, rowType);
+        OpenSearchStageInputScan stageInput = new OpenSearchStageInputScan(cluster, RelTraitSet.createEmpty(), 0, rowType, List.of("mock-parquet"));
 
         RelNode wrapper = mock(RelNode.class);
         when(wrapper.getInputs()).thenReturn(List.of(stageInput));

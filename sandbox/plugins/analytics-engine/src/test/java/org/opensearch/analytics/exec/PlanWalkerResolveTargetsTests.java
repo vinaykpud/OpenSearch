@@ -131,7 +131,7 @@ public class PlanWalkerResolveTargetsTests extends OpenSearchTestCase {
         ClusterState clusterState = buildMockClusterState("http_logs", numShards);
 
         OpenSearchTableScan scan = buildTableScan("http_logs", List.of("lucene"));
-        StagePlan plan = new StagePlan(scan);
+        StagePlan plan = new StagePlan(scan, "mock-parquet");
         Stage stage = new Stage(0, scan, List.of(), null);
         stage.setPlanAlternatives(List.of(plan));
         QueryDAG dag = new QueryDAG("test-query", stage);
@@ -161,14 +161,14 @@ public class PlanWalkerResolveTargetsTests extends OpenSearchTestCase {
         ClusterState clusterState = buildMockClusterState("http_logs", numShards);
 
         OpenSearchTableScan scan = buildTableScan("http_logs", List.of("lucene"));
-        StagePlan plan = new StagePlan(scan);
+        StagePlan plan = new StagePlan(scan, "mock-parquet");
         ExchangeInfo singletonExchange = new ExchangeInfo(RelDistribution.Type.SINGLETON, null, List.of());
         Stage childStage = new Stage(0, scan, List.of(), singletonExchange);
         childStage.setPlanAlternatives(List.of(plan));
 
         // Root stage with StageInputScan (coordinator-only)
-        OpenSearchStageInputScan stageInput = new OpenSearchStageInputScan(cluster, RelTraitSet.createEmpty(), 0, rowType);
-        StagePlan rootPlan = new StagePlan(stageInput);
+        OpenSearchStageInputScan stageInput = new OpenSearchStageInputScan(cluster, RelTraitSet.createEmpty(), 0, rowType, List.of("mock-parquet"));
+        StagePlan rootPlan = new StagePlan(stageInput, "mock-parquet");
         Stage rootStage = new Stage(1, stageInput, List.of(childStage), null);
         rootStage.setPlanAlternatives(List.of(rootPlan));
 
@@ -199,8 +199,8 @@ public class PlanWalkerResolveTargetsTests extends OpenSearchTestCase {
     public void testCoordinatorOnlyStageResolvesEmpty() {
         ClusterState clusterState = mock(ClusterState.class);
 
-        OpenSearchStageInputScan stageInput = new OpenSearchStageInputScan(cluster, RelTraitSet.createEmpty(), 0, rowType);
-        StagePlan plan = new StagePlan(stageInput);
+        OpenSearchStageInputScan stageInput = new OpenSearchStageInputScan(cluster, RelTraitSet.createEmpty(), 0, rowType, List.of("mock-parquet"));
+        StagePlan plan = new StagePlan(stageInput, "mock-parquet");
         Stage stage = new Stage(1, stageInput, List.of(), null);
         stage.setPlanAlternatives(List.of(plan));
 
@@ -227,14 +227,14 @@ public class PlanWalkerResolveTargetsTests extends OpenSearchTestCase {
         ClusterState clusterState = buildMockClusterState("http_logs", numShards);
 
         OpenSearchTableScan scan = buildTableScan("http_logs", List.of("lucene"));
-        StagePlan plan = new StagePlan(scan);
+        StagePlan plan = new StagePlan(scan, "mock-parquet");
         ExchangeInfo hashExchange = new ExchangeInfo(RelDistribution.Type.HASH_DISTRIBUTED, null, List.of());
         Stage childStage = new Stage(0, scan, List.of(), hashExchange);
         childStage.setPlanAlternatives(List.of(plan));
 
         // Root stage with StageInputScan
-        OpenSearchStageInputScan stageInput = new OpenSearchStageInputScan(cluster, RelTraitSet.createEmpty(), 0, rowType);
-        StagePlan rootPlan = new StagePlan(stageInput);
+        OpenSearchStageInputScan stageInput = new OpenSearchStageInputScan(cluster, RelTraitSet.createEmpty(), 0, rowType, List.of("mock-parquet"));
+        StagePlan rootPlan = new StagePlan(stageInput, "mock-parquet");
         Stage rootStage = new Stage(1, stageInput, List.of(childStage), null);
         rootStage.setPlanAlternatives(List.of(rootPlan));
 

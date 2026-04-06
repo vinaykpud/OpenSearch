@@ -9,10 +9,12 @@
 package org.opensearch.analytics.planner.dag;
 
 import org.apache.calcite.rel.RelNode;
+import org.opensearch.analytics.planner.CapabilityRegistry;
 import org.opensearch.analytics.planner.rel.OpenSearchExchangeWriter;
 import org.opensearch.analytics.planner.rel.OpenSearchRelNode;
 import org.opensearch.analytics.planner.rel.OpenSearchStageInputScan;
 import org.opensearch.analytics.planner.rel.OpenSearchTableScan;
+import org.opensearch.analytics.spi.AnalyticsSearchBackendPlugin;
 import org.opensearch.analytics.spi.FragmentConvertor;
 
 import java.util.ArrayList;
@@ -37,6 +39,37 @@ import java.util.List;
 public class FragmentConversionDriver {
 
     private FragmentConversionDriver() {}
+
+    /**
+     * Converts all StagePlan fragments in the DAG to backend-specific bytes.
+     * Walks stages bottom-up, converts each plan alternative using the leaf
+     * backend's FragmentConvertor.
+     *
+     * <p>TODO: current approach uses a single backend's convertor per StagePlan
+     * (the leaf operator's backend). This won't work for delegation where we need
+     * to first convert delegated predicates/expressions via the accepting backend's
+     * convertor, then pass those bytes to the primary backend. Next step: walk the
+     * resolved fragment's annotations, identify delegated ones (annotation backend
+     * != operator backend), convert them via the delegate's convertor, and pass
+     * (annotationId, delegateBytes) to the primary backend's convertor.
+     */
+    public static void convertAll(QueryDAG dag, CapabilityRegistry registry) {
+        convertStage(dag.rootStage(), registry);
+    }
+
+    private static void convertStage(Stage stage, CapabilityRegistry registry) {
+        for (Stage child : stage.getChildStages()) {
+            convertStage(child, registry);
+        }
+        List<StagePlan> converted = new ArrayList<>();
+        for (StagePlan plan : stage.getPlanAlternatives()) {
+            AnalyticsSearchBackendPlugin backend = registry.getBackend(plan.backendId());
+            FragmentConvertor convertor = backend.getFragmentConvertor();
+            byte[] bytes = convert(plan.resolvedFragment(), convertor);
+            converted.add(plan.withConvertedBytes(bytes));
+        }
+        stage.setPlanAlternatives(converted);
+    }
 
     /**
      * Strips annotations from the resolved fragment and converts it via the

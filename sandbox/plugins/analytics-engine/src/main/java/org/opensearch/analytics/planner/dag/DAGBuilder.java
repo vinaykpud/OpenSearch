@@ -122,7 +122,8 @@ public class DAGBuilder {
             reducer.getCluster(),
             reducer.getTraitSet(),
             childStageId,
-            childRowType
+            childRowType,
+            reducer.getViableBackends()
         );
         return new OpenSearchExchangeReducer(reducer.getCluster(), reducer.getTraitSet(), stageInput, reducer.getViableBackends());
     }
@@ -154,7 +155,8 @@ public class DAGBuilder {
             reader.getCluster(),
             reader.getTraitSet(),
             childStageId,
-            childRowType
+            childRowType,
+            reader.getViableBackends()
         );
         return new OpenSearchShuffleReader(
             reader.getCluster(),

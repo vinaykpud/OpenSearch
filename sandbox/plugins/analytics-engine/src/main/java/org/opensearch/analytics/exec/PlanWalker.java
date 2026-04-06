@@ -12,14 +12,12 @@ import org.apache.calcite.rel.RelNode;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.opensearch.analytics.planner.dag.ExchangeInfo;
-import org.opensearch.analytics.planner.dag.FragmentConversionDriver;
 import org.opensearch.analytics.planner.dag.QueryDAG;
 import org.opensearch.analytics.planner.dag.Stage;
 import org.opensearch.analytics.planner.dag.StagePlan;
 import org.opensearch.analytics.planner.rel.OpenSearchRelNode;
 import org.opensearch.analytics.planner.rel.OpenSearchTableScan;
 import org.opensearch.analytics.spi.AnalyticsSearchBackendPlugin;
-import org.opensearch.analytics.spi.FragmentConvertor;
 import org.opensearch.cluster.ClusterState;
 import org.opensearch.cluster.node.DiscoveryNode;
 import org.opensearch.cluster.routing.IndexRoutingTable;
@@ -125,15 +123,11 @@ public class PlanWalker {
             return;
         }
 
-        // Convert all plan alternatives to backend-specific bytes via FragmentConversionDriver
-        // TODO: This should prob not be in the walker
+        // Plan alternatives already converted to backend-specific bytes by PlannerImpl
         List<FragmentExecutionRequest.PlanAlternative> planAlternatives = new ArrayList<>();
         for (StagePlan plan : stage.getPlanAlternatives()) {
-            String backendId = extractResolvedBackend(plan.resolvedFragment());
-            AnalyticsSearchBackendPlugin backend = backends.get(backendId);
-            FragmentConvertor convertor = backend.getFragmentConvertor();
-            byte[] fragmentBytes = FragmentConversionDriver.convert(plan.resolvedFragment(), convertor);
-            planAlternatives.add(new FragmentExecutionRequest.PlanAlternative(backendId, fragmentBytes));
+            planAlternatives.add(new FragmentExecutionRequest.PlanAlternative(
+                plan.backendId(), plan.convertedBytes()));
         }
 
         // Submit ALL tasks at once — Scheduler gates per-node concurrency via PendingExecutions

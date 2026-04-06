@@ -13,6 +13,7 @@ import org.apache.calcite.plan.RelTraitSet;
 import org.apache.calcite.plan.hep.HepRelVertex;
 import org.apache.calcite.rel.RelNode;
 import org.opensearch.analytics.planner.rel.OpenSearchAggregate;
+import org.opensearch.analytics.planner.rel.OpenSearchRelNode;
 import org.opensearch.analytics.planner.rel.OpenSearchConvention;
 import org.opensearch.analytics.planner.rel.OpenSearchDistribution;
 import org.opensearch.analytics.planner.rel.OpenSearchDistributionTraitDef;
@@ -102,5 +103,33 @@ public class RelNodeUtils {
         }
 
         return traits;
+    }
+
+    /**
+     * Extracts the single backend from the leaf operator in a resolved fragment.
+     * After resolution, every operator has exactly one viable backend. Throws if
+     * the leaf has more than one (indicates resolution didn't complete).
+     */
+    public static String extractLeafBackendFromResolvedFragment(RelNode node) {
+        if (node.getInputs().isEmpty()) {
+            if (node instanceof OpenSearchRelNode leafNode) {
+                List<String> backends = leafNode.getViableBackends();
+                if (backends.size() != 1) {
+                    throw new IllegalStateException(
+                        "Expected exactly 1 viable backend on resolved leaf ["
+                            + node.getClass().getSimpleName() + "], got " + backends);
+                }
+                return backends.getFirst();
+            }
+            throw new IllegalStateException(
+                "Leaf node [" + node.getClass().getSimpleName() + "] is not an OpenSearchRelNode");
+        }
+        for (RelNode input : node.getInputs()) {
+            String backend = extractLeafBackendFromResolvedFragment(input);
+            if (backend != null) {
+                return backend;
+            }
+        }
+        return null;
     }
 }

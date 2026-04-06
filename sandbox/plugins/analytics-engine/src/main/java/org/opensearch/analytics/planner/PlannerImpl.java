@@ -14,6 +14,7 @@ import org.apache.calcite.rel.metadata.RelMetadataQuery;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.opensearch.analytics.planner.dag.DAGBuilder;
+import org.opensearch.analytics.planner.dag.FragmentConversionDriver;
 import org.opensearch.analytics.planner.dag.PlanForker;
 import org.opensearch.analytics.planner.dag.QueryDAG;
 import org.opensearch.analytics.planner.rel.OpenSearchDistributionTraitDef;
@@ -60,6 +61,9 @@ public class PlannerImpl {
         // Phase 4: Plan forking — generate per-stage alternatives
         PlanForker.forkAll(dag, context.getCapabilityRegistry());
         LOGGER.info("After plan forking:\n{}", dag);
+
+        // Phase 5: Fragment conversion — convert each StagePlan to backend-specific bytes
+        FragmentConversionDriver.convertAll(dag, context.getCapabilityRegistry());
 
         return dag;
     }

@@ -225,6 +225,16 @@ public class CapabilityRegistry {
         return backends;
     }
 
+    /** Returns a backend by name. */
+    public AnalyticsSearchBackendPlugin getBackend(String name) {
+        for (AnalyticsSearchBackendPlugin backend : backends) {
+            if (backend.name().equals(name)) {
+                return backend;
+            }
+        }
+        throw new IllegalArgumentException("No backend found with name [" + name + "]");
+    }
+
     /** Builds a FieldStorageResolver for the given index. */
     public FieldStorageResolver resolveFieldStorage(IndexMetadata indexMetadata) {
         return fieldStorageFactory.apply(indexMetadata);

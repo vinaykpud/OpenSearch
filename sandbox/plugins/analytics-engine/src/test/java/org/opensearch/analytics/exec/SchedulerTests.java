@@ -146,8 +146,8 @@ public class SchedulerTests extends OpenSearchTestCase {
         Scheduler scheduler = new Scheduler(() -> transportService, 5);
 
         // Build a coordinator-only stage (StageInputScan, no TableScan) → empty targets → immediate success
-        OpenSearchStageInputScan stageInput = new OpenSearchStageInputScan(cluster, RelTraitSet.createEmpty(), 0, rowType);
-        StagePlan plan = new StagePlan(stageInput);
+        OpenSearchStageInputScan stageInput = new OpenSearchStageInputScan(cluster, RelTraitSet.createEmpty(), 0, rowType, List.of("mock-parquet"));
+        StagePlan plan = new StagePlan(stageInput, "mock-parquet");
         Stage stage = new Stage(1, stageInput, List.of(), null);
         stage.setPlanAlternatives(List.of(plan));
         QueryDAG dag = new QueryDAG("test-query-success", stage);
@@ -178,7 +178,7 @@ public class SchedulerTests extends OpenSearchTestCase {
         ClusterState clusterState = buildMockClusterState("http_logs", 1);
 
         OpenSearchTableScan scan = buildTableScan("http_logs", List.of("lucene"));
-        StagePlan plan = new StagePlan(scan);
+        StagePlan plan = new StagePlan(scan, "mock-parquet");
         Stage stage = new Stage(0, scan, List.of(), null);
         stage.setPlanAlternatives(List.of(plan));
         QueryDAG dag = new QueryDAG("test-query-failure", stage);
@@ -219,7 +219,7 @@ public class SchedulerTests extends OpenSearchTestCase {
         ClusterState clusterState = buildMockClusterState("http_logs", 1);
 
         OpenSearchTableScan scan = buildTableScan("http_logs", List.of("lucene"));
-        StagePlan plan = new StagePlan(scan);
+        StagePlan plan = new StagePlan(scan, "mock-parquet");
         Stage stage = new Stage(0, scan, List.of(), null);
         stage.setPlanAlternatives(List.of(plan));
         QueryDAG dag = new QueryDAG("test-query-dispatch", stage);
