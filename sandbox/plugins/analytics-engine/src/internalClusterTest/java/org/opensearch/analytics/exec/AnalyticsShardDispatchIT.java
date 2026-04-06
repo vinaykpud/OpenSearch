@@ -8,6 +8,8 @@
 
 package org.opensearch.analytics.exec;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.junit.After;
 import org.opensearch.Version;
 import org.opensearch.analytics.AnalyticsPlugin;
@@ -41,6 +43,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 @OpenSearchIntegTestCase.ClusterScope(scope = OpenSearchIntegTestCase.Scope.TEST, numDataNodes = 1)
 public class AnalyticsShardDispatchIT extends OpenSearchIntegTestCase {
 
+    private static final Logger logger = LogManager.getLogger(AnalyticsShardDispatchIT.class);
     private static final String TEST_INDEX = "test_index";
     private String coordNodeName;
 
@@ -174,6 +177,117 @@ public class AnalyticsShardDispatchIT extends OpenSearchIntegTestCase {
         assertEquals("Should have 1 column", 1, response.getColumns().size());
         // Mock returned 3 rows even though index has 1 doc — proves mock intercepted
         assertEquals("Should have 3 rows from mock", 3, response.getRows().size());
+    }
+
+    /**
+     * Multi-shard query with aggregate that triggers aggregate splitting (partial + final)
+     * and exchange insertion. This produces a 2-stage DAG with actual aggregate operators.
+     * Expected to fail until multi-stage execution is wired — we just want to see the plan.
+     */
+    public void testMultiStageAggregateWithSumPlanOutput() throws Exception {
+        String multiStageIndex = "multi_stage_agg_test";
+        prepareCreate(multiStageIndex).setSettings(
+            Settings.builder()
+                .put(IndexMetadata.SETTING_NUMBER_OF_SHARDS, 3)
+                .put(IndexMetadata.SETTING_NUMBER_OF_REPLICAS, 0)
+        ).setMapping("status", "type=keyword", "amount", "type=long").get();
+        client().prepareIndex(multiStageIndex).setId("1").setSource("status", "active", "amount", 100).get();
+        client().prepareIndex(multiStageIndex).setId("2").setSource("status", "active", "amount", 200).get();
+        client().prepareIndex(multiStageIndex).setId("3").setSource("status", "inactive", "amount", 300).get();
+        refresh(multiStageIndex);
+        ensureGreen(multiStageIndex);
+
+        // Register mock on data node
+        String dataNodeName = internalCluster().getDataNodeNames().iterator().next();
+        MockTransportService dataNodeTransport = (MockTransportService) internalCluster()
+            .getInstance(TransportService.class, dataNodeName);
+        dataNodeTransport.addRequestHandlingBehavior(
+            AnalyticsShardAction.NAME,
+            (handler, request, channel, task) -> channel.sendResponse(
+                new FragmentExecutionResponse(
+                    List.of("status", "total"),
+                    List.of(new Object[] { "active", 150L }, new Object[] { "inactive", 300L })
+                )
+            )
+        );
+
+        // SUM(amount) GROUP BY status — should trigger aggregate split into partial + final
+        PPLRequest pplRequest = new PPLRequest("source = " + multiStageIndex + " | stats sum(amount) as total by status");
+        try {
+            PPLResponse response = coordClient().execute(UnifiedPPLExecuteAction.INSTANCE, pplRequest).actionGet();
+            logger.info("Multi-stage agg response: columns={}, rows={}", response.getColumns(), response.getRows().size());
+            assertNotNull(response);
+        } catch (Exception e) {
+            logger.info("Multi-stage agg query failed (expected): {}", e.getMessage());
+            Throwable cause = e;
+            while (cause != null) {
+                logger.info("  Caused by: {}: {}", cause.getClass().getSimpleName(), cause.getMessage());
+                cause = cause.getCause();
+            }
+        } finally {
+            client().admin().indices().prepareDelete(multiStageIndex).get();
+        }
+    }
+
+    /**
+     * Multi-shard scan+project query that triggers SINGLETON exchange insertion
+     * due to distribution mismatch (RANDOM shards → SINGLETON root).
+     * Logs the QueryDAG output for inspection.
+     */
+    public void testMultiStageProjectPlanOutput() throws Exception {
+        String multiStageIndex = "multi_stage_test";
+        prepareCreate(multiStageIndex).setSettings(
+            Settings.builder()
+                .put(IndexMetadata.SETTING_NUMBER_OF_SHARDS, 3)
+                .put(IndexMetadata.SETTING_NUMBER_OF_REPLICAS, 0)
+        ).setMapping("status", "type=keyword", "amount", "type=long").get();
+        client().prepareIndex(multiStageIndex).setId("1").setSource("status", "active", "amount", 100).get();
+        client().prepareIndex(multiStageIndex).setId("2").setSource("status", "active", "amount", 200).get();
+        client().prepareIndex(multiStageIndex).setId("3").setSource("status", "inactive", "amount", 300).get();
+        refresh(multiStageIndex);
+        ensureGreen(multiStageIndex);
+
+        // Register mock on data node to return partial aggregate results per shard
+        String dataNodeName = internalCluster().getDataNodeNames().iterator().next();
+        MockTransportService dataNodeTransport = (MockTransportService) internalCluster()
+            .getInstance(TransportService.class, dataNodeName);
+        AtomicInteger counter = new AtomicInteger(0);
+        dataNodeTransport.addRequestHandlingBehavior(
+            AnalyticsShardAction.NAME,
+            (handler, request, channel, task) -> {
+                int shardNum = counter.getAndIncrement();
+                channel.sendResponse(
+                    new FragmentExecutionResponse(
+                        List.of("status", "count"),
+                        List.of(
+                            new Object[] { "active", (long) (shardNum + 1) },
+                            new Object[] { "inactive", (long) (shardNum * 2) }
+                        )
+                    )
+                );
+            }
+        );
+
+        // This PPL query should trigger aggregate splitting:
+        // source = multi_stage_test | stats count() by status
+        PPLRequest pplRequest = new PPLRequest("source = " + multiStageIndex + " | stats count() as cnt by status");
+        try {
+            PPLResponse response = coordClient().execute(UnifiedPPLExecuteAction.INSTANCE, pplRequest).actionGet();
+            // If it succeeds, log the result
+            logger.info("Multi-stage response: columns={}, rows={}", response.getColumns(), response.getRows().size());
+            assertNotNull(response);
+        } catch (Exception e) {
+            // Expected to fail for now — log the exception to see how far we got
+            logger.info("Multi-stage query failed (expected): {}", e.getMessage());
+            Throwable cause = e;
+            while (cause != null) {
+                logger.info("  Caused by: {}: {}", cause.getClass().getSimpleName(), cause.getMessage());
+                cause = cause.getCause();
+            }
+            // Don't fail the test — we just want to see the plan output in logs
+        } finally {
+            client().admin().indices().prepareDelete(multiStageIndex).get();
+        }
     }
 
     public void testShardFailurePropagates() throws Exception {

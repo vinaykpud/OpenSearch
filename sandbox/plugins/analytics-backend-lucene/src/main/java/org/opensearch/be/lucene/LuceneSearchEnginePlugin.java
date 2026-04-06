@@ -80,7 +80,8 @@ public class LuceneSearchEnginePlugin extends Plugin
             OperatorCapability.SCAN,
             OperatorCapability.FILTER,
             OperatorCapability.PROJECT,
-            OperatorCapability.SORT
+            OperatorCapability.SORT,
+            OperatorCapability.COORDINATOR_REDUCE
         );
     }
 
