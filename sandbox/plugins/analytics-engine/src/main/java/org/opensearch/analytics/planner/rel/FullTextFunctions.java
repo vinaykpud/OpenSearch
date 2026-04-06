@@ -36,8 +36,14 @@ public class FullTextFunctions {
     private FullTextFunctions() {}
 
     private static SqlFunction fullTextFunction(String name) {
-        return new SqlFunction(name, SqlKind.OTHER_FUNCTION, ReturnTypes.BOOLEAN,
-            null, OperandTypes.ANY, SqlFunctionCategory.USER_DEFINED_FUNCTION);
+        return new SqlFunction(
+            name,
+            SqlKind.OTHER_FUNCTION,
+            ReturnTypes.BOOLEAN,
+            null,
+            OperandTypes.ANY,
+            SqlFunctionCategory.USER_DEFINED_FUNCTION
+        );
     }
 
     /** Maps a SqlFunction to a FULL_TEXT FilterOperator, or null if not a full-text function. */

@@ -73,6 +73,9 @@ dependencies {
   // Arrow Flight streaming transport for ITs
   internalClusterTestImplementation project(':plugins:arrow-flight-rpc')
 
+  // Lucene analytics backend for ITs (required by FieldStorageResolver during planning)
+  internalClusterTestImplementation project(':sandbox:plugins:analytics-backend-lucene')
+
   // Calcite bytecode references @Immutable from immutables — resolve at test compile time
   testCompileOnly 'org.immutables:value-annotations:2.8.8'
 }

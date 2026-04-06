@@ -23,7 +23,6 @@ import org.apache.calcite.rel.logical.LogicalProject;
 import org.apache.calcite.rel.type.RelDataType;
 import org.apache.calcite.rel.type.RelDataTypeFactory;
 import org.apache.calcite.rex.RexBuilder;
-import org.apache.calcite.rex.RexNode;
 import org.apache.calcite.sql.SqlAggFunction;
 import org.apache.calcite.sql.SqlFunction;
 import org.apache.calcite.sql.SqlFunctionCategory;
@@ -35,11 +34,11 @@ import org.apache.calcite.sql.type.SqlTypeName;
 import org.apache.calcite.util.ImmutableBitSet;
 import org.opensearch.analytics.spi.AnalyticsSearchBackendPlugin;
 import org.opensearch.cluster.ClusterState;
-import org.opensearch.core.index.Index;
 import org.opensearch.cluster.metadata.IndexMetadata;
 import org.opensearch.cluster.metadata.MappingMetadata;
 import org.opensearch.cluster.metadata.Metadata;
 import org.opensearch.common.settings.Settings;
+import org.opensearch.core.index.Index;
 import org.openjdk.jmh.annotations.Benchmark;
 import org.openjdk.jmh.annotations.BenchmarkMode;
 import org.openjdk.jmh.annotations.Fork;
@@ -75,8 +74,12 @@ import static org.mockito.Mockito.when;
 public class PlannerMarkingBenchmark {
 
     private static final SqlFunction PAINLESS = new SqlFunction(
-        "painless", SqlKind.OTHER_FUNCTION, ReturnTypes.VARCHAR_2000,
-        null, OperandTypes.ANY, SqlFunctionCategory.USER_DEFINED_FUNCTION
+        "painless",
+        SqlKind.OTHER_FUNCTION,
+        ReturnTypes.VARCHAR_2000,
+        null,
+        OperandTypes.ANY,
+        SqlFunctionCategory.USER_DEFINED_FUNCTION
     );
 
     @Param({ "scan", "filter", "aggregate", "project_scalar", "project_delegation", "filter_agg" })
@@ -122,60 +125,89 @@ public class PlannerMarkingBenchmark {
     private RelNode buildInput(String shape, TableScan scan, RexBuilder rexBuilder, RelDataTypeFactory typeFactory) {
         return switch (shape) {
             case "scan" -> scan;
-            case "filter" -> LogicalFilter.create(scan,
-                rexBuilder.makeCall(SqlStdOperatorTable.EQUALS,
+            case "filter" -> LogicalFilter.create(
+                scan,
+                rexBuilder.makeCall(
+                    SqlStdOperatorTable.EQUALS,
                     rexBuilder.makeInputRef(typeFactory.createSqlType(SqlTypeName.INTEGER), 0),
-                    rexBuilder.makeLiteral(200, typeFactory.createSqlType(SqlTypeName.INTEGER), true)));
-            case "aggregate" -> LogicalAggregate.create(scan,
-                List.of(), ImmutableBitSet.of(0), null,
-                List.of(makeAggCall(SqlStdOperatorTable.SUM, 1, typeFactory, scan)));
-            case "project_scalar" -> LogicalProject.create(scan, List.of(),
+                    rexBuilder.makeLiteral(200, typeFactory.createSqlType(SqlTypeName.INTEGER), true)
+                )
+            );
+            case "aggregate" -> LogicalAggregate.create(
+                scan,
+                List.of(),
+                ImmutableBitSet.of(0),
+                null,
+                List.of(makeAggCall(SqlStdOperatorTable.SUM, 1, typeFactory, scan))
+            );
+            case "project_scalar" -> LogicalProject.create(
+                scan,
+                List.of(),
                 List.of(
                     rexBuilder.makeInputRef(typeFactory.createSqlType(SqlTypeName.INTEGER), 0),
-                    rexBuilder.makeCast(typeFactory.createSqlType(SqlTypeName.VARCHAR),
-                        rexBuilder.makeInputRef(typeFactory.createSqlType(SqlTypeName.BIGINT), 1))
-                ), List.of("status", "size_str"));
-            case "project_delegation" -> LogicalProject.create(scan, List.of(),
+                    rexBuilder.makeCast(
+                        typeFactory.createSqlType(SqlTypeName.VARCHAR),
+                        rexBuilder.makeInputRef(typeFactory.createSqlType(SqlTypeName.BIGINT), 1)
+                    )
+                ),
+                List.of("status", "size_str")
+            );
+            case "project_delegation" -> LogicalProject.create(
+                scan,
+                List.of(),
                 List.of(
                     rexBuilder.makeInputRef(typeFactory.createSqlType(SqlTypeName.VARCHAR), 2),
-                    rexBuilder.makeCall(PAINLESS,
-                        rexBuilder.makeInputRef(typeFactory.createSqlType(SqlTypeName.VARCHAR), 2))
-                ), List.of("country", "scripted"));
+                    rexBuilder.makeCall(PAINLESS, rexBuilder.makeInputRef(typeFactory.createSqlType(SqlTypeName.VARCHAR), 2))
+                ),
+                List.of("country", "scripted")
+            );
             case "filter_agg" -> {
-                RelNode filtered = LogicalFilter.create(scan,
-                    rexBuilder.makeCall(SqlStdOperatorTable.EQUALS,
+                RelNode filtered = LogicalFilter.create(
+                    scan,
+                    rexBuilder.makeCall(
+                        SqlStdOperatorTable.EQUALS,
                         rexBuilder.makeInputRef(typeFactory.createSqlType(SqlTypeName.VARCHAR), 2),
-                        rexBuilder.makeLiteral("US")));
-                yield LogicalAggregate.create(filtered,
-                    List.of(), ImmutableBitSet.of(0), null,
-                    List.of(makeAggCall(SqlStdOperatorTable.SUM, 1, typeFactory, filtered)));
+                        rexBuilder.makeLiteral("US")
+                    )
+                );
+                yield LogicalAggregate.create(
+                    filtered,
+                    List.of(),
+                    ImmutableBitSet.of(0),
+                    null,
+                    List.of(makeAggCall(SqlStdOperatorTable.SUM, 1, typeFactory, filtered))
+                );
             }
             default -> throw new IllegalArgumentException("Unknown shape: " + shape);
         };
     }
 
-    private static AggregateCall makeAggCall(SqlAggFunction func, int argIndex,
-                                             RelDataTypeFactory typeFactory, RelNode input) {
-        return AggregateCall.create(func, false, List.of(argIndex), 1, input,
-            typeFactory.createSqlType(SqlTypeName.BIGINT), "agg_col");
+    private static AggregateCall makeAggCall(SqlAggFunction func, int argIndex, RelDataTypeFactory typeFactory, RelNode input) {
+        return AggregateCall.create(func, false, List.of(argIndex), 1, input, typeFactory.createSqlType(SqlTypeName.BIGINT), "agg_col");
     }
 
     @SuppressWarnings("unchecked")
     private PlannerContext buildContext(List<AnalyticsSearchBackendPlugin> backends) {
-        Map<String, Object> mappingSource = Map.of("properties", Map.of(
-            "status", Map.of("type", "integer"),
-            "size", Map.of("type", "long"),
-            "country", Map.of("type", "keyword"),
-            "message", Map.of("type", "keyword")
-        ));
+        Map<String, Object> mappingSource = Map.of(
+            "properties",
+            Map.of(
+                "status",
+                Map.of("type", "integer"),
+                "size",
+                Map.of("type", "long"),
+                "country",
+                Map.of("type", "keyword"),
+                "message",
+                Map.of("type", "keyword")
+            )
+        );
 
         MappingMetadata mappingMetadata = mock(MappingMetadata.class);
         when(mappingMetadata.sourceAsMap()).thenReturn(mappingSource);
 
         IndexMetadata indexMetadata = mock(IndexMetadata.class);
         when(indexMetadata.getIndex()).thenReturn(new Index("http_logs", "uuid"));
-        when(indexMetadata.getSettings()).thenReturn(
-            Settings.builder().put("index.composite.primary_data_format", "parquet").build());
+        when(indexMetadata.getSettings()).thenReturn(Settings.builder().put("index.composite.primary_data_format", "parquet").build());
         when(indexMetadata.mapping()).thenReturn(mappingMetadata);
         when(indexMetadata.getNumberOfShards()).thenReturn(2);
 

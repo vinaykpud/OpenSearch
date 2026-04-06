@@ -8,7 +8,6 @@
 
 package org.opensearch.analytics.planner;
 
-import org.opensearch.analytics.planner.rel.ShuffleImpl;
 import org.opensearch.analytics.spi.AggregateCapability;
 import org.opensearch.analytics.spi.AggregateFunction;
 import org.opensearch.analytics.spi.AnalyticsSearchBackendPlugin;
@@ -60,9 +59,11 @@ public class CapabilityRegistry {
     private final Map<String, Set<OperatorCapability>> arrowCompatibleIndex = new HashMap<>();
     private final Function<IndexMetadata, FieldStorageResolver> fieldStorageFactory;
 
-    public CapabilityRegistry(List<AnalyticsSearchBackendPlugin> backends,
-                              Function<IndexMetadata, FieldStorageResolver> fieldStorageFactory,
-                              Map<String, List<String>> scanFormats) {
+    public CapabilityRegistry(
+        List<AnalyticsSearchBackendPlugin> backends,
+        Function<IndexMetadata, FieldStorageResolver> fieldStorageFactory,
+        Map<String, List<String>> scanFormats
+    ) {
         this.backends = backends;
         this.fieldStorageFactory = fieldStorageFactory;
         this.scanFormatIndex.putAll(scanFormats);
@@ -81,36 +82,42 @@ public class CapabilityRegistry {
 
             for (FilterCapability cap : backend.filterCapabilities()) {
                 switch (cap) {
-                    case FilterCapability.Standard standard -> addToFormatMap(filterIndex,
+                    case FilterCapability.Standard standard -> addToFormatMap(
+                        filterIndex,
                         new FilterKey(standard.operator(), standard.fieldType()),
-                        standard.formats(), name);
+                        standard.formats(),
+                        name
+                    );
                     case FilterCapability.FullText fullText -> {
-                        addToFormatMap(filterIndex,
-                            new FilterKey(fullText.operator(), fullText.fieldType()),
-                            fullText.formats(), name);
+                        addToFormatMap(filterIndex, new FilterKey(fullText.operator(), fullText.fieldType()), fullText.formats(), name);
                         fullTextParamIndex.put(
                             new FullTextParamKey(fullText.operator(), fullText.fieldType(), name),
-                            fullText.supportedParams());
+                            fullText.supportedParams()
+                        );
                     }
-                    case FilterCapability.Expression expression -> addToFormatMap(filterIndex,
+                    case FilterCapability.Expression expression -> addToFormatMap(
+                        filterIndex,
                         new FilterKey(FilterOperator.EXPRESSION, null),
-                        expression.formats(), name);
+                        expression.formats(),
+                        name
+                    );
                 }
             }
 
             for (AggregateCapability cap : backend.aggregateCapabilities()) {
-                addToFormatMap(aggregateIndex, new AggregateKey(cap.function(), cap.fieldType()),
-                    cap.formats(), name);
+                addToFormatMap(aggregateIndex, new AggregateKey(cap.function(), cap.fieldType()), cap.formats(), name);
             }
 
             for (ProjectCapability cap : backend.projectCapabilities()) {
                 switch (cap) {
-                    case ProjectCapability.Scalar scalar -> addToFormatMap(scalarIndex,
+                    case ProjectCapability.Scalar scalar -> addToFormatMap(
+                        scalarIndex,
                         new ScalarKey(scalar.function(), scalar.fieldType()),
-                        scalar.formats(), name);
+                        scalar.formats(),
+                        name
+                    );
                     case ProjectCapability.Opaque opaque -> {
-                        Map<String, List<String>> formatMap = opaqueIndex.computeIfAbsent(
-                            opaque.name(), k -> new HashMap<>());
+                        Map<String, List<String>> formatMap = opaqueIndex.computeIfAbsent(opaque.name(), k -> new HashMap<>());
                         for (String format : opaque.formats()) {
                             formatMap.computeIfAbsent(format, k -> new ArrayList<>()).add(name);
                         }
@@ -119,8 +126,7 @@ public class CapabilityRegistry {
             }
 
             for (WindowCapability cap : backend.windowCapabilities()) {
-                addToFormatMap(windowIndex, new WindowKey(cap.function(), cap.fieldType()),
-                    cap.formats(), name);
+                addToFormatMap(windowIndex, new WindowKey(cap.function(), cap.fieldType()), cap.formats(), name);
             }
 
             // Scan format index — populated later via setStorageBackends()
@@ -153,26 +159,22 @@ public class CapabilityRegistry {
     // ---- Single-format lookups (no allocation) ----
 
     public List<String> filterBackends(FilterOperator operator, FieldType fieldType, String format) {
-        Map<String, List<String>> formatMap = filterIndex.getOrDefault(
-            new FilterKey(operator, fieldType), Map.of());
+        Map<String, List<String>> formatMap = filterIndex.getOrDefault(new FilterKey(operator, fieldType), Map.of());
         return formatMap.getOrDefault(format, List.of());
     }
 
     public List<String> aggregateBackends(AggregateFunction function, FieldType fieldType, String format) {
-        Map<String, List<String>> formatMap = aggregateIndex.getOrDefault(
-            new AggregateKey(function, fieldType), Map.of());
+        Map<String, List<String>> formatMap = aggregateIndex.getOrDefault(new AggregateKey(function, fieldType), Map.of());
         return formatMap.getOrDefault(format, List.of());
     }
 
     public List<String> scalarBackends(ScalarFunction function, FieldType fieldType, String format) {
-        Map<String, List<String>> formatMap = scalarIndex.getOrDefault(
-            new ScalarKey(function, fieldType), Map.of());
+        Map<String, List<String>> formatMap = scalarIndex.getOrDefault(new ScalarKey(function, fieldType), Map.of());
         return formatMap.getOrDefault(format, List.of());
     }
 
     public List<String> windowBackends(WindowFunction function, FieldType fieldType, String format) {
-        Map<String, List<String>> formatMap = windowIndex.getOrDefault(
-            new WindowKey(function, fieldType), Map.of());
+        Map<String, List<String>> formatMap = windowIndex.getOrDefault(new WindowKey(function, fieldType), Map.of());
         return formatMap.getOrDefault(format, List.of());
     }
 
@@ -183,8 +185,7 @@ public class CapabilityRegistry {
 
     /** Checks supported params for a full-text filter backend. */
     public Set<String> fullTextParams(FilterOperator operator, FieldType fieldType, String backendName) {
-        return fullTextParamIndex.getOrDefault(
-            new FullTextParamKey(operator, fieldType, backendName), Set.of());
+        return fullTextParamIndex.getOrDefault(new FullTextParamKey(operator, fieldType, backendName), Set.of());
     }
 
     public boolean isOpaqueOperation(String name) {
@@ -241,8 +242,7 @@ public class CapabilityRegistry {
 
     /** All backends that support this scalar function on this field type, any format. */
     public List<String> scalarBackendsAnyFormat(ScalarFunction function, FieldType fieldType) {
-        Map<String, List<String>> formatMap = scalarIndex.getOrDefault(
-            new ScalarKey(function, fieldType), Map.of());
+        Map<String, List<String>> formatMap = scalarIndex.getOrDefault(new ScalarKey(function, fieldType), Map.of());
         return allBackends(formatMap);
     }
 
@@ -267,8 +267,7 @@ public class CapabilityRegistry {
 
     // ---- Helpers ----
 
-    private static <K> void addToFormatMap(Map<K, Map<String, List<String>>> index,
-                                            K key, Set<String> formats, String backendName) {
+    private static <K> void addToFormatMap(Map<K, Map<String, List<String>>> index, K key, Set<String> formats, String backendName) {
         Map<String, List<String>> formatMap = index.computeIfAbsent(key, k -> new HashMap<>());
         for (String format : formats) {
             formatMap.computeIfAbsent(format, k -> new ArrayList<>()).add(backendName);
@@ -277,9 +276,18 @@ public class CapabilityRegistry {
 
     // ---- Keys ----
 
-    private record FilterKey(FilterOperator operator, FieldType fieldType) {}
-    private record AggregateKey(AggregateFunction function, FieldType fieldType) {}
-    private record ScalarKey(ScalarFunction function, FieldType fieldType) {}
-    private record WindowKey(WindowFunction function, FieldType fieldType) {}
-    private record FullTextParamKey(FilterOperator operator, FieldType fieldType, String backendName) {}
+    private record FilterKey(FilterOperator operator, FieldType fieldType) {
+    }
+
+    private record AggregateKey(AggregateFunction function, FieldType fieldType) {
+    }
+
+    private record ScalarKey(ScalarFunction function, FieldType fieldType) {
+    }
+
+    private record WindowKey(WindowFunction function, FieldType fieldType) {
+    }
+
+    private record FullTextParamKey(FilterOperator operator, FieldType fieldType, String backendName) {
+    }
 }

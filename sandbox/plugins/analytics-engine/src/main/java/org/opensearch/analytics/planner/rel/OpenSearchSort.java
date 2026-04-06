@@ -28,9 +28,15 @@ public class OpenSearchSort extends Sort implements OpenSearchRelNode {
 
     private final List<String> viableBackends;
 
-    public OpenSearchSort(RelOptCluster cluster, RelTraitSet traitSet, RelNode input,
-                          RelCollation collation, RexNode offset, RexNode fetch,
-                          List<String> viableBackends) {
+    public OpenSearchSort(
+        RelOptCluster cluster,
+        RelTraitSet traitSet,
+        RelNode input,
+        RelCollation collation,
+        RexNode offset,
+        RexNode fetch,
+        List<String> viableBackends
+    ) {
         super(cluster, traitSet, input, collation, offset, fetch);
         this.viableBackends = viableBackends;
     }
@@ -55,8 +61,10 @@ public class OpenSearchSort extends Sort implements OpenSearchRelNode {
     }
 
     @Override
-    public org.apache.calcite.plan.RelOptCost computeSelfCost(org.apache.calcite.plan.RelOptPlanner planner,
-                                                               org.apache.calcite.rel.metadata.RelMetadataQuery mq) {
+    public org.apache.calcite.plan.RelOptCost computeSelfCost(
+        org.apache.calcite.plan.RelOptPlanner planner,
+        org.apache.calcite.rel.metadata.RelMetadataQuery mq
+    ) {
         return planner.getCostFactory().makeTinyCost();
     }
 
@@ -71,10 +79,8 @@ public class OpenSearchSort extends Sort implements OpenSearchRelNode {
     }
 
     @Override
-    public RelNode copyResolved(String backend, List<RelNode> children,
-                                List<OperatorAnnotation> resolvedAnnotations) {
-        return new OpenSearchSort(getCluster(), getTraitSet(), children.getFirst(),
-            getCollation(), offset, fetch, List.of(backend));
+    public RelNode copyResolved(String backend, List<RelNode> children, List<OperatorAnnotation> resolvedAnnotations) {
+        return new OpenSearchSort(getCluster(), getTraitSet(), children.getFirst(), getCollation(), offset, fetch, List.of(backend));
     }
 
     @Override

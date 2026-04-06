@@ -36,8 +36,7 @@ public class OpenSearchStageInputScan extends AbstractRelNode {
     private final int childStageId;
     private final RelDataType rowType;
 
-    public OpenSearchStageInputScan(RelOptCluster cluster, RelTraitSet traitSet,
-                                    int childStageId, RelDataType rowType) {
+    public OpenSearchStageInputScan(RelOptCluster cluster, RelTraitSet traitSet, int childStageId, RelDataType rowType) {
         super(cluster, traitSet);
         this.childStageId = childStageId;
         this.rowType = rowType;

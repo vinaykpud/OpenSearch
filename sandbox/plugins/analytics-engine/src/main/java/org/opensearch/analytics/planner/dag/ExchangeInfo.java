@@ -22,11 +22,7 @@ import java.util.List;
  * @param partitionKeyIndices field indices for hash/range partitioning (empty for SINGLETON)
  * @opensearch.internal
  */
-public record ExchangeInfo(
-    RelDistribution.Type distributionType,
-    ShuffleImpl shuffleImpl,
-    List<Integer> partitionKeyIndices
-) {
+public record ExchangeInfo(RelDistribution.Type distributionType, ShuffleImpl shuffleImpl, List<Integer> partitionKeyIndices) {
     public ExchangeInfo {
         partitionKeyIndices = List.copyOf(partitionKeyIndices);
     }

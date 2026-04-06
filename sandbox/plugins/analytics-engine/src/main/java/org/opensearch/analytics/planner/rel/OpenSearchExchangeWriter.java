@@ -36,8 +36,14 @@ public class OpenSearchExchangeWriter extends SingleRel implements OpenSearchRel
     private final ShuffleImpl shuffleImpl;
     private final List<Integer> keys;
 
-    public OpenSearchExchangeWriter(RelOptCluster cluster, RelTraitSet traitSet, RelNode input,
-                                    List<String> viableBackends, ShuffleImpl shuffleImpl, List<Integer> keys) {
+    public OpenSearchExchangeWriter(
+        RelOptCluster cluster,
+        RelTraitSet traitSet,
+        RelNode input,
+        List<String> viableBackends,
+        ShuffleImpl shuffleImpl,
+        List<Integer> keys
+    ) {
         super(cluster, traitSet, input);
         this.viableBackends = viableBackends;
         this.shuffleImpl = shuffleImpl;
@@ -71,8 +77,7 @@ public class OpenSearchExchangeWriter extends SingleRel implements OpenSearchRel
 
     @Override
     public RelNode copy(RelTraitSet traitSet, List<RelNode> inputs) {
-        return new OpenSearchExchangeWriter(getCluster(), traitSet, sole(inputs),
-            viableBackends, shuffleImpl, keys);
+        return new OpenSearchExchangeWriter(getCluster(), traitSet, sole(inputs), viableBackends, shuffleImpl, keys);
     }
 
     @Override
@@ -90,15 +95,12 @@ public class OpenSearchExchangeWriter extends SingleRel implements OpenSearchRel
     }
 
     @Override
-    public RelNode copyResolved(String backend, List<RelNode> children,
-                                List<OperatorAnnotation> resolvedAnnotations) {
-        return new OpenSearchExchangeWriter(getCluster(), getTraitSet(),
-            children.getFirst(), List.of(backend), shuffleImpl, keys);
+    public RelNode copyResolved(String backend, List<RelNode> children, List<OperatorAnnotation> resolvedAnnotations) {
+        return new OpenSearchExchangeWriter(getCluster(), getTraitSet(), children.getFirst(), List.of(backend), shuffleImpl, keys);
     }
 
     @Override
     public RelNode stripAnnotations(List<RelNode> strippedChildren) {
-        return new OpenSearchExchangeWriter(getCluster(), getTraitSet(),
-            strippedChildren.getFirst(), viableBackends, shuffleImpl, keys);
+        return new OpenSearchExchangeWriter(getCluster(), getTraitSet(), strippedChildren.getFirst(), viableBackends, shuffleImpl, keys);
     }
 }

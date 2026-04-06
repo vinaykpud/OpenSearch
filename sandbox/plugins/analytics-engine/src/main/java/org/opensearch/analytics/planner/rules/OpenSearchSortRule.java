@@ -50,30 +50,28 @@ public class OpenSearchSortRule extends RelOptRule {
         }
 
         if (!(child instanceof OpenSearchRelNode openSearchChild)) {
-            throw new IllegalStateException(
-                "Sort rule encountered unmarked child [" + child.getClass().getSimpleName() + "]");
+            throw new IllegalStateException("Sort rule encountered unmarked child [" + child.getClass().getSimpleName() + "]");
         }
 
         List<String> childViableBackends = openSearchChild.getViableBackends();
         List<String> sortCapable = context.getCapabilityRegistry().operatorBackends(OperatorCapability.SORT);
 
-        List<String> viableBackends = childViableBackends.stream()
-            .filter(sortCapable::contains)
-            .toList();
+        List<String> viableBackends = childViableBackends.stream().filter(sortCapable::contains).toList();
 
         if (viableBackends.isEmpty()) {
-            throw new IllegalStateException(
-                "No backend supports SORT capability among " + childViableBackends);
+            throw new IllegalStateException("No backend supports SORT capability among " + childViableBackends);
         }
 
-        call.transformTo(new OpenSearchSort(
-            sort.getCluster(),
-            child.getTraitSet(),
-            RelNodeUtils.unwrapHep(sort.getInput()),
-            sort.getCollation(),
-            sort.offset,
-            sort.fetch,
-            viableBackends
-        ));
+        call.transformTo(
+            new OpenSearchSort(
+                sort.getCluster(),
+                child.getTraitSet(),
+                RelNodeUtils.unwrapHep(sort.getInput()),
+                sort.getCollation(),
+                sort.offset,
+                sort.fetch,
+                viableBackends
+            )
+        );
     }
 }

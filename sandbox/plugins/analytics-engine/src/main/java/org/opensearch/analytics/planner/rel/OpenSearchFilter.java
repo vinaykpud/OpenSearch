@@ -29,8 +29,7 @@ public class OpenSearchFilter extends Filter implements OpenSearchRelNode {
 
     private final List<String> viableBackends;
 
-    public OpenSearchFilter(RelOptCluster cluster, RelTraitSet traitSet, RelNode input,
-                            RexNode condition, List<String> viableBackends) {
+    public OpenSearchFilter(RelOptCluster cluster, RelTraitSet traitSet, RelNode input, RexNode condition, List<String> viableBackends) {
         super(cluster, traitSet, input, condition);
         this.viableBackends = viableBackends;
     }
@@ -55,8 +54,10 @@ public class OpenSearchFilter extends Filter implements OpenSearchRelNode {
     }
 
     @Override
-    public org.apache.calcite.plan.RelOptCost computeSelfCost(org.apache.calcite.plan.RelOptPlanner planner,
-                                                               org.apache.calcite.rel.metadata.RelMetadataQuery mq) {
+    public org.apache.calcite.plan.RelOptCost computeSelfCost(
+        org.apache.calcite.plan.RelOptPlanner planner,
+        org.apache.calcite.rel.metadata.RelMetadataQuery mq
+    ) {
         return planner.getCostFactory().makeTinyCost();
     }
 
@@ -88,11 +89,9 @@ public class OpenSearchFilter extends Filter implements OpenSearchRelNode {
     }
 
     @Override
-    public RelNode copyResolved(String backend, List<RelNode> children,
-                                List<OperatorAnnotation> resolvedAnnotations) {
-        RexNode resolvedCondition = replaceAnnotations(getCondition(), resolvedAnnotations, new int[]{0});
-        return new OpenSearchFilter(getCluster(), getTraitSet(), children.getFirst(),
-            resolvedCondition, List.of(backend));
+    public RelNode copyResolved(String backend, List<RelNode> children, List<OperatorAnnotation> resolvedAnnotations) {
+        RexNode resolvedCondition = replaceAnnotations(getCondition(), resolvedAnnotations, new int[] { 0 });
+        return new OpenSearchFilter(getCluster(), getTraitSet(), children.getFirst(), resolvedCondition, List.of(backend));
     }
 
     @Override

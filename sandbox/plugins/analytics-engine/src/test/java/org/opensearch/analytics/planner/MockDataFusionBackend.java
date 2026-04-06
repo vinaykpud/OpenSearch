@@ -24,11 +24,11 @@ import org.opensearch.index.engine.exec.EngineReaderManager;
 import org.opensearch.index.shard.ShardPath;
 import org.opensearch.plugins.SearchBackEndPlugin;
 
-import static org.opensearch.index.engine.dataformat.FieldTypeCapabilities.Capability.COLUMNAR_STORAGE;
-
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+
+import static org.opensearch.index.engine.dataformat.FieldTypeCapabilities.Capability.COLUMNAR_STORAGE;
 
 /**
  * Mock DataFusion backend for tests. Supports parquet format with columnar storage,
@@ -42,9 +42,12 @@ public class MockDataFusionBackend implements AnalyticsSearchBackendPlugin, Sear
     private static final Set<String> DATAFUSION_FORMATS = Set.of(PARQUET_DATA_FORMAT);
 
     private static final Set<OperatorCapability> OPERATOR_CAPS = Set.of(
-        OperatorCapability.SCAN, OperatorCapability.FILTER,
-        OperatorCapability.AGGREGATE, OperatorCapability.SORT,
-        OperatorCapability.PROJECT, OperatorCapability.COORDINATOR_REDUCE
+        OperatorCapability.SCAN,
+        OperatorCapability.FILTER,
+        OperatorCapability.AGGREGATE,
+        OperatorCapability.SORT,
+        OperatorCapability.PROJECT,
+        OperatorCapability.COORDINATOR_REDUCE
     );
 
     private static final Set<FieldType> SUPPORTED_TYPES = new HashSet<>();
@@ -56,17 +59,25 @@ public class MockDataFusionBackend implements AnalyticsSearchBackendPlugin, Sear
     }
 
     private static final Set<FilterOperator> STANDARD_OPS = Set.of(
-        FilterOperator.EQUALS, FilterOperator.NOT_EQUALS,
-        FilterOperator.GREATER_THAN, FilterOperator.GREATER_THAN_OR_EQUAL,
-        FilterOperator.LESS_THAN, FilterOperator.LESS_THAN_OR_EQUAL,
-        FilterOperator.IS_NULL, FilterOperator.IS_NOT_NULL,
-        FilterOperator.IN, FilterOperator.LIKE
+        FilterOperator.EQUALS,
+        FilterOperator.NOT_EQUALS,
+        FilterOperator.GREATER_THAN,
+        FilterOperator.GREATER_THAN_OR_EQUAL,
+        FilterOperator.LESS_THAN,
+        FilterOperator.LESS_THAN_OR_EQUAL,
+        FilterOperator.IS_NULL,
+        FilterOperator.IS_NOT_NULL,
+        FilterOperator.IN,
+        FilterOperator.LIKE
     );
 
     private static final Set<AggregateFunction> AGG_FUNCTIONS = Set.of(
-        AggregateFunction.SUM, AggregateFunction.SUM0,
-        AggregateFunction.MIN, AggregateFunction.MAX,
-        AggregateFunction.COUNT, AggregateFunction.AVG
+        AggregateFunction.SUM,
+        AggregateFunction.SUM0,
+        AggregateFunction.MIN,
+        AggregateFunction.MAX,
+        AggregateFunction.COUNT,
+        AggregateFunction.AVG
     );
 
     private static final Set<FilterCapability> FILTER_CAPS;
@@ -91,28 +102,60 @@ public class MockDataFusionBackend implements AnalyticsSearchBackendPlugin, Sear
         AGG_CAPS = caps;
     }
 
-    @Override public String name() { return NAME; }
+    @Override
+    public String name() {
+        return NAME;
+    }
 
-    @Override public SearchExecEngine<ExecutionContext, EngineResultStream> createSearchExecEngine(ExecutionContext ctx) { return null; }
+    @Override
+    public SearchExecEngine<ExecutionContext, EngineResultStream> createSearchExecEngine(ExecutionContext ctx) {
+        return null;
+    }
 
     private static final Set<OperatorCapability> ARROW_COMPATIBLE_OPS = Set.of(
-        OperatorCapability.FILTER, OperatorCapability.AGGREGATE,
-        OperatorCapability.SORT, OperatorCapability.PROJECT
+        OperatorCapability.FILTER,
+        OperatorCapability.AGGREGATE,
+        OperatorCapability.SORT,
+        OperatorCapability.PROJECT
     );
 
-    @Override public Set<OperatorCapability> supportedOperators() { return OPERATOR_CAPS; }
-    @Override public Set<FilterCapability> filterCapabilities() { return FILTER_CAPS; }
-    @Override public Set<AggregateCapability> aggregateCapabilities() { return AGG_CAPS; }
-    @Override public Set<OperatorCapability> arrowCompatibleOperators() { return ARROW_COMPATIBLE_OPS; }
+    @Override
+    public Set<OperatorCapability> supportedOperators() {
+        return OPERATOR_CAPS;
+    }
+
+    @Override
+    public Set<FilterCapability> filterCapabilities() {
+        return FILTER_CAPS;
+    }
+
+    @Override
+    public Set<AggregateCapability> aggregateCapabilities() {
+        return AGG_CAPS;
+    }
+
+    @Override
+    public Set<OperatorCapability> arrowCompatibleOperators() {
+        return ARROW_COMPATIBLE_OPS;
+    }
 
     // ---- SearchBackEndPlugin (storage) ----
 
     @Override
     public List<DataFormat> getSupportedFormats() {
         return List.of(new DataFormat() {
-            @Override public String name() { return PARQUET_DATA_FORMAT; }
-            @Override public long priority() { return 0; }
-            @Override public Set<FieldTypeCapabilities> supportedFields() {
+            @Override
+            public String name() {
+                return PARQUET_DATA_FORMAT;
+            }
+
+            @Override
+            public long priority() {
+                return 0;
+            }
+
+            @Override
+            public Set<FieldTypeCapabilities> supportedFields() {
                 return Set.of(
                     new FieldTypeCapabilities("integer", Set.of(COLUMNAR_STORAGE)),
                     new FieldTypeCapabilities("long", Set.of(COLUMNAR_STORAGE)),

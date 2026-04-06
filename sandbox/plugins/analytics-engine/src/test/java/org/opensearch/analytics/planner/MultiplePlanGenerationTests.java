@@ -24,10 +24,8 @@ import org.opensearch.analytics.planner.dag.PlanForker;
 import org.opensearch.analytics.planner.dag.QueryDAG;
 import org.opensearch.analytics.planner.dag.Stage;
 import org.opensearch.analytics.planner.dag.StagePlan;
-import org.opensearch.analytics.planner.rel.AnnotatedPredicate;
 import org.opensearch.analytics.planner.rel.FullTextFunctions;
 import org.opensearch.analytics.planner.rel.OpenSearchFilter;
-import org.opensearch.analytics.planner.rel.OpenSearchRelNode;
 import org.opensearch.analytics.spi.AnalyticsSearchBackendPlugin;
 import org.opensearch.analytics.spi.DelegationType;
 import org.opensearch.index.engine.dataformat.DataFormat;
@@ -56,18 +54,25 @@ public class MultiplePlanGenerationTests extends BasePlannerRulesTests {
     public void testFivePredicatesGroupedNotCartesian() {
         // 5 integer fields, each with an equality predicate
         Map<String, Map<String, Object>> fields = Map.of(
-            "f0", Map.of("type", "integer"),
-            "f1", Map.of("type", "integer"),
-            "f2", Map.of("type", "integer"),
-            "f3", Map.of("type", "integer"),
-            "f4", Map.of("type", "integer")
+            "f0",
+            Map.of("type", "integer"),
+            "f1",
+            Map.of("type", "integer"),
+            "f2",
+            Map.of("type", "integer"),
+            "f3",
+            Map.of("type", "integer"),
+            "f4",
+            Map.of("type", "integer")
         );
 
         String[] fieldNames = { "f0", "f1", "f2", "f3", "f4" };
         SqlTypeName[] fieldTypes = {
-            SqlTypeName.INTEGER, SqlTypeName.INTEGER, SqlTypeName.INTEGER,
-            SqlTypeName.INTEGER, SqlTypeName.INTEGER
-        };
+            SqlTypeName.INTEGER,
+            SqlTypeName.INTEGER,
+            SqlTypeName.INTEGER,
+            SqlTypeName.INTEGER,
+            SqlTypeName.INTEGER };
 
         RexNode condition = makeAnd(
             makeEquals(0, SqlTypeName.INTEGER, 1),
@@ -93,7 +98,8 @@ public class MultiplePlanGenerationTests extends BasePlannerRulesTests {
         for (StagePlan plan : plans) {
             OpenSearchFilter filter = findFilter(plan.resolvedFragment());
             assertNotNull("Plan should contain a filter", filter);
-            List<String> predicateBackends = filter.getAnnotations().stream()
+            List<String> predicateBackends = filter.getAnnotations()
+                .stream()
                 .map(annotation -> annotation.getViableBackends().getFirst())
                 .distinct()
                 .toList();
@@ -109,18 +115,25 @@ public class MultiplePlanGenerationTests extends BasePlannerRulesTests {
      */
     public void testMixedPredicatesGrouped() {
         Map<String, Map<String, Object>> fields = Map.of(
-            "status", Map.of("type", "integer"),
-            "size", Map.of("type", "integer"),
-            "count", Map.of("type", "integer"),
-            "message", Map.of("type", "keyword"),
-            "body", Map.of("type", "keyword")
+            "status",
+            Map.of("type", "integer"),
+            "size",
+            Map.of("type", "integer"),
+            "count",
+            Map.of("type", "integer"),
+            "message",
+            Map.of("type", "keyword"),
+            "body",
+            Map.of("type", "keyword")
         );
 
         String[] fieldNames = { "status", "size", "count", "message", "body" };
         SqlTypeName[] fieldTypes = {
-            SqlTypeName.INTEGER, SqlTypeName.INTEGER, SqlTypeName.INTEGER,
-            SqlTypeName.VARCHAR, SqlTypeName.VARCHAR
-        };
+            SqlTypeName.INTEGER,
+            SqlTypeName.INTEGER,
+            SqlTypeName.INTEGER,
+            SqlTypeName.VARCHAR,
+            SqlTypeName.VARCHAR };
 
         // 3 integer equals (both backends) + 2 full-text MATCH (Lucene only)
         RexNode condition = makeAnd(
@@ -167,15 +180,20 @@ public class MultiplePlanGenerationTests extends BasePlannerRulesTests {
             Map.entry("v4", Map.of("type", "integer"))
         );
 
-        String[] fieldNames = { "f0", "f1", "f2", "f3", "f4", "msg0", "msg1",
-            "v0", "v1", "v2", "v3", "v4" };
+        String[] fieldNames = { "f0", "f1", "f2", "f3", "f4", "msg0", "msg1", "v0", "v1", "v2", "v3", "v4" };
         SqlTypeName[] fieldTypes = {
-            SqlTypeName.INTEGER, SqlTypeName.INTEGER, SqlTypeName.INTEGER,
-            SqlTypeName.INTEGER, SqlTypeName.INTEGER,
-            SqlTypeName.VARCHAR, SqlTypeName.VARCHAR,
-            SqlTypeName.INTEGER, SqlTypeName.INTEGER, SqlTypeName.INTEGER,
-            SqlTypeName.INTEGER, SqlTypeName.INTEGER
-        };
+            SqlTypeName.INTEGER,
+            SqlTypeName.INTEGER,
+            SqlTypeName.INTEGER,
+            SqlTypeName.INTEGER,
+            SqlTypeName.INTEGER,
+            SqlTypeName.VARCHAR,
+            SqlTypeName.VARCHAR,
+            SqlTypeName.INTEGER,
+            SqlTypeName.INTEGER,
+            SqlTypeName.INTEGER,
+            SqlTypeName.INTEGER,
+            SqlTypeName.INTEGER };
 
         // 5 integer equals (both backends) + 2 full-text MATCH (Lucene only)
         RexNode condition = makeAnd(
@@ -196,15 +214,23 @@ public class MultiplePlanGenerationTests extends BasePlannerRulesTests {
 
         List<AggregateCall> aggCalls = new ArrayList<>();
         for (int idx = 0; idx < 5; idx++) {
-            aggCalls.add(AggregateCall.create(
-                SqlStdOperatorTable.SUM, false, false, false, List.of(),
-                List.of(7 + idx), -1, null, RelCollations.EMPTY,
-                typeFactory.createSqlType(SqlTypeName.INTEGER), "sum_v" + idx
-            ));
+            aggCalls.add(
+                AggregateCall.create(
+                    SqlStdOperatorTable.SUM,
+                    false,
+                    false,
+                    false,
+                    List.of(),
+                    List.of(7 + idx),
+                    -1,
+                    null,
+                    RelCollations.EMPTY,
+                    typeFactory.createSqlType(SqlTypeName.INTEGER),
+                    "sum_v" + idx
+                )
+            );
         }
-        RelNode aggregate = LogicalAggregate.create(
-            filter, List.of(), ImmutableBitSet.of(0), null, aggCalls
-        );
+        RelNode aggregate = LogicalAggregate.create(filter, List.of(), ImmutableBitSet.of(0), null, aggCalls);
 
         RelNode cboOutput = runPlanner(aggregate, context);
         logger.info("CBO output:\n{}", RelOptUtil.toString(cboOutput));
@@ -224,14 +250,14 @@ public class MultiplePlanGenerationTests extends BasePlannerRulesTests {
         // Without grouping: scan(2) × filter(2^7) × aggregate(2^5) = 8192 plans
         // With grouping + arrow compatibility + pipeline inheritance = 6 plans:
         //
-        // Plan | Scan   | Filter(op) | Preds 0-4 (int) | Preds 5-6 (FT) | Agg
+        // Plan | Scan | Filter(op) | Preds 0-4 (int) | Preds 5-6 (FT) | Agg
         // -----|--------|------------|-----------------|----------------|-----
-        //   0  | DF     | DF         | Lucene          | Lucene         | DF
-        //   1  | DF     | DF         | DF              | Lucene         | DF
-        //   2  | Lucene | DF*        | Lucene          | Lucene         | DF
-        //   3  | Lucene | DF*        | DF              | Lucene         | DF
-        //   4  | Lucene | Lucene     | Lucene          | Lucene         | DF
-        //   5  | Lucene | Lucene     | DF              | Lucene         | DF
+        // 0 | DF | DF | Lucene | Lucene | DF
+        // 1 | DF | DF | DF | Lucene | DF
+        // 2 | Lucene | DF* | Lucene | Lucene | DF
+        // 3 | Lucene | DF* | DF | Lucene | DF
+        // 4 | Lucene | Lucene | Lucene | Lucene | DF
+        // 5 | Lucene | Lucene | DF | Lucene | DF
         //
         // *DF is arrow-compatible for FILTER so it can operate on Lucene's scan output.
         // Aggregate is always DF — only viable backend. Inherits pipeline, no branching.
@@ -240,15 +266,16 @@ public class MultiplePlanGenerationTests extends BasePlannerRulesTests {
 
     // ---- Helpers ----
 
-    private Stage buildAndFork(Map<String, Map<String, Object>> fields,
-                               String[] fieldNames, SqlTypeName[] fieldTypes,
-                               RexNode condition) {
+    private Stage buildAndFork(Map<String, Map<String, Object>> fields, String[] fieldNames, SqlTypeName[] fieldTypes, RexNode condition) {
         return buildAndFork(fields, fieldNames, fieldTypes, condition, List.of(DATAFUSION, LUCENE));
     }
 
-    private Stage buildAndForkWithDelegation(Map<String, Map<String, Object>> fields,
-                                             String[] fieldNames, SqlTypeName[] fieldTypes,
-                                             RexNode condition) {
+    private Stage buildAndForkWithDelegation(
+        Map<String, Map<String, Object>> fields,
+        String[] fieldNames,
+        SqlTypeName[] fieldTypes,
+        RexNode condition
+    ) {
         return buildAndFork(fields, fieldNames, fieldTypes, condition, delegationBackends());
     }
 
@@ -285,9 +312,18 @@ public class MultiplePlanGenerationTests extends BasePlannerRulesTests {
             @Override
             public List<DataFormat> getSupportedFormats() {
                 return List.of(new DataFormat() {
-                    @Override public String name() { return LUCENE_DATA_FORMAT; }
-                    @Override public long priority() { return 0; }
-                    @Override public Set<FieldTypeCapabilities> supportedFields() {
+                    @Override
+                    public String name() {
+                        return LUCENE_DATA_FORMAT;
+                    }
+
+                    @Override
+                    public long priority() {
+                        return 0;
+                    }
+
+                    @Override
+                    public Set<FieldTypeCapabilities> supportedFields() {
                         return Set.of(
                             new FieldTypeCapabilities("integer", Set.of(COLUMNAR_STORAGE, POINT_RANGE, STORED_FIELDS)),
                             new FieldTypeCapabilities("long", Set.of(COLUMNAR_STORAGE, POINT_RANGE, STORED_FIELDS)),
@@ -303,9 +339,13 @@ public class MultiplePlanGenerationTests extends BasePlannerRulesTests {
         return List.of(dfBackend, luceneBackend);
     }
 
-    private Stage buildAndFork(Map<String, Map<String, Object>> fields,
-                               String[] fieldNames, SqlTypeName[] fieldTypes,
-                               RexNode condition, List<AnalyticsSearchBackendPlugin> backends) {
+    private Stage buildAndFork(
+        Map<String, Map<String, Object>> fields,
+        String[] fieldNames,
+        SqlTypeName[] fieldTypes,
+        RexNode condition,
+        List<AnalyticsSearchBackendPlugin> backends
+    ) {
         PlannerContext context = buildContext("parquet", fields, backends);
         RelOptTable table = mockTable("test_index", fieldNames, fieldTypes);
         LogicalFilter filter = LogicalFilter.create(stubScan(table), condition);

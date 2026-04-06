@@ -8,6 +8,7 @@
 
 package org.opensearch.analytics.backend;
 
+import org.apache.calcite.rel.RelNode;
 import org.opensearch.action.search.SearchShardTask;
 import org.opensearch.index.engine.exec.IndexReaderProvider.Reader;
 
@@ -22,6 +23,7 @@ public class ExecutionContext {
     private final String tableName;
     private final Reader reader;
     private final SearchShardTask task;
+    private RelNode fragment;
 
     /**
      * Constructs an execution context.
@@ -48,5 +50,15 @@ public class ExecutionContext {
     /** Returns the data-format aware reader. */
     public Reader getReader() {
         return reader;
+    }
+
+    /** Returns the transient plan fragment, or null if not set. */
+    public RelNode getFragment() {
+        return fragment;
+    }
+
+    /** Sets the transient plan fragment. Not serialized. */
+    public void setFragment(RelNode fragment) {
+        this.fragment = fragment;
     }
 }

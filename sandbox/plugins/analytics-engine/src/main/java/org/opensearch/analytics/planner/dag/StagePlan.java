@@ -19,4 +19,5 @@ import org.apache.calcite.rel.RelNode;
  * @param resolvedFragment fragment with all viableBackends narrowed to single choices
  * @opensearch.internal
  */
-public record StagePlan(RelNode resolvedFragment) {}
+public record StagePlan(RelNode resolvedFragment) {
+}

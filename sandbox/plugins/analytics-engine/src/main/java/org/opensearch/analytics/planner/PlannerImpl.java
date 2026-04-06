@@ -13,19 +13,16 @@ import org.apache.calcite.rel.RelNode;
 import org.apache.calcite.rel.metadata.RelMetadataQuery;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.opensearch.analytics.planner.rel.OpenSearchDistributionTraitDef;
 import org.opensearch.analytics.planner.dag.DAGBuilder;
 import org.opensearch.analytics.planner.dag.PlanForker;
 import org.opensearch.analytics.planner.dag.QueryDAG;
+import org.opensearch.analytics.planner.rel.OpenSearchDistributionTraitDef;
 import org.opensearch.analytics.planner.rules.OpenSearchAggregateRule;
 import org.opensearch.analytics.planner.rules.OpenSearchAggregateSplitRule;
 import org.opensearch.analytics.planner.rules.OpenSearchFilterRule;
 import org.opensearch.analytics.planner.rules.OpenSearchProjectRule;
 import org.opensearch.analytics.planner.rules.OpenSearchSortRule;
 import org.opensearch.analytics.planner.rules.OpenSearchTableScanRule;
-
-import org.opensearch.analytics.planner.dag.DAGBuilder;
-import org.opensearch.analytics.planner.dag.QueryDAG;
 
 import java.util.List;
 
@@ -53,7 +50,26 @@ public class PlannerImpl {
 
     private static final Logger LOGGER = LogManager.getLogger(PlannerImpl.class);
 
-    public static RelNode createPlan(RelNode rawRelNode, PlannerContext context) {
+    public static QueryDAG createPlan(RelNode rawRelNode, PlannerContext context) {
+        RelNode cboResult = runCBO(rawRelNode, context);
+
+        // Phase 3: DAG construction — cut at exchange boundaries
+        QueryDAG dag = DAGBuilder.build(cboResult);
+        LOGGER.info("QueryDAG:\n{}", dag);
+
+        // Phase 4: Plan forking — generate per-stage alternatives
+        PlanForker.forkAll(dag, context.getCapabilityRegistry());
+        LOGGER.info("After plan forking:\n{}", dag);
+
+        return dag;
+    }
+
+    /**
+     * Runs RBO marking + CBO exchange insertion and returns the CBO output RelNode.
+     * Package-private so planner rule tests can inspect the CBO tree structure
+     * before DAG construction cuts at exchange boundaries.
+     */
+    static RelNode runCBO(RelNode rawRelNode, PlannerContext context) {
         LOGGER.info("Input RelNode:\n{}", RelOptUtil.toString(rawRelNode));
 
         // Phase 1: RBO — convert LogicalXxx → OpenSearchXxx
@@ -62,13 +78,15 @@ public class PlannerImpl {
         // Rules as a collection so HEP tries all rules at each node in bottom-up
         // tree order. This ensures children are marked before parents regardless
         // of tree shape (e.g. filter above aggregate, aggregate above filter).
-        markingBuilder.addRuleCollection(List.of(
-            new OpenSearchTableScanRule(context),
-            new OpenSearchFilterRule(context),
-            new OpenSearchProjectRule(context),
-            new OpenSearchAggregateRule(context),
-            new OpenSearchSortRule(context)
-        ));
+        markingBuilder.addRuleCollection(
+            List.of(
+                new OpenSearchTableScanRule(context),
+                new OpenSearchFilterRule(context),
+                new OpenSearchProjectRule(context),
+                new OpenSearchAggregateRule(context),
+                new OpenSearchSortRule(context)
+            )
+        );
 
         HepPlanner markingPlanner = new HepPlanner(markingBuilder.build());
         markingPlanner.setRoot(rawRelNode);
@@ -84,8 +102,7 @@ public class PlannerImpl {
         volcanoPlanner.addRule(new OpenSearchAggregateSplitRule(context));
         volcanoPlanner.addRule(AbstractConverter.ExpandConversionRule.INSTANCE);
 
-        RelOptCluster volcanoCluster = RelOptCluster.create(volcanoPlanner,
-            rawRelNode.getCluster().getRexBuilder());
+        RelOptCluster volcanoCluster = RelOptCluster.create(volcanoPlanner, rawRelNode.getCluster().getRexBuilder());
         volcanoCluster.setMetadataQuerySupplier(RelMetadataQuery::instance);
 
         // TODO: eliminate this copy
@@ -100,15 +117,6 @@ public class PlannerImpl {
         RelNode result = volcanoPlanner.findBestExp();
 
         LOGGER.info("After CBO:\n{}", RelOptUtil.toString(result));
-
-        // Phase 3: DAG construction — cut at exchange boundaries
-        QueryDAG dag = DAGBuilder.build(result);
-        LOGGER.info("QueryDAG:\n{}", dag);
-
-        // Phase 4: Plan forking — generate per-stage alternatives
-        PlanForker.forkAll(dag, context.getCapabilityRegistry());
-        LOGGER.info("After plan forking:\n{}", dag);
-
         return result;
     }
 }

@@ -20,8 +20,6 @@ import org.apache.calcite.sql.SqlFunction;
 import org.apache.calcite.sql.SqlKind;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.opensearch.analytics.planner.FieldStorageInfo;
-import org.opensearch.analytics.planner.PlannerContext;
 import org.opensearch.analytics.planner.CapabilityRegistry;
 import org.opensearch.analytics.planner.FieldStorageInfo;
 import org.opensearch.analytics.planner.PlannerContext;
@@ -76,8 +74,10 @@ public class OpenSearchFilterRule extends RelOptRule {
 
         if (!(child instanceof OpenSearchRelNode openSearchInput)) {
             throw new IllegalStateException(
-                "Filter rule encountered unmarked child [" + child.getClass().getSimpleName()
-                    + "]. Ensure all child operators are marked before filter.");
+                "Filter rule encountered unmarked child ["
+                    + child.getClass().getSimpleName()
+                    + "]. Ensure all child operators are marked before filter."
+            );
         }
 
         List<String> childViableBackends = openSearchInput.getViableBackends();
@@ -86,27 +86,30 @@ public class OpenSearchFilterRule extends RelOptRule {
         RelDataType inputRowType = child.getRowType();
 
         // Annotate every leaf predicate with viable backends
-        RexNode annotatedCondition = annotateCondition(filter.getCondition(), inputRowType,
-            childFieldStorage, childViableBackends);
+        RexNode annotatedCondition = annotateCondition(filter.getCondition(), inputRowType, childFieldStorage, childViableBackends);
 
         // Compute operator-level viable backends: must be viable for child AND handle predicates
         List<String> viableBackends = computeFilterViableBackends(annotatedCondition, childViableBackends);
 
         if (viableBackends.isEmpty()) {
             throw new IllegalStateException(
-                "No backend can execute filter: no viable backend among " + childViableBackends
-                    + " can evaluate all predicates and no delegation path exists");
+                "No backend can execute filter: no viable backend among "
+                    + childViableBackends
+                    + " can evaluate all predicates and no delegation path exists"
+            );
         }
 
         LOGGER.debug("Filter viable backends: {} (child viable: {})", viableBackends, childViableBackends);
 
-        call.transformTo(new OpenSearchFilter(
-            filter.getCluster(),
-            child.getTraitSet(),
-            RelNodeUtils.unwrapHep(filter.getInput()),
-            annotatedCondition,
-            viableBackends
-        ));
+        call.transformTo(
+            new OpenSearchFilter(
+                filter.getCluster(),
+                child.getTraitSet(),
+                RelNodeUtils.unwrapHep(filter.getInput()),
+                annotatedCondition,
+                viableBackends
+            )
+        );
     }
 
     // ---- Predicate annotation ----
@@ -116,9 +119,12 @@ public class OpenSearchFilterRule extends RelOptRule {
      * preserved — we recurse into their children. Leaf predicates are wrapped in
      * {@link AnnotatedPredicate} with viable backends resolved from child's field storage.
      */
-    private RexNode annotateCondition(RexNode condition, RelDataType inputRowType,
-                                      List<FieldStorageInfo> fieldStorage,
-                                      List<String> childViableBackends) {
+    private RexNode annotateCondition(
+        RexNode condition,
+        RelDataType inputRowType,
+        List<FieldStorageInfo> fieldStorage,
+        List<String> childViableBackends
+    ) {
         if (!(condition instanceof RexCall rexCall)) {
             return condition;
         }
@@ -139,9 +145,12 @@ public class OpenSearchFilterRule extends RelOptRule {
      * checks backend format support, operator capability, and operator+fieldType support.
      * Intersects across all referenced fields.
      */
-    private List<String> resolveViableBackends(RexCall predicate, RelDataType inputRowType,
-                                               List<FieldStorageInfo> fieldStorage,
-                                               List<String> childViableBackends) {
+    private List<String> resolveViableBackends(
+        RexCall predicate,
+        RelDataType inputRowType,
+        List<FieldStorageInfo> fieldStorage,
+        List<String> childViableBackends
+    ) {
         Set<Integer> fieldIndices = new HashSet<>();
         collectFieldIndices(predicate, fieldIndices);
 
@@ -171,8 +180,9 @@ public class OpenSearchFilterRule extends RelOptRule {
             FieldStorageInfo storageInfo = fieldStorage.get(fieldIndex);
             FieldType fieldType = storageInfo.getFieldType();
             if (fieldType == null) {
-                throw new IllegalStateException("Unrecognized field type [" + storageInfo.getMappingType()
-                    + "] for field [" + storageInfo.getFieldName() + "]");
+                throw new IllegalStateException(
+                    "Unrecognized field type [" + storageInfo.getMappingType() + "] for field [" + storageInfo.getFieldName() + "]"
+                );
             }
 
             // TODO: for FULL_TEXT operators, extract required params from RexCall
@@ -216,11 +226,15 @@ public class OpenSearchFilterRule extends RelOptRule {
         }
 
         if (viableSet.isEmpty()) {
-            throw new IllegalStateException("No backend can evaluate filter predicate ["
-                + predicate.getKind() + "] on fields " + fieldIndices.stream()
-                    .filter(i -> i < fieldStorage.size())
-                    .map(i -> fieldStorage.get(i).getFieldName() + ":" + fieldStorage.get(i).getMappingType())
-                    .toList());
+            throw new IllegalStateException(
+                "No backend can evaluate filter predicate ["
+                    + predicate.getKind()
+                    + "] on fields "
+                    + fieldIndices.stream()
+                        .filter(i -> i < fieldStorage.size())
+                        .map(i -> fieldStorage.get(i).getFieldName() + ":" + fieldStorage.get(i).getMappingType())
+                        .toList()
+            );
         }
         return new ArrayList<>(viableSet);
     }
@@ -247,8 +261,7 @@ public class OpenSearchFilterRule extends RelOptRule {
      *    (child supports FILTER delegation, this backend accepts it, and this backend
      *    can handle all predicates natively).
      */
-    private List<String> computeFilterViableBackends(RexNode annotatedCondition,
-                                                     List<String> childViableBackends) {
+    private List<String> computeFilterViableBackends(RexNode annotatedCondition, List<String> childViableBackends) {
         List<AnnotatedPredicate> predicates = new ArrayList<>();
         collectAnnotatedPredicates(annotatedCondition, predicates);
 
@@ -272,8 +285,7 @@ public class OpenSearchFilterRule extends RelOptRule {
                 if (predViable.contains(candidateName)) {
                     continue;
                 }
-                if (delegationSupporters.contains(candidateName)
-                        && predViable.stream().anyMatch(delegationAcceptors::contains)) {
+                if (delegationSupporters.contains(candidateName) && predViable.stream().anyMatch(delegationAcceptors::contains)) {
                     continue;
                 }
                 canHandleAll = false;

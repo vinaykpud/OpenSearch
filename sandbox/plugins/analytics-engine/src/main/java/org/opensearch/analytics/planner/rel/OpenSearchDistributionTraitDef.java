@@ -82,8 +82,7 @@ public class OpenSearchDistributionTraitDef extends RelTraitDef<OpenSearchDistri
     }
 
     @Override
-    public RelNode convert(RelOptPlanner planner, RelNode rel,
-                           OpenSearchDistribution toTrait, boolean allowInfiniteCostConverters) {
+    public RelNode convert(RelOptPlanner planner, RelNode rel, OpenSearchDistribution toTrait, boolean allowInfiniteCostConverters) {
         OpenSearchDistribution fromTrait = rel.getTraitSet().getTrait(this);
 
         if (toTrait.getType() == RelDistribution.Type.ANY) {
@@ -96,24 +95,23 @@ public class OpenSearchDistributionTraitDef extends RelTraitDef<OpenSearchDistri
 
         List<String> viableBackends = resolveViableBackendsFromRel(rel);
 
-        LOGGER.info("convert(): rel={}#{}, fromTrait={}, toTrait={}, backend={}",
-            rel.getClass().getSimpleName(), rel.getId(), fromTrait, toTrait, viableBackends.getFirst());
+        LOGGER.info(
+            "convert(): rel={}#{}, fromTrait={}, toTrait={}, backend={}",
+            rel.getClass().getSimpleName(),
+            rel.getId(),
+            fromTrait,
+            toTrait,
+            viableBackends.getFirst()
+        );
 
         CapabilityRegistry registry = plannerContext.getCapabilityRegistry();
 
         RelNode result;
         if (toTrait.getType() == RelDistribution.Type.SINGLETON) {
-            List<String> reduceViable = CapabilityResolutionUtils.filterByReduceCapability(
-                registry, viableBackends);
-            result = new OpenSearchExchangeReducer(
-                rel.getCluster(),
-                rel.getTraitSet().replace(toTrait),
-                rel,
-                reduceViable
-            );
+            List<String> reduceViable = CapabilityResolutionUtils.filterByReduceCapability(registry, viableBackends);
+            result = new OpenSearchExchangeReducer(rel.getCluster(), rel.getTraitSet().replace(toTrait), rel, reduceViable);
         } else {
-            List<String> shuffleViable = CapabilityResolutionUtils.filterByShuffleCapability(
-                registry, viableBackends);
+            List<String> shuffleViable = CapabilityResolutionUtils.filterByShuffleCapability(registry, viableBackends);
             ShuffleImpl shuffleImpl = CapabilityResolutionUtils.bestShuffleImpl(registry, shuffleViable);
             OpenSearchExchangeWriter writer = new OpenSearchExchangeWriter(
                 rel.getCluster(),
@@ -123,21 +121,14 @@ public class OpenSearchDistributionTraitDef extends RelTraitDef<OpenSearchDistri
                 shuffleImpl,
                 toTrait.getKeys()
             );
-            result = new OpenSearchShuffleReader(
-                rel.getCluster(),
-                rel.getTraitSet().replace(toTrait),
-                writer,
-                shuffleViable,
-                shuffleImpl
-            );
+            result = new OpenSearchShuffleReader(rel.getCluster(), rel.getTraitSet().replace(toTrait), writer, shuffleViable, shuffleImpl);
         }
 
         return planner.register(result, rel);
     }
 
     @Override
-    public boolean canConvert(RelOptPlanner planner, OpenSearchDistribution fromTrait,
-                              OpenSearchDistribution toTrait) {
+    public boolean canConvert(RelOptPlanner planner, OpenSearchDistribution fromTrait, OpenSearchDistribution toTrait) {
         return true;
     }
 
@@ -148,7 +139,6 @@ public class OpenSearchDistributionTraitDef extends RelTraitDef<OpenSearchDistri
         if (rel instanceof OpenSearchRelNode openSearchRel) {
             return openSearchRel.getViableBackends();
         }
-        throw new IllegalStateException(
-            "Expected OpenSearchRelNode but got [" + rel.getClass().getSimpleName() + "#" + rel.getId() + "]");
+        throw new IllegalStateException("Expected OpenSearchRelNode but got [" + rel.getClass().getSimpleName() + "#" + rel.getId() + "]");
     }
 }

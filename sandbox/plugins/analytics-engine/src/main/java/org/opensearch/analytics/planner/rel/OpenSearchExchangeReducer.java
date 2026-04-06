@@ -34,8 +34,7 @@ public class OpenSearchExchangeReducer extends SingleRel implements OpenSearchRe
 
     private final List<String> viableBackends;
 
-    public OpenSearchExchangeReducer(RelOptCluster cluster, RelTraitSet traitSet, RelNode input,
-                                     List<String> viableBackends) {
+    public OpenSearchExchangeReducer(RelOptCluster cluster, RelTraitSet traitSet, RelNode input, List<String> viableBackends) {
         super(cluster, traitSet, input);
         this.viableBackends = viableBackends;
     }
@@ -69,15 +68,12 @@ public class OpenSearchExchangeReducer extends SingleRel implements OpenSearchRe
     }
 
     @Override
-    public RelNode copyResolved(String backend, List<RelNode> children,
-                                List<OperatorAnnotation> resolvedAnnotations) {
-        return new OpenSearchExchangeReducer(getCluster(), getTraitSet(),
-            children.getFirst(), List.of(backend));
+    public RelNode copyResolved(String backend, List<RelNode> children, List<OperatorAnnotation> resolvedAnnotations) {
+        return new OpenSearchExchangeReducer(getCluster(), getTraitSet(), children.getFirst(), List.of(backend));
     }
 
     @Override
     public RelNode stripAnnotations(List<RelNode> strippedChildren) {
-        return new OpenSearchExchangeReducer(getCluster(), getTraitSet(),
-            strippedChildren.getFirst(), viableBackends);
+        return new OpenSearchExchangeReducer(getCluster(), getTraitSet(), strippedChildren.getFirst(), viableBackends);
     }
 }

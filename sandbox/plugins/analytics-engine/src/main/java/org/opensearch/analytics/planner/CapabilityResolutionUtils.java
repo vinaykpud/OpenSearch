@@ -26,8 +26,7 @@ public final class CapabilityResolutionUtils {
     private CapabilityResolutionUtils() {}
 
     /** Filters viable backends to those that support COORDINATOR_REDUCE. */
-    public static List<String> filterByReduceCapability(CapabilityRegistry registry,
-                                                        List<String> viableBackends) {
+    public static List<String> filterByReduceCapability(CapabilityRegistry registry, List<String> viableBackends) {
         List<String> reduceCapable = registry.operatorBackends(OperatorCapability.COORDINATOR_REDUCE);
         List<String> result = new ArrayList<>();
         for (String name : viableBackends) {
@@ -36,15 +35,13 @@ public final class CapabilityResolutionUtils {
             }
         }
         if (result.isEmpty()) {
-            throw new IllegalStateException(
-                "No viable backend supports COORDINATOR_REDUCE among " + viableBackends);
+            throw new IllegalStateException("No viable backend supports COORDINATOR_REDUCE among " + viableBackends);
         }
         return result;
     }
 
     /** Filters viable backends to those with any shuffle capability. */
-    public static List<String> filterByShuffleCapability(CapabilityRegistry registry,
-                                                          List<String> viableBackends) {
+    public static List<String> filterByShuffleCapability(CapabilityRegistry registry, List<String> viableBackends) {
         List<String> result = new ArrayList<>();
         for (String name : viableBackends) {
             if (!registry.getShuffleCapabilities(name).isEmpty()) {
@@ -52,8 +49,7 @@ public final class CapabilityResolutionUtils {
             }
         }
         if (result.isEmpty()) {
-            throw new IllegalStateException(
-                "No viable backend supports shuffle among " + viableBackends);
+            throw new IllegalStateException("No viable backend supports shuffle among " + viableBackends);
         }
         return result;
     }

@@ -107,33 +107,31 @@ public class DAGBuilder {
         return changed ? node.copy(node.getTraitSet(), newInputs) : node;
     }
 
-    private static RelNode cutSingleton(OpenSearchExchangeReducer reducer,
-                                        int[] counter, List<Stage> parentChildStages) {
+    private static RelNode cutSingleton(OpenSearchExchangeReducer reducer, int[] counter, List<Stage> parentChildStages) {
         List<Stage> grandchildren = new ArrayList<>();
         RelNode childFragment = sever(reducer.getInput(), counter, grandchildren);
 
         int childStageId = counter[0]++;
-        parentChildStages.add(new Stage(
-            childStageId, childFragment, grandchildren,
-            new ExchangeInfo(RelDistribution.Type.SINGLETON, null, List.of())
-        ));
+        parentChildStages.add(
+            new Stage(childStageId, childFragment, grandchildren, new ExchangeInfo(RelDistribution.Type.SINGLETON, null, List.of()))
+        );
 
         // Replace child subtree with StageInputScan, keep ExchangeReducer in parent
         RelDataType childRowType = reducer.getInput().getRowType();
         OpenSearchStageInputScan stageInput = new OpenSearchStageInputScan(
-            reducer.getCluster(), reducer.getTraitSet(), childStageId, childRowType
+            reducer.getCluster(),
+            reducer.getTraitSet(),
+            childStageId,
+            childRowType
         );
-        return new OpenSearchExchangeReducer(
-            reducer.getCluster(), reducer.getTraitSet(), stageInput, reducer.getViableBackends()
-        );
+        return new OpenSearchExchangeReducer(reducer.getCluster(), reducer.getTraitSet(), stageInput, reducer.getViableBackends());
     }
 
-    private static RelNode cutShuffle(OpenSearchShuffleReader reader,
-                                     int[] counter, List<Stage> parentChildStages) {
+    private static RelNode cutShuffle(OpenSearchShuffleReader reader, int[] counter, List<Stage> parentChildStages) {
         if (!(reader.getInput() instanceof OpenSearchExchangeWriter writer)) {
             throw new IllegalStateException(
-                "ShuffleReader input must be ExchangeWriter, got: "
-                    + reader.getInput().getClass().getSimpleName());
+                "ShuffleReader input must be ExchangeWriter, got: " + reader.getInput().getClass().getSimpleName()
+            );
         }
 
         List<Stage> grandchildren = new ArrayList<>();
@@ -141,19 +139,29 @@ public class DAGBuilder {
         RelNode childFragment = writer.copy(writer.getTraitSet(), List.of(belowWriter));
 
         int childStageId = counter[0]++;
-        parentChildStages.add(new Stage(
-            childStageId, childFragment, grandchildren,
-            new ExchangeInfo(RelDistribution.Type.HASH_DISTRIBUTED, writer.getShuffleImpl(), writer.getKeys())
-        ));
+        parentChildStages.add(
+            new Stage(
+                childStageId,
+                childFragment,
+                grandchildren,
+                new ExchangeInfo(RelDistribution.Type.HASH_DISTRIBUTED, writer.getShuffleImpl(), writer.getKeys())
+            )
+        );
 
         // Replace child subtree with StageInputScan, keep ShuffleReader in parent
         RelDataType childRowType = writer.getInput().getRowType();
         OpenSearchStageInputScan stageInput = new OpenSearchStageInputScan(
-            reader.getCluster(), reader.getTraitSet(), childStageId, childRowType
+            reader.getCluster(),
+            reader.getTraitSet(),
+            childStageId,
+            childRowType
         );
         return new OpenSearchShuffleReader(
-            reader.getCluster(), reader.getTraitSet(), stageInput,
-            reader.getViableBackends(), reader.getShuffleImpl()
+            reader.getCluster(),
+            reader.getTraitSet(),
+            stageInput,
+            reader.getViableBackends(),
+            reader.getShuffleImpl()
         );
     }
 }

@@ -10,11 +10,11 @@ package org.opensearch.analytics.planner;
 
 import org.apache.calcite.plan.RelOptTable;
 import org.apache.calcite.plan.RelOptUtil;
+import org.apache.calcite.rel.RelCollations;
 import org.apache.calcite.rel.RelNode;
+import org.apache.calcite.rel.core.AggregateCall;
 import org.apache.calcite.rel.logical.LogicalAggregate;
 import org.apache.calcite.rel.logical.LogicalFilter;
-import org.apache.calcite.rel.core.AggregateCall;
-import org.apache.calcite.rel.RelCollations;
 import org.apache.calcite.sql.fun.SqlStdOperatorTable;
 import org.apache.calcite.sql.type.SqlTypeName;
 import org.apache.calcite.util.ImmutableBitSet;
@@ -41,20 +41,16 @@ public class FragmentConversionDriverTests extends BasePlannerRulesTests {
      * is called with a clean Calcite RelNode (no OpenSearch wrappers, no annotations).
      */
     public void testScanFragmentConversion() {
-        Map<String, Map<String, Object>> fields = Map.of(
-            "status", Map.of("type", "integer"),
-            "size", Map.of("type", "integer")
-        );
+        Map<String, Map<String, Object>> fields = Map.of("status", Map.of("type", "integer"), "size", Map.of("type", "integer"));
 
         PlannerContext context = buildContext("parquet", 1, fields);
-        RelOptTable table = mockTable("test_index",
-            new String[]{"status", "size"},
-            new SqlTypeName[]{SqlTypeName.INTEGER, SqlTypeName.INTEGER});
-
-        RelNode filter = LogicalFilter.create(
-            stubScan(table),
-            makeEquals(0, SqlTypeName.INTEGER, 200)
+        RelOptTable table = mockTable(
+            "test_index",
+            new String[] { "status", "size" },
+            new SqlTypeName[] { SqlTypeName.INTEGER, SqlTypeName.INTEGER }
         );
+
+        RelNode filter = LogicalFilter.create(stubScan(table), makeEquals(0, SqlTypeName.INTEGER, 200));
 
         RelNode cboOutput = runPlanner(filter, context);
         QueryDAG dag = DAGBuilder.build(cboOutput);
@@ -87,25 +83,30 @@ public class FragmentConversionDriverTests extends BasePlannerRulesTests {
      * and the fragment contains standard Calcite operators.
      */
     public void testAggregateFragmentConversion() {
-        Map<String, Map<String, Object>> fields = Map.of(
-            "status", Map.of("type", "integer"),
-            "size", Map.of("type", "integer")
-        );
+        Map<String, Map<String, Object>> fields = Map.of("status", Map.of("type", "integer"), "size", Map.of("type", "integer"));
 
         PlannerContext context = buildContext("parquet", 1, fields);
-        RelOptTable table = mockTable("test_index",
-            new String[]{"status", "size"},
-            new SqlTypeName[]{SqlTypeName.INTEGER, SqlTypeName.INTEGER});
+        RelOptTable table = mockTable(
+            "test_index",
+            new String[] { "status", "size" },
+            new SqlTypeName[] { SqlTypeName.INTEGER, SqlTypeName.INTEGER }
+        );
 
         RelNode scan = stubScan(table);
         AggregateCall sumCall = AggregateCall.create(
-            SqlStdOperatorTable.SUM, false, false, false, List.of(),
-            List.of(1), -1, null, RelCollations.EMPTY,
-            typeFactory.createSqlType(SqlTypeName.INTEGER), "total_size"
+            SqlStdOperatorTable.SUM,
+            false,
+            false,
+            false,
+            List.of(),
+            List.of(1),
+            -1,
+            null,
+            RelCollations.EMPTY,
+            typeFactory.createSqlType(SqlTypeName.INTEGER),
+            "total_size"
         );
-        RelNode aggregate = LogicalAggregate.create(
-            scan, List.of(), ImmutableBitSet.of(0), null, List.of(sumCall)
-        );
+        RelNode aggregate = LogicalAggregate.create(scan, List.of(), ImmutableBitSet.of(0), null, List.of(sumCall));
 
         RelNode cboOutput = runPlanner(aggregate, context);
         QueryDAG dag = DAGBuilder.build(cboOutput);

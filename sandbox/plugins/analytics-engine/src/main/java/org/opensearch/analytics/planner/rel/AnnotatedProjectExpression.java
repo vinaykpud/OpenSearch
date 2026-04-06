@@ -49,8 +49,7 @@ public class AnnotatedProjectExpression extends RexCall implements OperatorAnnot
     private final List<String> viableBackends;
     private final int annotationId;
 
-    public AnnotatedProjectExpression(RelDataType type, RexNode original, List<String> viableBackends,
-                                      int annotationId) {
+    public AnnotatedProjectExpression(RelDataType type, RexNode original, List<String> viableBackends, int annotationId) {
         super(type, ANNOTATED_PROJECT_EXPR_OP, List.of(original));
         this.original = original;
         this.viableBackends = viableBackends;

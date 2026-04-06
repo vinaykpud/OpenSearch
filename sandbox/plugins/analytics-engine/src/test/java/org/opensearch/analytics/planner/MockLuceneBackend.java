@@ -22,13 +22,13 @@ import org.opensearch.index.engine.exec.EngineReaderManager;
 import org.opensearch.index.shard.ShardPath;
 import org.opensearch.plugins.SearchBackEndPlugin;
 
-import static org.opensearch.index.engine.dataformat.FieldTypeCapabilities.Capability.FULL_TEXT_SEARCH;
-import static org.opensearch.index.engine.dataformat.FieldTypeCapabilities.Capability.POINT_RANGE;
-import static org.opensearch.index.engine.dataformat.FieldTypeCapabilities.Capability.STORED_FIELDS;
-
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+
+import static org.opensearch.index.engine.dataformat.FieldTypeCapabilities.Capability.FULL_TEXT_SEARCH;
+import static org.opensearch.index.engine.dataformat.FieldTypeCapabilities.Capability.POINT_RANGE;
+import static org.opensearch.index.engine.dataformat.FieldTypeCapabilities.Capability.STORED_FIELDS;
 
 /**
  * Mock Lucene backend for tests. Supports lucene format with index structures
@@ -42,24 +42,32 @@ public class MockLuceneBackend implements AnalyticsSearchBackendPlugin, SearchBa
     public static final String LUCENE_DATA_FORMAT = "lucene";
     private static final Set<String> LUCENE_FORMATS = Set.of(LUCENE_DATA_FORMAT);
 
-    private static final Set<OperatorCapability> OPERATOR_CAPS = Set.of(
-        OperatorCapability.SCAN, OperatorCapability.FILTER
-    );
+    private static final Set<OperatorCapability> OPERATOR_CAPS = Set.of(OperatorCapability.SCAN, OperatorCapability.FILTER);
 
     private static final Set<FilterOperator> STANDARD_OPS = Set.of(
-        FilterOperator.EQUALS, FilterOperator.NOT_EQUALS,
-        FilterOperator.GREATER_THAN, FilterOperator.GREATER_THAN_OR_EQUAL,
-        FilterOperator.LESS_THAN, FilterOperator.LESS_THAN_OR_EQUAL,
-        FilterOperator.IS_NULL, FilterOperator.IS_NOT_NULL,
-        FilterOperator.IN, FilterOperator.LIKE
+        FilterOperator.EQUALS,
+        FilterOperator.NOT_EQUALS,
+        FilterOperator.GREATER_THAN,
+        FilterOperator.GREATER_THAN_OR_EQUAL,
+        FilterOperator.LESS_THAN,
+        FilterOperator.LESS_THAN_OR_EQUAL,
+        FilterOperator.IS_NULL,
+        FilterOperator.IS_NOT_NULL,
+        FilterOperator.IN,
+        FilterOperator.LIKE
     );
 
     private static final Set<FilterOperator> FULL_TEXT_OPS = Set.of(
-        FilterOperator.MATCH, FilterOperator.MATCH_PHRASE,
-        FilterOperator.MATCH_PHRASE_PREFIX, FilterOperator.MATCH_BOOL_PREFIX,
-        FilterOperator.MULTI_MATCH, FilterOperator.QUERY_STRING,
-        FilterOperator.SIMPLE_QUERY_STRING, FilterOperator.FUZZY,
-        FilterOperator.WILDCARD, FilterOperator.REGEXP
+        FilterOperator.MATCH,
+        FilterOperator.MATCH_PHRASE,
+        FilterOperator.MATCH_PHRASE_PREFIX,
+        FilterOperator.MATCH_BOOL_PREFIX,
+        FilterOperator.MULTI_MATCH,
+        FilterOperator.QUERY_STRING,
+        FilterOperator.SIMPLE_QUERY_STRING,
+        FilterOperator.FUZZY,
+        FilterOperator.WILDCARD,
+        FilterOperator.REGEXP
     );
 
     private static final Set<FieldType> STANDARD_TYPES = new HashSet<>();
@@ -93,21 +101,43 @@ public class MockLuceneBackend implements AnalyticsSearchBackendPlugin, SearchBa
         FILTER_CAPS = caps;
     }
 
-    @Override public String name() { return NAME; }
+    @Override
+    public String name() {
+        return NAME;
+    }
 
-    @Override public SearchExecEngine<ExecutionContext, EngineResultStream> createSearchExecEngine(ExecutionContext ctx) { return null; }
+    @Override
+    public SearchExecEngine<ExecutionContext, EngineResultStream> createSearchExecEngine(ExecutionContext ctx) {
+        return null;
+    }
 
-    @Override public Set<OperatorCapability> supportedOperators() { return OPERATOR_CAPS; }
-    @Override public Set<FilterCapability> filterCapabilities() { return FILTER_CAPS; }
+    @Override
+    public Set<OperatorCapability> supportedOperators() {
+        return OPERATOR_CAPS;
+    }
+
+    @Override
+    public Set<FilterCapability> filterCapabilities() {
+        return FILTER_CAPS;
+    }
 
     // ---- SearchBackEndPlugin (storage) ----
 
     @Override
     public List<DataFormat> getSupportedFormats() {
         return List.of(new DataFormat() {
-            @Override public String name() { return LUCENE_DATA_FORMAT; }
-            @Override public long priority() { return 0; }
-            @Override public Set<FieldTypeCapabilities> supportedFields() {
+            @Override
+            public String name() {
+                return LUCENE_DATA_FORMAT;
+            }
+
+            @Override
+            public long priority() {
+                return 0;
+            }
+
+            @Override
+            public Set<FieldTypeCapabilities> supportedFields() {
                 return Set.of(
                     new FieldTypeCapabilities("integer", Set.of(POINT_RANGE, STORED_FIELDS)),
                     new FieldTypeCapabilities("long", Set.of(POINT_RANGE, STORED_FIELDS)),

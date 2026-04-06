@@ -35,8 +35,13 @@ public class OpenSearchShuffleReader extends SingleRel implements OpenSearchRelN
     private final List<String> viableBackends;
     private final ShuffleImpl shuffleImpl;
 
-    public OpenSearchShuffleReader(RelOptCluster cluster, RelTraitSet traitSet, RelNode input,
-                                   List<String> viableBackends, ShuffleImpl shuffleImpl) {
+    public OpenSearchShuffleReader(
+        RelOptCluster cluster,
+        RelTraitSet traitSet,
+        RelNode input,
+        List<String> viableBackends,
+        ShuffleImpl shuffleImpl
+    ) {
         super(cluster, traitSet, input);
         this.viableBackends = viableBackends;
         this.shuffleImpl = shuffleImpl;
@@ -75,16 +80,18 @@ public class OpenSearchShuffleReader extends SingleRel implements OpenSearchRelN
     }
 
     @Override
-    public RelNode copyResolved(String backend, List<RelNode> children,
-                                List<OperatorAnnotation> resolvedAnnotations) {
-        return new OpenSearchShuffleReader(getCluster(), getTraitSet(),
-            children.getFirst(), List.of(backend), shuffleImpl);
+    public RelNode copyResolved(String backend, List<RelNode> children, List<OperatorAnnotation> resolvedAnnotations) {
+        return new OpenSearchShuffleReader(getCluster(), getTraitSet(), children.getFirst(), List.of(backend), shuffleImpl);
     }
 
     @Override
     public RelNode stripAnnotations(List<RelNode> strippedChildren) {
-        return new OpenSearchShuffleReader(getCluster(), getTraitSet(),
+        return new OpenSearchShuffleReader(
+            getCluster(),
+            getTraitSet(),
             strippedChildren.isEmpty() ? getInput() : strippedChildren.getFirst(),
-            viableBackends, shuffleImpl);
+            viableBackends,
+            shuffleImpl
+        );
     }
 }

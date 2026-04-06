@@ -61,9 +61,7 @@ public class OpenSearchTableScanRule extends RelOptRule {
 
         // TODO : This expects the FrontEnds to attach the row type with all fields.
         // TODO : How will they attach if we perform the index resolution
-        List<String> fieldNames = scan.getRowType().getFieldList().stream()
-            .map(RelDataTypeField::getName)
-            .toList();
+        List<String> fieldNames = scan.getRowType().getFieldList().stream().map(RelDataTypeField::getName).toList();
         List<FieldStorageInfo> fieldStorage = fieldStorageResolver.resolve(fieldNames);
 
         // Viable backends: must support SCAN and be able to read ALL requested fields
@@ -91,19 +89,25 @@ public class OpenSearchTableScanRule extends RelOptRule {
                 if (fieldBackends.contains(candidate)) {
                     return false;
                 }
-                return !delegationSupporters.contains(candidate)
-                    || fieldBackends.stream().noneMatch(delegationAcceptors::contains);
+                return !delegationSupporters.contains(candidate) || fieldBackends.stream().noneMatch(delegationAcceptors::contains);
             });
         }
 
         if (viableBackends.isEmpty()) {
-            throw new IllegalStateException("No backend can scan all requested fields on index ["
-                + indexMetadata.getIndex().getName() + "]");
+            throw new IllegalStateException(
+                "No backend can scan all requested fields on index [" + indexMetadata.getIndex().getName() + "]"
+            );
         }
 
-        call.transformTo(OpenSearchTableScan.create(
-            scan.getCluster(), scan.getTable(), viableBackends, fieldStorage,
-            indexMetadata.getNumberOfShards(), context.getDistributionTraitDef()
-        ));
+        call.transformTo(
+            OpenSearchTableScan.create(
+                scan.getCluster(),
+                scan.getTable(),
+                viableBackends,
+                fieldStorage,
+                indexMetadata.getNumberOfShards(),
+                context.getDistributionTraitDef()
+            )
+        );
     }
 }

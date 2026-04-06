@@ -104,18 +104,15 @@ public class FieldStorageResolver {
         return result;
     }
 
-
     /**
      * Builds a lookup: formatName → fieldType → FieldTypeCapabilities
      * from all backends' DataFormats.
      */
-    private static Map<String, Map<String, FieldTypeCapabilities>> buildFormatCapabilities(
-            List<SearchBackEndPlugin<?>> backends) {
+    private static Map<String, Map<String, FieldTypeCapabilities>> buildFormatCapabilities(List<SearchBackEndPlugin<?>> backends) {
         Map<String, Map<String, FieldTypeCapabilities>> result = new LinkedHashMap<>();
         for (SearchBackEndPlugin<?> backend : backends) {
             for (DataFormat format : backend.getSupportedFormats()) {
-                Map<String, FieldTypeCapabilities> byFieldType = result.computeIfAbsent(
-                    format.name(), k -> new LinkedHashMap<>());
+                Map<String, FieldTypeCapabilities> byFieldType = result.computeIfAbsent(format.name(), k -> new LinkedHashMap<>());
                 for (FieldTypeCapabilities cap : format.supportedFields()) {
                     byFieldType.put(cap.fieldType(), cap);
                 }
@@ -124,9 +121,12 @@ public class FieldStorageResolver {
         return result;
     }
 
-    private static FieldStorageInfo resolveField(String fieldName, String fieldType,
-                                                  Map<String, Object> fieldProps,
-                                                  Map<String, Map<String, FieldTypeCapabilities>> formatCapabilities) {
+    private static FieldStorageInfo resolveField(
+        String fieldName,
+        String fieldType,
+        Map<String, Object> fieldProps,
+        Map<String, Map<String, FieldTypeCapabilities>> formatCapabilities
+    ) {
         List<String> docValueFormats = new ArrayList<>();
         List<String> indexFormats = new ArrayList<>();
         List<String> storedFieldFormats = new ArrayList<>();
@@ -140,8 +140,7 @@ public class FieldStorageResolver {
             if (caps.capabilities().contains(Capability.COLUMNAR_STORAGE)) {
                 docValueFormats.add(formatName);
             }
-            if (caps.capabilities().contains(Capability.FULL_TEXT_SEARCH)
-                    || caps.capabilities().contains(Capability.POINT_RANGE)) {
+            if (caps.capabilities().contains(Capability.FULL_TEXT_SEARCH) || caps.capabilities().contains(Capability.POINT_RANGE)) {
                 indexFormats.add(formatName);
             }
             if (caps.capabilities().contains(Capability.STORED_FIELDS)) {
@@ -152,8 +151,7 @@ public class FieldStorageResolver {
         // Respect mapping overrides: doc_values=false or index=false
         boolean hasDocValues = Boolean.TRUE.equals(fieldProps.get("doc_values"))
             || (fieldProps.get("doc_values") == null && !"text".equals(fieldType));
-        boolean isIndexed = Boolean.TRUE.equals(fieldProps.get("index"))
-            || fieldProps.get("index") == null;
+        boolean isIndexed = Boolean.TRUE.equals(fieldProps.get("index")) || fieldProps.get("index") == null;
 
         if (!hasDocValues) {
             docValueFormats = List.of();
@@ -166,7 +164,14 @@ public class FieldStorageResolver {
             throw new IllegalStateException("Field [" + fieldName + "] has no storage in any format");
         }
 
-        return new FieldStorageInfo(fieldName, fieldType, FieldType.fromMappingType(fieldType),
-            docValueFormats, indexFormats, storedFieldFormats, false);
+        return new FieldStorageInfo(
+            fieldName,
+            fieldType,
+            FieldType.fromMappingType(fieldType),
+            docValueFormats,
+            indexFormats,
+            storedFieldFormats,
+            false
+        );
     }
 }

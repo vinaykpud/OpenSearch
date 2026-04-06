@@ -104,7 +104,8 @@ public class AggregateCallAnnotation extends RexCall implements OperatorAnnotati
             call.distinctKeys,
             call.collation,
             call.type,
-            call.name);
+            call.name
+        );
     }
 
     @Override

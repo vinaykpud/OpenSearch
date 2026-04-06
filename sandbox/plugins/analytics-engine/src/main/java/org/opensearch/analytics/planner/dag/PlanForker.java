@@ -51,13 +51,12 @@ public class PlanForker {
             return;
         }
         List<Resolved> alternatives = resolve(stage.getFragment(), registry);
-        stage.setPlanAlternatives(alternatives.stream()
-            .map(resolved -> new StagePlan(resolved.node))
-            .toList());
+        stage.setPlanAlternatives(alternatives.stream().map(resolved -> new StagePlan(resolved.node)).toList());
     }
 
     /** Resolved node paired with the backend chosen at this operator level. */
-    private record Resolved(String chosenBackend, RelNode node) {}
+    private record Resolved(String chosenBackend, RelNode node) {
+    }
 
     private static List<Resolved> resolve(RelNode node, CapabilityRegistry registry) {
         List<List<Resolved>> childAlternativeSets = new ArrayList<>();
@@ -72,21 +71,17 @@ public class PlanForker {
         if (childAlternativeSets.size() == 1) {
             List<Resolved> results = new ArrayList<>();
             for (Resolved childAlt : childAlternativeSets.getFirst()) {
-                results.addAll(resolveOperator(node, List.of(childAlt.node),
-                    childAlt.chosenBackend, registry));
+                results.addAll(resolveOperator(node, List.of(childAlt.node), childAlt.chosenBackend, registry));
             }
             return results;
         }
 
         // TODO: multi-input operators (joins). Each side will typically be a separate
         // stage connected via StageInputScan, so this path may not be needed.
-        throw new UnsupportedOperationException(
-            "Multi-input plan forking not yet supported for: " + node.getClass().getSimpleName());
+        throw new UnsupportedOperationException("Multi-input plan forking not yet supported for: " + node.getClass().getSimpleName());
     }
 
-    private static List<Resolved> resolveOperator(RelNode node, List<RelNode> children,
-                                                   String childBackend,
-                                                   CapabilityRegistry registry) {
+    private static List<Resolved> resolveOperator(RelNode node, List<RelNode> children, String childBackend, CapabilityRegistry registry) {
         if (!(node instanceof OpenSearchRelNode openSearchNode)) {
             RelNode result = children.isEmpty() ? node : node.copy(node.getTraitSet(), children);
             String backend = childBackend != null ? childBackend : "";
@@ -100,8 +95,9 @@ public class PlanForker {
         OperatorCapability operatorCap = openSearchNode.getOperatorCapability();
         List<String> backendsToConsider = new ArrayList<>();
         for (String backend : openSearchNode.getViableBackends()) {
-            if (childBackend == null || backend.equals(childBackend)
-                    || (operatorCap != null && registry.isArrowCompatible(backend, operatorCap))) {
+            if (childBackend == null
+                || backend.equals(childBackend)
+                || (operatorCap != null && registry.isArrowCompatible(backend, operatorCap))) {
                 backendsToConsider.add(backend);
             }
         }
@@ -109,8 +105,7 @@ public class PlanForker {
         List<Resolved> results = new ArrayList<>();
         for (String backend : backendsToConsider) {
             if (annotations.isEmpty()) {
-                results.add(new Resolved(backend,
-                    openSearchNode.copyResolved(backend, children, List.of())));
+                results.add(new Resolved(backend, openSearchNode.copyResolved(backend, children, List.of())));
                 continue;
             }
 
@@ -122,9 +117,12 @@ public class PlanForker {
     }
 
     /** Generates one plan per distinct backend group across annotations. */
-    private static List<Resolved> resolveWithBranching(OpenSearchRelNode node, String backend,
-                                                       List<RelNode> children,
-                                                       List<OperatorAnnotation> annotations) {
+    private static List<Resolved> resolveWithBranching(
+        OpenSearchRelNode node,
+        String backend,
+        List<RelNode> children,
+        List<OperatorAnnotation> annotations
+    ) {
         Set<String> allAnnotationBackends = new LinkedHashSet<>();
         for (OperatorAnnotation annotation : annotations) {
             allAnnotationBackends.addAll(annotation.getViableBackends());
@@ -132,16 +130,17 @@ public class PlanForker {
 
         List<Resolved> results = new ArrayList<>();
         for (String targetBackend : allAnnotationBackends) {
-            List<OperatorAnnotation> resolved = resolveAnnotationsToTarget(
-                annotations, targetBackend, backend);
-            results.add(new Resolved(backend,
-                node.copyResolved(backend, children, resolved)));
+            List<OperatorAnnotation> resolved = resolveAnnotationsToTarget(annotations, targetBackend, backend);
+            results.add(new Resolved(backend, node.copyResolved(backend, children, resolved)));
         }
         return results;
     }
 
     private static List<OperatorAnnotation> resolveAnnotationsToTarget(
-            List<OperatorAnnotation> annotations, String targetBackend, String operatorBackend) {
+        List<OperatorAnnotation> annotations,
+        String targetBackend,
+        String operatorBackend
+    ) {
         List<OperatorAnnotation> resolved = new ArrayList<>();
         for (OperatorAnnotation annotation : annotations) {
             if (annotation.getViableBackends().contains(targetBackend)) {

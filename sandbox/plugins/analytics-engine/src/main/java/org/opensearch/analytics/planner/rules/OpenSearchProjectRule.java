@@ -56,8 +56,7 @@ public class OpenSearchProjectRule extends RelOptRule {
         }
 
         if (!(child instanceof OpenSearchRelNode openSearchChild)) {
-            throw new IllegalStateException(
-                "Project rule encountered unmarked child [" + child.getClass().getSimpleName() + "]");
+            throw new IllegalStateException("Project rule encountered unmarked child [" + child.getClass().getSimpleName() + "]");
         }
 
         List<String> childViableBackends = openSearchChild.getViableBackends();
@@ -71,18 +70,19 @@ public class OpenSearchProjectRule extends RelOptRule {
 
         List<String> viableBackends = computeProjectViableBackends(annotatedExprs, childViableBackends);
         if (viableBackends.isEmpty()) {
-            throw new IllegalStateException(
-                "No backend can execute all project expressions among " + childViableBackends);
+            throw new IllegalStateException("No backend can execute all project expressions among " + childViableBackends);
         }
 
-        call.transformTo(new OpenSearchProject(
-            project.getCluster(),
-            child.getTraitSet(),
-            RelNodeUtils.unwrapHep(project.getInput()),
-            annotatedExprs,
-            project.getRowType(),
-            viableBackends
-        ));
+        call.transformTo(
+            new OpenSearchProject(
+                project.getCluster(),
+                child.getTraitSet(),
+                RelNodeUtils.unwrapHep(project.getInput()),
+                annotatedExprs,
+                project.getRowType(),
+                viableBackends
+            )
+        );
     }
 
     private RexNode annotateExpr(RexNode expr, List<String> childViableBackends) {
@@ -96,11 +96,9 @@ public class OpenSearchProjectRule extends RelOptRule {
             if (isOpaqueOperation(funcName)) {
                 List<String> exprViable = resolveOpaqueViableBackends(funcName, childViableBackends);
                 if (exprViable.isEmpty()) {
-                    throw new IllegalStateException(
-                        "No backend can evaluate [" + funcName + "] and no delegation path exists");
+                    throw new IllegalStateException("No backend can evaluate [" + funcName + "] and no delegation path exists");
                 }
-                return new AnnotatedProjectExpression(rexCall.getType(), rexCall, exprViable,
-                    context.nextAnnotationId());
+                return new AnnotatedProjectExpression(rexCall.getType(), rexCall, exprViable, context.nextAnnotationId());
             }
         }
 
@@ -108,8 +106,8 @@ public class OpenSearchProjectRule extends RelOptRule {
         List<String> scalarViable = resolveScalarViableBackends(rexCall, childViableBackends);
         if (scalarViable.isEmpty()) {
             throw new IllegalStateException(
-                "No backend supports scalar function [" + ScalarFunction.fromSqlKind(rexCall.getKind())
-                    + "] among " + childViableBackends);
+                "No backend supports scalar function [" + ScalarFunction.fromSqlKind(rexCall.getKind()) + "] among " + childViableBackends
+            );
         }
 
         // Recurse into operands
@@ -124,8 +122,7 @@ public class OpenSearchProjectRule extends RelOptRule {
         }
 
         RexCall target = changed ? rexCall.clone(rexCall.getType(), newOperands) : rexCall;
-        return new AnnotatedProjectExpression(target.getType(), target, scalarViable,
-            context.nextAnnotationId());
+        return new AnnotatedProjectExpression(target.getType(), target, scalarViable, context.nextAnnotationId());
     }
 
     private List<String> resolveOpaqueViableBackends(String funcName, List<String> childViableBackends) {
@@ -138,10 +135,11 @@ public class OpenSearchProjectRule extends RelOptRule {
         // either it's in viable itself (native), or it can delegate to one that accepts
         List<String> delegationSupporters = registry.delegationSupporters(DelegationType.PROJECT);
         List<String> delegationAcceptors = registry.delegationAcceptors(DelegationType.PROJECT);
-        boolean reachable = childViableBackends.stream().anyMatch(candidateName ->
-            viable.contains(candidateName)
-                || (delegationSupporters.contains(candidateName)
-                    && viable.stream().anyMatch(delegationAcceptors::contains)));
+        boolean reachable = childViableBackends.stream()
+            .anyMatch(
+                candidateName -> viable.contains(candidateName)
+                    || (delegationSupporters.contains(candidateName) && viable.stream().anyMatch(delegationAcceptors::contains))
+            );
         return reachable ? viable : List.of();
     }
 
@@ -183,8 +181,7 @@ public class OpenSearchProjectRule extends RelOptRule {
         return viable;
     }
 
-    private List<String> computeProjectViableBackends(List<RexNode> annotatedExprs,
-                                                      List<String> childViableBackends) {
+    private List<String> computeProjectViableBackends(List<RexNode> annotatedExprs, List<String> childViableBackends) {
         // A child viable backend is viable for the project if for every expression it can
         // either evaluate natively (present in expression's viableBackends) or delegate to
         // a backend that can (supports PROJECT delegation to an acceptor in expression's viableBackends)

@@ -34,8 +34,7 @@ public class OpenSearchAggregateSplitRule extends RelOptRule {
     private final PlannerContext context;
 
     public OpenSearchAggregateSplitRule(PlannerContext context) {
-        super(operand(OpenSearchAggregate.class, operand(RelNode.class, any())),
-            "OpenSearchAggregateSplitRule");
+        super(operand(OpenSearchAggregate.class, operand(RelNode.class, any())), "OpenSearchAggregateSplitRule");
         this.context = context;
     }
 
@@ -51,8 +50,7 @@ public class OpenSearchAggregateSplitRule extends RelOptRule {
         RelNode child = call.rel(1);
 
         // Partial aggregate: runs on each partition, keeps input's traits
-        RelTraitSet partialTraits = child.getTraitSet()
-            .replace(OpenSearchConvention.INSTANCE);
+        RelTraitSet partialTraits = child.getTraitSet().replace(OpenSearchConvention.INSTANCE);
         OpenSearchAggregate partial = new OpenSearchAggregate(
             aggregate.getCluster(),
             partialTraits,
@@ -65,8 +63,7 @@ public class OpenSearchAggregateSplitRule extends RelOptRule {
         );
 
         // Request SINGLETON distribution — Volcano inserts Exchange automatically
-        RelTraitSet singletonTraits = partial.getTraitSet()
-            .replace(context.getDistributionTraitDef().singleton());
+        RelTraitSet singletonTraits = partial.getTraitSet().replace(context.getDistributionTraitDef().singleton());
         RelNode gathered = convert(partial, singletonTraits);
 
         // Final aggregate: merges partial states at coordinator

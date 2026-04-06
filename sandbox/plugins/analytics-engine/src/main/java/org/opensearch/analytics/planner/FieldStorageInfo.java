@@ -30,9 +30,15 @@ public class FieldStorageInfo {
     private final List<String> storedFieldFormats;
     private final boolean derived;
 
-    public FieldStorageInfo(String fieldName, String mappingType, FieldType fieldType,
-                            List<String> docValueFormats, List<String> indexFormats,
-                            List<String> storedFieldFormats, boolean derived) {
+    public FieldStorageInfo(
+        String fieldName,
+        String mappingType,
+        FieldType fieldType,
+        List<String> docValueFormats,
+        List<String> indexFormats,
+        List<String> storedFieldFormats,
+        boolean derived
+    ) {
         this.fieldName = fieldName;
         this.mappingType = mappingType;
         this.fieldType = fieldType;
@@ -45,9 +51,15 @@ public class FieldStorageInfo {
     /** Creates a derived column (agg result, expression) with no physical storage.
      *  FieldType inferred from SqlTypeName. */
     public static FieldStorageInfo derivedColumn(String fieldName, SqlTypeName sqlTypeName) {
-        return new FieldStorageInfo(fieldName, sqlTypeName.getName(),
+        return new FieldStorageInfo(
+            fieldName,
+            sqlTypeName.getName(),
             FieldType.fromSqlTypeName(sqlTypeName),
-            List.of(), List.of(), List.of(), true);
+            List.of(),
+            List.of(),
+            List.of(),
+            true
+        );
     }
 
     public String getFieldName() {

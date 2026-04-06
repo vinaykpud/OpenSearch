@@ -70,8 +70,7 @@ public class FragmentConversionDriver {
     // should know which FragmentConvertor method to call (e.g., OpenSearchTableScan
     // calls convertScanFragment, OpenSearchStageInputScan calls convertShuffleReadFragment
     // or convertStreamingFragment depending on parent exchange type).
-    private static byte[] convertByLeafType(RelNode stripped, String tableName,
-                                            RelNode original, FragmentConvertor convertor) {
+    private static byte[] convertByLeafType(RelNode stripped, String tableName, RelNode original, FragmentConvertor convertor) {
         RelNode leaf = findLeaf(original);
         if (leaf instanceof OpenSearchTableScan) {
             return convertor.convertScanFragment(tableName, stripped);

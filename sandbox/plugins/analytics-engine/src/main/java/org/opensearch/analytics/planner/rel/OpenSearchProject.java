@@ -34,9 +34,14 @@ public class OpenSearchProject extends Project implements OpenSearchRelNode {
 
     private final List<String> viableBackends;
 
-    public OpenSearchProject(RelOptCluster cluster, RelTraitSet traitSet, RelNode input,
-                             List<? extends RexNode> projects, RelDataType rowType,
-                             List<String> viableBackends) {
+    public OpenSearchProject(
+        RelOptCluster cluster,
+        RelTraitSet traitSet,
+        RelNode input,
+        List<? extends RexNode> projects,
+        RelDataType rowType,
+        List<String> viableBackends
+    ) {
         super(cluster, traitSet, List.of(), input, projects, rowType);
         this.viableBackends = viableBackends;
     }
@@ -50,8 +55,7 @@ public class OpenSearchProject extends Project implements OpenSearchRelNode {
     public List<FieldStorageInfo> getOutputFieldStorage() {
         RelNode input = RelNodeUtils.unwrapHep(getInput());
         if (!(input instanceof OpenSearchRelNode openSearchChild)) {
-            throw new IllegalStateException(
-                "Project child is not OpenSearchRelNode: " + input.getClass().getSimpleName());
+            throw new IllegalStateException("Project child is not OpenSearchRelNode: " + input.getClass().getSimpleName());
         }
         List<FieldStorageInfo> inputStorage = openSearchChild.getOutputFieldStorage();
 
@@ -62,8 +66,7 @@ public class OpenSearchProject extends Project implements OpenSearchRelNode {
                 result.add(inputStorage.get(ref.getIndex()));
             } else {
                 String fieldName = getRowType().getFieldList().get(i).getName();
-                result.add(FieldStorageInfo.derivedColumn(fieldName,
-                    getRowType().getFieldList().get(i).getType().getSqlTypeName()));
+                result.add(FieldStorageInfo.derivedColumn(fieldName, getRowType().getFieldList().get(i).getType().getSqlTypeName()));
             }
         }
         return result;
@@ -101,8 +104,7 @@ public class OpenSearchProject extends Project implements OpenSearchRelNode {
     }
 
     @Override
-    public RelNode copyResolved(String backend, List<RelNode> children,
-                                List<OperatorAnnotation> resolvedAnnotations) {
+    public RelNode copyResolved(String backend, List<RelNode> children, List<OperatorAnnotation> resolvedAnnotations) {
         int annotationIndex = 0;
         List<RexNode> resolvedExprs = new ArrayList<>();
         for (RexNode expr : getProjects()) {
@@ -112,8 +114,7 @@ public class OpenSearchProject extends Project implements OpenSearchRelNode {
                 resolvedExprs.add(expr);
             }
         }
-        return new OpenSearchProject(getCluster(), getTraitSet(), children.getFirst(),
-            resolvedExprs, getRowType(), List.of(backend));
+        return new OpenSearchProject(getCluster(), getTraitSet(), children.getFirst(), resolvedExprs, getRowType(), List.of(backend));
     }
 
     @Override
@@ -126,7 +127,6 @@ public class OpenSearchProject extends Project implements OpenSearchRelNode {
                 strippedExprs.add(expr);
             }
         }
-        return LogicalProject.create(strippedChildren.getFirst(), List.of(),
-            strippedExprs, getRowType());
+        return LogicalProject.create(strippedChildren.getFirst(), List.of(), strippedExprs, getRowType());
     }
 }

@@ -47,37 +47,51 @@ public class RelNodeUtils {
         return node;
     }
 
-    public static RelNode copyToCluster(RelNode node, RelOptCluster newCluster,
-                                        OpenSearchDistributionTraitDef distTraitDef) {
-        List<RelNode> newInputs = node.getInputs().stream()
-            .map(input -> copyToCluster(input, newCluster, distTraitDef))
-            .toList();
+    public static RelNode copyToCluster(RelNode node, RelOptCluster newCluster, OpenSearchDistributionTraitDef distTraitDef) {
+        List<RelNode> newInputs = node.getInputs().stream().map(input -> copyToCluster(input, newCluster, distTraitDef)).toList();
 
         RelTraitSet newTraits = rebuildTraits(node, newCluster, distTraitDef);
 
         if (node instanceof OpenSearchTableScan scan) {
-            return new OpenSearchTableScan(newCluster, newTraits, scan.getTable(),
-                scan.getViableBackends(), scan.getOutputFieldStorage());
+            return new OpenSearchTableScan(newCluster, newTraits, scan.getTable(), scan.getViableBackends(), scan.getOutputFieldStorage());
         } else if (node instanceof OpenSearchFilter filter) {
-            return new OpenSearchFilter(newCluster, newTraits, newInputs.getFirst(),
-                filter.getCondition(), filter.getViableBackends());
+            return new OpenSearchFilter(newCluster, newTraits, newInputs.getFirst(), filter.getCondition(), filter.getViableBackends());
         } else if (node instanceof OpenSearchAggregate aggregate) {
-            return new OpenSearchAggregate(newCluster, newTraits, newInputs.getFirst(),
-                aggregate.getGroupSet(), aggregate.getGroupSets(), aggregate.getAggCallList(),
-                aggregate.getMode(), aggregate.getViableBackends());
+            return new OpenSearchAggregate(
+                newCluster,
+                newTraits,
+                newInputs.getFirst(),
+                aggregate.getGroupSet(),
+                aggregate.getGroupSets(),
+                aggregate.getAggCallList(),
+                aggregate.getMode(),
+                aggregate.getViableBackends()
+            );
         } else if (node instanceof OpenSearchSort sort) {
-            return new OpenSearchSort(newCluster, newTraits, newInputs.getFirst(),
-                sort.getCollation(), sort.offset, sort.fetch, sort.getViableBackends());
+            return new OpenSearchSort(
+                newCluster,
+                newTraits,
+                newInputs.getFirst(),
+                sort.getCollation(),
+                sort.offset,
+                sort.fetch,
+                sort.getViableBackends()
+            );
         } else if (node instanceof OpenSearchProject project) {
-            return new OpenSearchProject(newCluster, newTraits, newInputs.getFirst(),
-                project.getProjects(), project.getRowType(), project.getViableBackends());
+            return new OpenSearchProject(
+                newCluster,
+                newTraits,
+                newInputs.getFirst(),
+                project.getProjects(),
+                project.getRowType(),
+                project.getViableBackends()
+            );
         }
 
         throw new UnsupportedOperationException("Cannot copy node type: " + node.getClass().getSimpleName());
     }
 
-    private static RelTraitSet rebuildTraits(RelNode node, RelOptCluster newCluster,
-                                             OpenSearchDistributionTraitDef distTraitDef) {
+    private static RelTraitSet rebuildTraits(RelNode node, RelOptCluster newCluster, OpenSearchDistributionTraitDef distTraitDef) {
         RelTraitSet traits = newCluster.traitSet().replace(OpenSearchConvention.INSTANCE);
 
         for (int index = 0; index < node.getTraitSet().size(); index++) {
