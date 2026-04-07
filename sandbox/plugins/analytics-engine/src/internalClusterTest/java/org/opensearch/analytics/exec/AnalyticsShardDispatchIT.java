@@ -10,7 +10,6 @@ package org.opensearch.analytics.exec;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.junit.After;
 import org.opensearch.Version;
 import org.opensearch.analytics.AnalyticsPlugin;
 import org.opensearch.arrow.flight.transport.FlightStreamPlugin;
@@ -26,6 +25,7 @@ import org.opensearch.ppl.action.UnifiedPPLExecuteAction;
 import org.opensearch.test.OpenSearchIntegTestCase;
 import org.opensearch.test.transport.MockTransportService;
 import org.opensearch.transport.TransportService;
+import org.junit.After;
 
 import java.util.Collection;
 import java.util.Collections;
@@ -49,26 +49,34 @@ public class AnalyticsShardDispatchIT extends OpenSearchIntegTestCase {
 
     @Override
     protected Collection<Class<? extends Plugin>> nodePlugins() {
-        return List.of(
-            MockTransportService.TestPlugin.class,
-            TestPPLPlugin.class,
-            FlightStreamPlugin.class
-        );
+        return List.of(MockTransportService.TestPlugin.class, TestPPLPlugin.class, FlightStreamPlugin.class);
     }
 
     @Override
     protected Collection<PluginInfo> additionalNodePlugins() {
         return List.of(
             new PluginInfo(
-                AnalyticsPlugin.class.getName(), "classpath plugin", "NA",
-                Version.CURRENT, "1.8", AnalyticsPlugin.class.getName(),
-                null, Collections.emptyList(), false
+                AnalyticsPlugin.class.getName(),
+                "classpath plugin",
+                "NA",
+                Version.CURRENT,
+                "1.8",
+                AnalyticsPlugin.class.getName(),
+                null,
+                Collections.emptyList(),
+                false
             ),
             new PluginInfo(
                 // TODO: Mock this - this dependency shouldn't exist in this IT.
-                LuceneSearchEnginePlugin.class.getName(), "classpath plugin", "NA",
-                Version.CURRENT, "1.8", LuceneSearchEnginePlugin.class.getName(),
-                null, List.of(AnalyticsPlugin.class.getName()), false
+                LuceneSearchEnginePlugin.class.getName(),
+                "classpath plugin",
+                "NA",
+                Version.CURRENT,
+                "1.8",
+                LuceneSearchEnginePlugin.class.getName(),
+                null,
+                List.of(AnalyticsPlugin.class.getName()),
+                false
             )
         );
     }
@@ -78,12 +86,7 @@ public class AnalyticsShardDispatchIT extends OpenSearchIntegTestCase {
         super.setUp();
         // Start a coord-only node so PPL queries go over the wire to data nodes,
         // where MockTransportService can intercept the shard action requests
-        coordNodeName = internalCluster().startNode(
-            Settings.builder()
-                .put("node.data", false)
-                .put("node.master", false)
-                .build()
-        );
+        coordNodeName = internalCluster().startNode(Settings.builder().put("node.data", false).put("node.master", false).build());
     }
 
     @After
@@ -107,9 +110,7 @@ public class AnalyticsShardDispatchIT extends OpenSearchIntegTestCase {
 
     public void testSingleShardQueryReturnsMockedResults() throws Exception {
         prepareCreate(TEST_INDEX).setSettings(
-            Settings.builder()
-                .put(IndexMetadata.SETTING_NUMBER_OF_SHARDS, 1)
-                .put(IndexMetadata.SETTING_NUMBER_OF_REPLICAS, 0)
+            Settings.builder().put(IndexMetadata.SETTING_NUMBER_OF_SHARDS, 1).put(IndexMetadata.SETTING_NUMBER_OF_REPLICAS, 0)
         ).setMapping("status", "type=keyword").get();
         client().prepareIndex(TEST_INDEX).setId("1").setSource("status", "active").get();
         refresh(TEST_INDEX);
@@ -117,15 +118,11 @@ public class AnalyticsShardDispatchIT extends OpenSearchIntegTestCase {
 
         // Register mock on the data node — intercepts inbound shard action requests
         String dataNodeName = internalCluster().getDataNodeNames().iterator().next();
-        MockTransportService dataNodeTransport = (MockTransportService) internalCluster()
-            .getInstance(TransportService.class, dataNodeName);
+        MockTransportService dataNodeTransport = (MockTransportService) internalCluster().getInstance(TransportService.class, dataNodeName);
         dataNodeTransport.addRequestHandlingBehavior(
             AnalyticsShardAction.NAME,
             (handler, request, channel, task) -> channel.sendResponse(
-                new FragmentExecutionResponse(
-                    List.of("status"),
-                    List.<Object[]>of(new Object[] { "mocked_active" })
-                )
+                new FragmentExecutionResponse(List.of("status"), List.<Object[]>of(new Object[] { "mocked_active" }))
             )
         );
 
@@ -143,9 +140,7 @@ public class AnalyticsShardDispatchIT extends OpenSearchIntegTestCase {
 
     public void testMockInterceptsAndReturnsCustomData() throws Exception {
         prepareCreate(TEST_INDEX).setSettings(
-            Settings.builder()
-                .put(IndexMetadata.SETTING_NUMBER_OF_SHARDS, 1)
-                .put(IndexMetadata.SETTING_NUMBER_OF_REPLICAS, 0)
+            Settings.builder().put(IndexMetadata.SETTING_NUMBER_OF_SHARDS, 1).put(IndexMetadata.SETTING_NUMBER_OF_REPLICAS, 0)
         ).setMapping("status", "type=keyword").get();
         client().prepareIndex(TEST_INDEX).setId("1").setSource("status", "active").get();
         refresh(TEST_INDEX);
@@ -153,18 +148,13 @@ public class AnalyticsShardDispatchIT extends OpenSearchIntegTestCase {
 
         // Register mock that returns 3 rows (proving mock overrides real shard execution)
         String dataNodeName = internalCluster().getDataNodeNames().iterator().next();
-        MockTransportService dataNodeTransport = (MockTransportService) internalCluster()
-            .getInstance(TransportService.class, dataNodeName);
+        MockTransportService dataNodeTransport = (MockTransportService) internalCluster().getInstance(TransportService.class, dataNodeName);
         dataNodeTransport.addRequestHandlingBehavior(
             AnalyticsShardAction.NAME,
             (handler, request, channel, task) -> channel.sendResponse(
                 new FragmentExecutionResponse(
                     List.of("status"),
-                    List.of(
-                        new Object[] { "mocked_1" },
-                        new Object[] { "mocked_2" },
-                        new Object[] { "mocked_3" }
-                    )
+                    List.of(new Object[] { "mocked_1" }, new Object[] { "mocked_2" }, new Object[] { "mocked_3" })
                 )
             )
         );
@@ -187,9 +177,7 @@ public class AnalyticsShardDispatchIT extends OpenSearchIntegTestCase {
     public void testMultiStageAggregateWithSumPlanOutput() throws Exception {
         String multiStageIndex = "multi_stage_agg_test";
         prepareCreate(multiStageIndex).setSettings(
-            Settings.builder()
-                .put(IndexMetadata.SETTING_NUMBER_OF_SHARDS, 3)
-                .put(IndexMetadata.SETTING_NUMBER_OF_REPLICAS, 0)
+            Settings.builder().put(IndexMetadata.SETTING_NUMBER_OF_SHARDS, 3).put(IndexMetadata.SETTING_NUMBER_OF_REPLICAS, 0)
         ).setMapping("status", "type=keyword", "amount", "type=long").get();
         client().prepareIndex(multiStageIndex).setId("1").setSource("status", "active", "amount", 100).get();
         client().prepareIndex(multiStageIndex).setId("2").setSource("status", "active", "amount", 200).get();
@@ -199,8 +187,7 @@ public class AnalyticsShardDispatchIT extends OpenSearchIntegTestCase {
 
         // Register mock on data node
         String dataNodeName = internalCluster().getDataNodeNames().iterator().next();
-        MockTransportService dataNodeTransport = (MockTransportService) internalCluster()
-            .getInstance(TransportService.class, dataNodeName);
+        MockTransportService dataNodeTransport = (MockTransportService) internalCluster().getInstance(TransportService.class, dataNodeName);
         dataNodeTransport.addRequestHandlingBehavior(
             AnalyticsShardAction.NAME,
             (handler, request, channel, task) -> channel.sendResponse(
@@ -211,19 +198,20 @@ public class AnalyticsShardDispatchIT extends OpenSearchIntegTestCase {
             )
         );
 
-        // SUM(amount) GROUP BY status — should trigger aggregate split into partial + final
+        // SUM(amount) GROUP BY status — triggers aggregate split into partial + final:
+        // Stage 0 [SINGLETON]: PartialAggregate(SUM) → Project → TableScan → dispatched to 3 shards
+        // Stage 1 [root]: Project → FinalAggregate(SUM) → ExchangeReducer → StageInputScan(0)
+        // Stage 0's mocked responses feed root sink. SimpleExchangeSink collects rows without
+        // final reduction, so result = 3 shards × 2 rows each = 6 partial aggregate rows.
         PPLRequest pplRequest = new PPLRequest("source = " + multiStageIndex + " | stats sum(amount) as total by status");
         try {
             PPLResponse response = coordClient().execute(UnifiedPPLExecuteAction.INSTANCE, pplRequest).actionGet();
-            logger.info("Multi-stage agg response: columns={}, rows={}", response.getColumns(), response.getRows().size());
-            assertNotNull(response);
-        } catch (Exception e) {
-            logger.info("Multi-stage agg query failed (expected): {}", e.getMessage());
-            Throwable cause = e;
-            while (cause != null) {
-                logger.info("  Caused by: {}: {}", cause.getClass().getSimpleName(), cause.getMessage());
-                cause = cause.getCause();
-            }
+
+            assertNotNull("Response should not be null", response);
+            assertTrue("Columns should contain 'total'", response.getColumns().contains("total"));
+            assertTrue("Columns should contain 'status'", response.getColumns().contains("status"));
+            // 3 shards × 2 rows each = 6 partial aggregate rows (no final reduction in SimpleExchangeSink)
+            assertEquals("Should have 6 rows (2 per shard × 3 shards)", 6, response.getRows().size());
         } finally {
             client().admin().indices().prepareDelete(multiStageIndex).get();
         }
@@ -237,9 +225,7 @@ public class AnalyticsShardDispatchIT extends OpenSearchIntegTestCase {
     public void testMultiStageProjectPlanOutput() throws Exception {
         String multiStageIndex = "multi_stage_test";
         prepareCreate(multiStageIndex).setSettings(
-            Settings.builder()
-                .put(IndexMetadata.SETTING_NUMBER_OF_SHARDS, 3)
-                .put(IndexMetadata.SETTING_NUMBER_OF_REPLICAS, 0)
+            Settings.builder().put(IndexMetadata.SETTING_NUMBER_OF_SHARDS, 3).put(IndexMetadata.SETTING_NUMBER_OF_REPLICAS, 0)
         ).setMapping("status", "type=keyword", "amount", "type=long").get();
         client().prepareIndex(multiStageIndex).setId("1").setSource("status", "active", "amount", 100).get();
         client().prepareIndex(multiStageIndex).setId("2").setSource("status", "active", "amount", 200).get();
@@ -249,42 +235,31 @@ public class AnalyticsShardDispatchIT extends OpenSearchIntegTestCase {
 
         // Register mock on data node to return partial aggregate results per shard
         String dataNodeName = internalCluster().getDataNodeNames().iterator().next();
-        MockTransportService dataNodeTransport = (MockTransportService) internalCluster()
-            .getInstance(TransportService.class, dataNodeName);
+        MockTransportService dataNodeTransport = (MockTransportService) internalCluster().getInstance(TransportService.class, dataNodeName);
         AtomicInteger counter = new AtomicInteger(0);
-        dataNodeTransport.addRequestHandlingBehavior(
-            AnalyticsShardAction.NAME,
-            (handler, request, channel, task) -> {
-                int shardNum = counter.getAndIncrement();
-                channel.sendResponse(
-                    new FragmentExecutionResponse(
-                        List.of("status", "count"),
-                        List.of(
-                            new Object[] { "active", (long) (shardNum + 1) },
-                            new Object[] { "inactive", (long) (shardNum * 2) }
-                        )
-                    )
-                );
-            }
-        );
+        dataNodeTransport.addRequestHandlingBehavior(AnalyticsShardAction.NAME, (handler, request, channel, task) -> {
+            int shardNum = counter.getAndIncrement();
+            channel.sendResponse(
+                new FragmentExecutionResponse(
+                    List.of("status", "count"),
+                    List.of(new Object[] { "active", (long) (shardNum + 1) }, new Object[] { "inactive", (long) (shardNum * 2) })
+                )
+            );
+        });
 
-        // This PPL query should trigger aggregate splitting:
-        // source = multi_stage_test | stats count() by status
+        // stats count() by status → triggers aggregate split:
+        // Stage 0 [SINGLETON]: PartialAggregate(COUNT) → Project → TableScan → dispatched to 3 shards
+        // Stage 1 [root]: Project → FinalAggregate(COUNT) → ExchangeReducer → StageInputScan(0)
+        // Stage 0's mocked responses feed root sink. 3 shards × 2 rows each = 6 rows.
         PPLRequest pplRequest = new PPLRequest("source = " + multiStageIndex + " | stats count() as cnt by status");
         try {
             PPLResponse response = coordClient().execute(UnifiedPPLExecuteAction.INSTANCE, pplRequest).actionGet();
-            // If it succeeds, log the result
-            logger.info("Multi-stage response: columns={}, rows={}", response.getColumns(), response.getRows().size());
-            assertNotNull(response);
-        } catch (Exception e) {
-            // Expected to fail for now — log the exception to see how far we got
-            logger.info("Multi-stage query failed (expected): {}", e.getMessage());
-            Throwable cause = e;
-            while (cause != null) {
-                logger.info("  Caused by: {}: {}", cause.getClass().getSimpleName(), cause.getMessage());
-                cause = cause.getCause();
-            }
-            // Don't fail the test — we just want to see the plan output in logs
+
+            assertNotNull("Response should not be null", response);
+            assertNotNull("Columns should not be null", response.getColumns());
+            assertFalse("Columns should not be empty", response.getColumns().isEmpty());
+            // 3 shards × 2 rows each = 6 partial aggregate rows
+            assertEquals("Should have 6 rows (2 per shard × 3 shards)", 6, response.getRows().size());
         } finally {
             client().admin().indices().prepareDelete(multiStageIndex).get();
         }
@@ -292,9 +267,7 @@ public class AnalyticsShardDispatchIT extends OpenSearchIntegTestCase {
 
     public void testShardFailurePropagates() throws Exception {
         prepareCreate(TEST_INDEX).setSettings(
-            Settings.builder()
-                .put(IndexMetadata.SETTING_NUMBER_OF_SHARDS, 1)
-                .put(IndexMetadata.SETTING_NUMBER_OF_REPLICAS, 0)
+            Settings.builder().put(IndexMetadata.SETTING_NUMBER_OF_SHARDS, 1).put(IndexMetadata.SETTING_NUMBER_OF_REPLICAS, 0)
         ).setMapping("status", "type=keyword").get();
         client().prepareIndex(TEST_INDEX).setId("1").setSource("status", "active").get();
         refresh(TEST_INDEX);
@@ -302,8 +275,7 @@ public class AnalyticsShardDispatchIT extends OpenSearchIntegTestCase {
 
         // Register mock that returns an error
         String dataNodeName = internalCluster().getDataNodeNames().iterator().next();
-        MockTransportService dataNodeTransport = (MockTransportService) internalCluster()
-            .getInstance(TransportService.class, dataNodeName);
+        MockTransportService dataNodeTransport = (MockTransportService) internalCluster().getInstance(TransportService.class, dataNodeName);
         dataNodeTransport.addRequestHandlingBehavior(
             AnalyticsShardAction.NAME,
             (handler, request, channel, task) -> channel.sendResponse(new RuntimeException("shard failed"))

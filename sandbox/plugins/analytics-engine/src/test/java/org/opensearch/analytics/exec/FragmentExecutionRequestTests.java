@@ -53,9 +53,7 @@ public class FragmentExecutionRequestTests extends OpenSearchTestCase {
 
     public void testNullFragmentBytesRoundTrip() throws IOException {
         ShardId shardId = new ShardId(new Index("test-index", "uuid"), 0);
-        List<FragmentExecutionRequest.PlanAlternative> alternatives = List.of(
-            new FragmentExecutionRequest.PlanAlternative("lucene", null)
-        );
+        List<FragmentExecutionRequest.PlanAlternative> alternatives = List.of(new FragmentExecutionRequest.PlanAlternative("lucene", null));
 
         FragmentExecutionRequest original = new FragmentExecutionRequest("query-456", 2, "task-def", shardId, alternatives);
 

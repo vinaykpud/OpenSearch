@@ -14,13 +14,16 @@ import org.apache.calcite.plan.RelOptTable;
 import org.apache.calcite.plan.RelTraitSet;
 import org.apache.calcite.plan.hep.HepPlanner;
 import org.apache.calcite.plan.hep.HepProgramBuilder;
-import org.apache.calcite.rel.RelNode;
+import org.apache.calcite.rel.RelDistribution;
 import org.apache.calcite.rel.type.RelDataType;
 import org.apache.calcite.rel.type.RelDataTypeFactory;
 import org.apache.calcite.rex.RexBuilder;
 import org.apache.calcite.sql.type.SqlTypeName;
+import org.opensearch.analytics.planner.dag.ExchangeInfo;
+import org.opensearch.analytics.planner.dag.Stage;
 import org.opensearch.analytics.planner.rel.OpenSearchStageInputScan;
 import org.opensearch.analytics.planner.rel.OpenSearchTableScan;
+import org.opensearch.analytics.planner.rel.ShuffleImpl;
 import org.opensearch.test.OpenSearchTestCase;
 
 import java.util.List;
@@ -29,7 +32,8 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 /**
- * Tests for {@link PlanWalker} helper methods: extractResolvedBackend and extractTableName.
+ * Tests for {@link Stage} computed properties: tableName, isCoordinatorGather, isShuffleWrite.
+ * These properties are computed once during Stage construction from the fragment.
  */
 public class PlanWalkerHelpersTests extends OpenSearchTestCase {
 
@@ -54,50 +58,56 @@ public class PlanWalkerHelpersTests extends OpenSearchTestCase {
         return new OpenSearchTableScan(cluster, RelTraitSet.createEmpty(), table, viableBackends, List.of());
     }
 
-    public void testExtractResolvedBackendFromTableScan() {
+    public void testTableNameFromTableScan() {
         OpenSearchTableScan scan = buildTableScan("http_logs", List.of("lucene"));
-        String backend = PlanWalker.extractResolvedBackend(scan);
-        assertEquals("lucene", backend);
+        Stage stage = new Stage(0, scan, List.of(), null);
+        assertEquals("http_logs", stage.getTableName());
     }
 
-    public void testExtractResolvedBackendFromNestedTree() {
+    public void testTableNameNullForStageInputScan() {
+        OpenSearchStageInputScan stageInput = new OpenSearchStageInputScan(
+            cluster, RelTraitSet.createEmpty(), 0, rowType, List.of());
+        Stage stage = new Stage(0, stageInput, List.of(), null);
+        assertNull(stage.getTableName());
+    }
+
+    public void testIsCoordinatorGatherNoExchangeNoTableScan() {
+        OpenSearchStageInputScan stageInput = new OpenSearchStageInputScan(
+            cluster, RelTraitSet.createEmpty(), 0, rowType, List.of());
+        Stage stage = new Stage(1, stageInput, List.of(), null);
+        assertTrue(stage.isCoordinatorGather());
+    }
+
+    public void testIsNotCoordinatorGatherWithTableScan() {
         OpenSearchTableScan scan = buildTableScan("http_logs", List.of("lucene"));
-
-        // Inner wrapper (simulates project node)
-        RelNode inner = mock(RelNode.class);
-        when(inner.getInputs()).thenReturn(List.of(scan));
-
-        // Outer wrapper (simulates filter node)
-        RelNode outer = mock(RelNode.class);
-        when(outer.getInputs()).thenReturn(List.of(inner));
-
-        String backend = PlanWalker.extractResolvedBackend(outer);
-        assertEquals("lucene", backend);
+        Stage stage = new Stage(0, scan, List.of(), null);
+        assertFalse(stage.isCoordinatorGather());
     }
 
-    public void testExtractResolvedBackendReturnsBackendForStageInputScan() {
-        OpenSearchStageInputScan stageInput = new OpenSearchStageInputScan(cluster, RelTraitSet.createEmpty(), 0, rowType, List.of("mock-parquet"));
-
-        RelNode wrapper = mock(RelNode.class);
-        when(wrapper.getInputs()).thenReturn(List.of(stageInput));
-
-        String backend = PlanWalker.extractResolvedBackend(wrapper);
-        assertEquals("mock-parquet", backend);
-    }
-
-    public void testExtractTableNameFromTableScan() {
+    public void testIsNotCoordinatorGatherWithExchange() {
         OpenSearchTableScan scan = buildTableScan("http_logs", List.of("lucene"));
-        String tableName = PlanWalker.extractTableName(scan);
-        assertEquals("http_logs", tableName);
+        ExchangeInfo exchange = new ExchangeInfo(RelDistribution.Type.SINGLETON, null, List.of());
+        Stage stage = new Stage(0, scan, List.of(), exchange);
+        assertFalse(stage.isCoordinatorGather());
     }
 
-    public void testExtractTableNameReturnsNullForStageInputScan() {
-        OpenSearchStageInputScan stageInput = new OpenSearchStageInputScan(cluster, RelTraitSet.createEmpty(), 0, rowType, List.of("mock-parquet"));
+    public void testIsShuffleWriteWithHashExchange() {
+        OpenSearchTableScan scan = buildTableScan("http_logs", List.of("lucene"));
+        ExchangeInfo exchange = new ExchangeInfo(RelDistribution.Type.HASH_DISTRIBUTED, ShuffleImpl.FILE, List.of(0));
+        Stage stage = new Stage(0, scan, List.of(), exchange);
+        assertTrue(stage.isShuffleWrite());
+    }
 
-        RelNode wrapper = mock(RelNode.class);
-        when(wrapper.getInputs()).thenReturn(List.of(stageInput));
+    public void testIsNotShuffleWriteWithSingletonExchange() {
+        OpenSearchTableScan scan = buildTableScan("http_logs", List.of("lucene"));
+        ExchangeInfo exchange = new ExchangeInfo(RelDistribution.Type.SINGLETON, null, List.of());
+        Stage stage = new Stage(0, scan, List.of(), exchange);
+        assertFalse(stage.isShuffleWrite());
+    }
 
-        String tableName = PlanWalker.extractTableName(wrapper);
-        assertNull(tableName);
+    public void testIsNotShuffleWriteWithNoExchange() {
+        OpenSearchTableScan scan = buildTableScan("http_logs", List.of("lucene"));
+        Stage stage = new Stage(0, scan, List.of(), null);
+        assertFalse(stage.isShuffleWrite());
     }
 }

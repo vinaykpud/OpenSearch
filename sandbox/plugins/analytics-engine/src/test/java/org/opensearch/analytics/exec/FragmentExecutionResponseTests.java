@@ -15,6 +15,7 @@ import org.opensearch.test.OpenSearchTestCase;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Tests for {@link FragmentExecutionResponse} serialization and getters.
@@ -34,6 +35,8 @@ public class FragmentExecutionResponseTests extends OpenSearchTestCase {
         StreamInput in = out.bytes().streamInput();
         FragmentExecutionResponse deserialized = new FragmentExecutionResponse(in);
 
+        assertFalse(deserialized.hasMetadata());
+        assertNull(deserialized.getMetadata());
         assertEquals(fieldNames, deserialized.getFieldNames());
         assertEquals(rows.size(), deserialized.getRows().size());
         for (int r = 0; r < rows.size(); r++) {
@@ -57,6 +60,7 @@ public class FragmentExecutionResponseTests extends OpenSearchTestCase {
         StreamInput in = out.bytes().streamInput();
         FragmentExecutionResponse deserialized = new FragmentExecutionResponse(in);
 
+        assertFalse(deserialized.hasMetadata());
         assertEquals(fieldNames, deserialized.getFieldNames());
         assertTrue(deserialized.getRows().isEmpty());
     }
@@ -68,8 +72,55 @@ public class FragmentExecutionResponseTests extends OpenSearchTestCase {
 
         FragmentExecutionResponse response = new FragmentExecutionResponse(fieldNames, rows);
 
+        assertFalse(response.hasMetadata());
+        assertNull(response.getMetadata());
         assertEquals(fieldNames, response.getFieldNames());
         assertEquals(1, response.getRows().size());
         assertArrayEquals(new Object[] { "hello", 99L }, response.getRows().get(0));
+    }
+
+    public void testMetadataResponseGetMetadata() {
+        Map<String, String> metadata = Map.of("partition_0", "/tmp/shuffle/p0", "partition_1", "/tmp/shuffle/p1");
+        FragmentExecutionResponse response = new FragmentExecutionResponse(metadata);
+
+        assertTrue(response.hasMetadata());
+        assertEquals(metadata, response.getMetadata());
+        assertTrue(response.getFieldNames().isEmpty());
+        assertTrue(response.getRows().isEmpty());
+    }
+
+    public void testRowResponseHasNoMetadata() {
+        FragmentExecutionResponse response = new FragmentExecutionResponse(List.of("col"), new ArrayList<>());
+
+        assertFalse(response.hasMetadata());
+        assertNull(response.getMetadata());
+    }
+
+    public void testMetadataSerializationRoundTrip() throws IOException {
+        Map<String, String> metadata = Map.of("flight_ticket", "ticket-abc", "endpoint", "node-a:8815");
+        FragmentExecutionResponse original = new FragmentExecutionResponse(metadata);
+
+        BytesStreamOutput out = new BytesStreamOutput();
+        original.writeTo(out);
+        StreamInput in = out.bytes().streamInput();
+        FragmentExecutionResponse deserialized = new FragmentExecutionResponse(in);
+
+        assertTrue(deserialized.hasMetadata());
+        assertEquals(metadata, deserialized.getMetadata());
+        assertTrue(deserialized.getFieldNames().isEmpty());
+        assertTrue(deserialized.getRows().isEmpty());
+    }
+
+    public void testEmptyMetadataSerializationRoundTrip() throws IOException {
+        Map<String, String> metadata = Map.of();
+        FragmentExecutionResponse original = new FragmentExecutionResponse(metadata);
+
+        BytesStreamOutput out = new BytesStreamOutput();
+        original.writeTo(out);
+        StreamInput in = out.bytes().streamInput();
+        FragmentExecutionResponse deserialized = new FragmentExecutionResponse(in);
+
+        assertTrue(deserialized.hasMetadata());
+        assertEquals(metadata, deserialized.getMetadata());
     }
 }

@@ -35,13 +35,7 @@ public class FragmentExecutionRequest extends ActionRequest {
     private final ShardId shardId;
     private final List<PlanAlternative> planAlternatives;
 
-    public FragmentExecutionRequest(
-        String queryId,
-        int stageId,
-        String taskId,
-        ShardId shardId,
-        List<PlanAlternative> planAlternatives
-    ) {
+    public FragmentExecutionRequest(String queryId, int stageId, String taskId, ShardId shardId, List<PlanAlternative> planAlternatives) {
         this.queryId = queryId;
         this.stageId = stageId;
         this.taskId = taskId;
@@ -75,14 +69,30 @@ public class FragmentExecutionRequest extends ActionRequest {
         }
     }
 
-    public String getQueryId() { return queryId; }
-    public int getStageId() { return stageId; }
-    public String getTaskId() { return taskId; }
-    public ShardId getShardId() { return shardId; }
-    public List<PlanAlternative> getPlanAlternatives() { return planAlternatives; }
+    public String getQueryId() {
+        return queryId;
+    }
+
+    public int getStageId() {
+        return stageId;
+    }
+
+    public String getTaskId() {
+        return taskId;
+    }
+
+    public ShardId getShardId() {
+        return shardId;
+    }
+
+    public List<PlanAlternative> getPlanAlternatives() {
+        return planAlternatives;
+    }
 
     @Override
-    public ActionRequestValidationException validate() { return null; }
+    public ActionRequestValidationException validate() {
+        return null;
+    }
 
     /**
      * A single plan alternative: a backend ID paired with its serialized fragment bytes.
@@ -109,7 +119,12 @@ public class FragmentExecutionRequest extends ActionRequest {
             out.writeByteArray(fragmentBytes != null ? fragmentBytes : new byte[0]);
         }
 
-        public String getBackendId() { return backendId; }
-        public byte[] getFragmentBytes() { return fragmentBytes; }
+        public String getBackendId() {
+            return backendId;
+        }
+
+        public byte[] getFragmentBytes() {
+            return fragmentBytes;
+        }
     }
 }

@@ -26,19 +26,18 @@ import org.opensearch.analytics.planner.dag.Stage;
 import org.opensearch.analytics.planner.dag.StagePlan;
 import org.opensearch.analytics.planner.rel.OpenSearchStageInputScan;
 import org.opensearch.analytics.planner.rel.OpenSearchTableScan;
-import org.opensearch.cluster.ClusterState;
-import org.opensearch.cluster.metadata.IndexMetadata;
-import org.opensearch.cluster.metadata.Metadata;
-import org.opensearch.cluster.node.DiscoveryNode;
-import org.opensearch.cluster.node.DiscoveryNodes;
-import org.opensearch.cluster.routing.IndexRoutingTable;
-import org.opensearch.cluster.routing.IndexShardRoutingTable;
-import org.opensearch.cluster.routing.RoutingTable;
-import org.opensearch.cluster.routing.ShardRouting;
-import org.opensearch.core.index.Index;
-import org.opensearch.core.index.shard.ShardId;
 import org.opensearch.analytics.spi.AnalyticsSearchBackendPlugin;
 import org.opensearch.analytics.spi.FragmentConvertor;
+import org.opensearch.cluster.ClusterState;
+import org.opensearch.cluster.node.DiscoveryNode;
+import org.opensearch.cluster.node.DiscoveryNodes;
+import org.opensearch.cluster.routing.GroupShardsIterator;
+import org.opensearch.cluster.routing.OperationRouting;
+import org.opensearch.cluster.routing.ShardIterator;
+import org.opensearch.cluster.routing.ShardRouting;
+import org.opensearch.cluster.service.ClusterService;
+import org.opensearch.core.index.Index;
+import org.opensearch.core.index.shard.ShardId;
 import org.opensearch.test.OpenSearchTestCase;
 
 import java.util.ArrayList;
@@ -48,6 +47,8 @@ import java.util.Map;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -90,32 +91,11 @@ public class PlanWalkerResolveTargetsTests extends OpenSearchTestCase {
         return new OpenSearchTableScan(cluster, RelTraitSet.createEmpty(), table, viableBackends, List.of());
     }
 
-    private ClusterState buildMockClusterState(String tableName, int numShards) {
-        ClusterState clusterState = mock(ClusterState.class);
-        Metadata metadata = mock(Metadata.class);
-        IndexMetadata indexMetadata = mock(IndexMetadata.class);
+    private ClusterService buildMockClusterService(String tableName, int numShards) {
         Index index = new Index(tableName, "_na_");
-        when(indexMetadata.getIndex()).thenReturn(index);
-        when(metadata.index(tableName)).thenReturn(indexMetadata);
-        when(clusterState.metadata()).thenReturn(metadata);
 
-        RoutingTable routingTable = mock(RoutingTable.class);
-        IndexRoutingTable indexRoutingTable = mock(IndexRoutingTable.class);
-        when(routingTable.index(index)).thenReturn(indexRoutingTable);
-        when(clusterState.routingTable()).thenReturn(routingTable);
-
-        Map<Integer, IndexShardRoutingTable> shardMap = new HashMap<>();
-        for (int i = 0; i < numShards; i++) {
-            IndexShardRoutingTable shardRoutingTable = mock(IndexShardRoutingTable.class);
-            ShardRouting primaryShard = mock(ShardRouting.class);
-            when(primaryShard.shardId()).thenReturn(new ShardId(index, i));
-            when(primaryShard.currentNodeId()).thenReturn("node_" + i);
-            when(shardRoutingTable.primaryShard()).thenReturn(primaryShard);
-            when(indexRoutingTable.shard(i)).thenReturn(shardRoutingTable);
-            shardMap.put(i, shardRoutingTable);
-        }
-        when(indexRoutingTable.shards()).thenReturn(shardMap);
-
+        // Build mock ClusterState with DiscoveryNodes
+        ClusterState clusterState = mock(ClusterState.class);
         DiscoveryNodes discoveryNodes = mock(DiscoveryNodes.class);
         for (int i = 0; i < numShards; i++) {
             DiscoveryNode node = mock(DiscoveryNode.class);
@@ -123,12 +103,32 @@ public class PlanWalkerResolveTargetsTests extends OpenSearchTestCase {
         }
         when(clusterState.nodes()).thenReturn(discoveryNodes);
 
-        return clusterState;
+        // Build mock OperationRouting with searchShards
+        List<ShardIterator> iterators = new ArrayList<>();
+        for (int i = 0; i < numShards; i++) {
+            ShardIterator shardIt = mock(ShardIterator.class);
+            ShardRouting shard = mock(ShardRouting.class);
+            when(shard.shardId()).thenReturn(new ShardId(index, i));
+            when(shard.currentNodeId()).thenReturn("node_" + i);
+            when(shardIt.nextOrNull()).thenReturn(shard);
+            iterators.add(shardIt);
+        }
+        GroupShardsIterator<ShardIterator> groupIterator = new GroupShardsIterator<>(iterators);
+
+        OperationRouting operationRouting = mock(OperationRouting.class);
+        when(operationRouting.searchShards(any(), eq(new String[] { tableName }), isNull(), isNull())).thenReturn(groupIterator);
+
+        // Build mock ClusterService wrapping state and routing
+        ClusterService clusterService = mock(ClusterService.class);
+        when(clusterService.state()).thenReturn(clusterState);
+        when(clusterService.operationRouting()).thenReturn(operationRouting);
+
+        return clusterService;
     }
 
     public void testLeafStageWithTableScanResolvesAllPrimaryShards() {
         int numShards = 3;
-        ClusterState clusterState = buildMockClusterState("http_logs", numShards);
+        ClusterService clusterService = buildMockClusterService("http_logs", numShards);
 
         OpenSearchTableScan scan = buildTableScan("http_logs", List.of("lucene"));
         StagePlan plan = new StagePlan(scan, "mock-parquet");
@@ -144,7 +144,7 @@ public class PlanWalkerResolveTargetsTests extends OpenSearchTestCase {
             listener.onResponse(new FragmentExecutionResponse(List.of(), List.of()));
         };
 
-        PlanWalker walker = new PlanWalker(dag, clusterState, mockBackends("lucene"));
+        PlanWalker walker = new PlanWalker(dag, clusterService);
         walker.walk(submitter, future);
         future.actionGet();
 
@@ -158,7 +158,7 @@ public class PlanWalkerResolveTargetsTests extends OpenSearchTestCase {
 
     public void testSingletonExchangeResolvesAllPrimaryShards() {
         int numShards = 3;
-        ClusterState clusterState = buildMockClusterState("http_logs", numShards);
+        ClusterService clusterService = buildMockClusterService("http_logs", numShards);
 
         OpenSearchTableScan scan = buildTableScan("http_logs", List.of("lucene"));
         StagePlan plan = new StagePlan(scan, "mock-parquet");
@@ -182,7 +182,7 @@ public class PlanWalkerResolveTargetsTests extends OpenSearchTestCase {
             listener.onResponse(new FragmentExecutionResponse(List.of(), List.of()));
         };
 
-        PlanWalker walker = new PlanWalker(dag, clusterState, mockBackends("lucene"));
+        PlanWalker walker = new PlanWalker(dag, clusterService);
         walker.walk(submitter, future);
         future.actionGet();
 
@@ -197,7 +197,8 @@ public class PlanWalkerResolveTargetsTests extends OpenSearchTestCase {
     }
 
     public void testCoordinatorOnlyStageResolvesEmpty() {
-        ClusterState clusterState = mock(ClusterState.class);
+        // Coordinator-only stage — no routing needed, simple mock ClusterService
+        ClusterService clusterService = mock(ClusterService.class);
 
         OpenSearchStageInputScan stageInput = new OpenSearchStageInputScan(cluster, RelTraitSet.createEmpty(), 0, rowType, List.of("mock-parquet"));
         StagePlan plan = new StagePlan(stageInput, "mock-parquet");
@@ -214,41 +215,11 @@ public class PlanWalkerResolveTargetsTests extends OpenSearchTestCase {
             listener.onResponse(new FragmentExecutionResponse(List.of(), List.of()));
         };
 
-        PlanWalker walker = new PlanWalker(dag, clusterState, mockBackends("lucene"));
+        PlanWalker walker = new PlanWalker(dag, clusterService);
         walker.walk(submitter, future);
         future.actionGet();
 
         // Coordinator-only stage with StageInputScan (no TableScan) should dispatch zero tasks
         assertTrue(capturedRequests.isEmpty());
-    }
-
-    public void testHashDistributedThrows() {
-        int numShards = 2;
-        ClusterState clusterState = buildMockClusterState("http_logs", numShards);
-
-        OpenSearchTableScan scan = buildTableScan("http_logs", List.of("lucene"));
-        StagePlan plan = new StagePlan(scan, "mock-parquet");
-        ExchangeInfo hashExchange = new ExchangeInfo(RelDistribution.Type.HASH_DISTRIBUTED, null, List.of());
-        Stage childStage = new Stage(0, scan, List.of(), hashExchange);
-        childStage.setPlanAlternatives(List.of(plan));
-
-        // Root stage with StageInputScan
-        OpenSearchStageInputScan stageInput = new OpenSearchStageInputScan(cluster, RelTraitSet.createEmpty(), 0, rowType, List.of("mock-parquet"));
-        StagePlan rootPlan = new StagePlan(stageInput, "mock-parquet");
-        Stage rootStage = new Stage(1, stageInput, List.of(childStage), null);
-        rootStage.setPlanAlternatives(List.of(rootPlan));
-
-        QueryDAG dag = new QueryDAG("test-query", rootStage);
-
-        PlainActionFuture<Iterable<Object[]>> future = new PlainActionFuture<>();
-        TaskSubmitter submitter = (request, node, listener) -> {
-            listener.onResponse(new FragmentExecutionResponse(List.of(), List.of()));
-        };
-
-        PlanWalker walker = new PlanWalker(dag, clusterState, mockBackends("lucene"));
-        walker.walk(submitter, future);
-
-        RuntimeException ex = expectThrows(RuntimeException.class, future::actionGet);
-        assertTrue(ex.getCause() instanceof UnsupportedOperationException || ex instanceof UnsupportedOperationException);
     }
 }

@@ -68,10 +68,9 @@ public class AnalyticsSearchService {
         if (selectedPlan == null) {
             throw new IllegalArgumentException(
                 "No plan alternative matches available backends. Alternatives: "
-                    + request.getPlanAlternatives().stream()
-                        .map(FragmentExecutionRequest.PlanAlternative::getBackendId)
-                        .toList()
-                    + ". Available: " + backends.keySet()
+                    + request.getPlanAlternatives().stream().map(FragmentExecutionRequest.PlanAlternative::getBackendId).toList()
+                    + ". Available: "
+                    + backends.keySet()
             );
         }
 

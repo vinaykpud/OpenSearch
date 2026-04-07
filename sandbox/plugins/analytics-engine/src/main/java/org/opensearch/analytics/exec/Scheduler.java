@@ -78,12 +78,12 @@ public class Scheduler {
         );
 
         pending.tryRun(() -> {
-            transportServiceSupplier.get().sendRequest(
-                targetNode,
-                AnalyticsShardAction.NAME,
-                request,
-                new ActionListenerResponseHandler<>(
-                    ActionListener.wrap(response -> {
+            transportServiceSupplier.get()
+                .sendRequest(
+                    targetNode,
+                    AnalyticsShardAction.NAME,
+                    request,
+                    new ActionListenerResponseHandler<>(ActionListener.wrap(response -> {
                         try {
                             listener.onResponse(response);
                         } finally {
@@ -95,10 +95,8 @@ public class Scheduler {
                         } finally {
                             pending.finishAndRunNext();
                         }
-                    }),
-                    FragmentExecutionResponse::new
-                )
-            );
+                    }), FragmentExecutionResponse::new)
+                );
         });
     }
 
