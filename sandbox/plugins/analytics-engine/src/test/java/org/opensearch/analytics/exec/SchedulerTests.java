@@ -141,10 +141,16 @@ public class SchedulerTests extends OpenSearchTestCase {
 
     public void testWalkerRemovedFromPoolAfterSuccess() throws Exception {
         TransportService transportService = mock(TransportService.class);
-        Scheduler scheduler = new Scheduler(() -> transportService, 5);
+        Scheduler scheduler = new Scheduler(transportService, 5);
 
         // Build a coordinator-only stage (StageInputScan, no TableScan) → empty targets → immediate success
-        OpenSearchStageInputScan stageInput = new OpenSearchStageInputScan(cluster, RelTraitSet.createEmpty(), 0, rowType, List.of("mock-parquet"));
+        OpenSearchStageInputScan stageInput = new OpenSearchStageInputScan(
+            cluster,
+            RelTraitSet.createEmpty(),
+            0,
+            rowType,
+            List.of("mock-parquet")
+        );
         StagePlan plan = new StagePlan(stageInput, "mock-parquet");
         Stage stage = new Stage(1, stageInput, List.of(), null);
         stage.setPlanAlternatives(List.of(plan));
@@ -152,7 +158,7 @@ public class SchedulerTests extends OpenSearchTestCase {
 
         // Coordinator-only stage — no routing needed, simple mock ClusterService
         ClusterService clusterService = mock(ClusterService.class);
-        PlanWalker walker = new PlanWalker(dag, clusterService);
+        PlanWalker walker = new PlanWalker(dag, clusterService, Runnable::run, null);
 
         PlainActionFuture<Iterable<Object[]>> future = new PlainActionFuture<>();
         scheduler.execute(walker, future);
@@ -170,7 +176,7 @@ public class SchedulerTests extends OpenSearchTestCase {
 
     public void testWalkerRemovedFromPoolOnFailure() throws Exception {
         TransportService transportService = mock(TransportService.class);
-        Scheduler scheduler = new Scheduler(() -> transportService, 5);
+        Scheduler scheduler = new Scheduler(transportService, 5);
 
         // Build a single-stage DAG with 1 shard so that dispatchTask is called.
         // The mock client will trigger a failure.
@@ -195,7 +201,7 @@ public class SchedulerTests extends OpenSearchTestCase {
                 any(org.opensearch.transport.TransportResponseHandler.class)
             );
 
-        PlanWalker walker = new PlanWalker(dag, clusterService);
+        PlanWalker walker = new PlanWalker(dag, clusterService, Runnable::run, null);
 
         PlainActionFuture<Iterable<Object[]>> future = new PlainActionFuture<>();
         scheduler.execute(walker, future);
@@ -211,7 +217,7 @@ public class SchedulerTests extends OpenSearchTestCase {
 
     public void testDispatchTaskCallsTransportServiceSendRequest() throws Exception {
         TransportService transportService = mock(TransportService.class);
-        Scheduler scheduler = new Scheduler(() -> transportService, 5);
+        Scheduler scheduler = new Scheduler(transportService, 5);
 
         // Mock transportService.sendRequest to call onResponse immediately via handler
         doAnswer(invocation -> {
@@ -235,7 +241,7 @@ public class SchedulerTests extends OpenSearchTestCase {
         stage.setPlanAlternatives(List.of(plan));
         QueryDAG dag = new QueryDAG("test-query-dispatch", stage);
 
-        PlanWalker walker = new PlanWalker(dag, clusterService);
+        PlanWalker walker = new PlanWalker(dag, clusterService, Runnable::run, null);
 
         PlainActionFuture<Iterable<Object[]>> future = new PlainActionFuture<>();
         scheduler.execute(walker, future);

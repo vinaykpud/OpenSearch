@@ -134,7 +134,7 @@ public class DataFusionPlugin extends Plugin implements SearchBackEndPlugin<Data
             .spillDirectory(spillDir)
             .build();
         dataFusionService.start();
-        logger.info("DataFusion plugin initialized — memory pool {}B, spill limit {}B", memoryPoolLimit, spillMemoryLimit);
+        logger.debug("DataFusion plugin initialized — memory pool {}B, spill limit {}B", memoryPoolLimit, spillMemoryLimit);
 
         return Collections.singletonList(dataFusionService);
     }

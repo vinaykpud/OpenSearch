@@ -65,15 +65,13 @@ public class PlanWalkerHelpersTests extends OpenSearchTestCase {
     }
 
     public void testTableNameNullForStageInputScan() {
-        OpenSearchStageInputScan stageInput = new OpenSearchStageInputScan(
-            cluster, RelTraitSet.createEmpty(), 0, rowType, List.of());
+        OpenSearchStageInputScan stageInput = new OpenSearchStageInputScan(cluster, RelTraitSet.createEmpty(), 0, rowType, List.of());
         Stage stage = new Stage(0, stageInput, List.of(), null);
         assertNull(stage.getTableName());
     }
 
     public void testIsCoordinatorGatherNoExchangeNoTableScan() {
-        OpenSearchStageInputScan stageInput = new OpenSearchStageInputScan(
-            cluster, RelTraitSet.createEmpty(), 0, rowType, List.of());
+        OpenSearchStageInputScan stageInput = new OpenSearchStageInputScan(cluster, RelTraitSet.createEmpty(), 0, rowType, List.of());
         Stage stage = new Stage(1, stageInput, List.of(), null);
         assertTrue(stage.isCoordinatorGather());
     }

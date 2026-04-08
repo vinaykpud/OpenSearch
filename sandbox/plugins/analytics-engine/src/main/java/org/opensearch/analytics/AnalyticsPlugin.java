@@ -15,11 +15,11 @@ import org.apache.calcite.sql.util.SqlOperatorTables;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.opensearch.action.ActionRequest;
+import org.opensearch.analytics.exec.AnalyticsQueryAction;
 import org.opensearch.analytics.exec.AnalyticsSearchService;
 import org.opensearch.analytics.exec.AnalyticsShardAction;
 import org.opensearch.analytics.exec.DefaultPlanExecutor;
 import org.opensearch.analytics.exec.QueryPlanExecutor;
-import org.opensearch.analytics.exec.Scheduler;
 import org.opensearch.analytics.exec.TransportAnalyticsShardAction;
 import org.opensearch.analytics.planner.CapabilityRegistry;
 import org.opensearch.analytics.planner.FieldStorageResolver;
@@ -38,10 +38,10 @@ import org.opensearch.env.NodeEnvironment;
 import org.opensearch.plugins.ActionPlugin;
 import org.opensearch.plugins.ExtensiblePlugin;
 import org.opensearch.plugins.Plugin;
+import org.opensearch.plugins.SearchBackEndPlugin;
 import org.opensearch.repositories.RepositoriesService;
 import org.opensearch.script.ScriptService;
 import org.opensearch.threadpool.ThreadPool;
-import org.opensearch.transport.TransportService;
 import org.opensearch.transport.client.Client;
 import org.opensearch.watcher.ResourceWatcherService;
 
@@ -50,7 +50,6 @@ import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
 import java.util.function.Supplier;
 
@@ -70,16 +69,14 @@ public class AnalyticsPlugin extends Plugin implements ExtensiblePlugin, ActionP
     public AnalyticsPlugin() {}
 
     private final List<AnalyticsSearchBackendPlugin> backEnds = new ArrayList<>();
-    private final List<org.opensearch.plugins.SearchBackEndPlugin<?>> storageBackends = new ArrayList<>();
+    private final List<SearchBackEndPlugin<?>> storageBackends = new ArrayList<>();
     private SqlOperatorTable operatorTable;
-    // Populated via Guice requestInjection, resolved lazily by Scheduler during query execution
-    private final AtomicReference<TransportService> transportServiceHolder = new AtomicReference<>();
 
     @SuppressWarnings({ "rawtypes", "unchecked" })
     @Override
     public void loadExtensions(ExtensionLoader loader) {
         List<AnalyticsSearchBackendPlugin> loadedBackEnds = loader.loadExtensions(AnalyticsSearchBackendPlugin.class);
-        List<?> loadedStorageBackends = loader.loadExtensions(org.opensearch.plugins.SearchBackEndPlugin.class);
+        List<?> loadedStorageBackends = loader.loadExtensions(SearchBackEndPlugin.class);
         logger.info("[AnalyticsPlugin] loadExtensions called: backEnds={}, storageBackends={}", loadedBackEnds, loadedStorageBackends);
         backEnds.addAll(loadedBackEnds);
         storageBackends.addAll((List) loadedStorageBackends);
@@ -123,14 +120,10 @@ public class AnalyticsPlugin extends Plugin implements ExtensiblePlugin, ActionP
         }
         AnalyticsSearchService searchService = new AnalyticsSearchService(backEndsMap);
 
-        // Create Scheduler and DefaultPlanExecutor manually (NOT Guice-injected)
-        // so AnalyticsEngineService.setInstance() can be called with the executor.
-        // TransportService is not yet created at createComponents() time, so we pass a lazy
-        // supplier via transportServiceHolder (populated by Guice requestInjection in createGuiceModules).
-        Scheduler scheduler = new Scheduler(() -> transportServiceHolder.get(), 5);
-        DefaultPlanExecutor executor = new DefaultPlanExecutor(capabilityRegistry, clusterService, scheduler);
-        AnalyticsEngineService.setInstance(new AnalyticsEngineService(ctx, executor));
-        return List.of(searchService, ctx, capabilityRegistry, executor);
+        // CapabilityRegistry and EngineContext are returned as components so Guice can
+        // inject them into DefaultPlanExecutor (which is a HandledTransportAction
+        // registered via getActions() — Guice constructs it after createComponents).
+        return List.of(searchService, ctx, capabilityRegistry);
     }
 
     @Override
@@ -140,14 +133,15 @@ public class AnalyticsPlugin extends Plugin implements ExtensiblePlugin, ActionP
             b.bind(new TypeLiteral<QueryPlanExecutor<RelNode, Iterable<Object[]>>>() {
             }).to(DefaultPlanExecutor.class);
             b.bind(EngineContext.class).to(DefaultEngineContext.class);
-            // Populate transportServiceHolder once Guice has resolved TransportService
-            b.requestInjection(new TransportServiceInitializer(transportServiceHolder));
         });
     }
 
     @Override
     public List<ActionHandler<? extends ActionRequest, ? extends ActionResponse>> getActions() {
-        return List.of(new ActionHandler<>(AnalyticsShardAction.INSTANCE, TransportAnalyticsShardAction.class));
+        return List.of(
+            new ActionHandler<>(AnalyticsShardAction.INSTANCE, TransportAnalyticsShardAction.class),
+            new ActionHandler<>(AnalyticsQueryAction.INSTANCE, DefaultPlanExecutor.class)
+        );
     }
 
     private SqlOperatorTable aggregateOperatorTables() {
@@ -166,21 +160,4 @@ public class AnalyticsPlugin extends Plugin implements ExtensiblePlugin, ActionP
         }
     }
 
-    /**
-     * Helper class for Guice requestInjection — populates the TransportService holder
-     * after Guice has resolved all bindings. Must be a named (non-anonymous) class for
-     * OpenSearch's Guice fork to find the {@code @Inject} method.
-     */
-    public static class TransportServiceInitializer {
-        private final AtomicReference<TransportService> holder;
-
-        public TransportServiceInitializer(AtomicReference<TransportService> holder) {
-            this.holder = holder;
-        }
-
-        @org.opensearch.common.inject.Inject
-        public void init(TransportService transportService) {
-            holder.set(transportService);
-        }
-    }
 }

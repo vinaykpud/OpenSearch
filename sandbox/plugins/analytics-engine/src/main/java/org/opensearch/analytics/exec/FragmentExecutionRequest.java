@@ -13,10 +13,13 @@ import org.opensearch.action.ActionRequestValidationException;
 import org.opensearch.core.common.io.stream.StreamInput;
 import org.opensearch.core.common.io.stream.StreamOutput;
 import org.opensearch.core.index.shard.ShardId;
+import org.opensearch.core.tasks.TaskId;
+import org.opensearch.tasks.Task;
 
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Transport request carrying plan fragment alternatives to a data node for shard-level execution.
@@ -87,6 +90,12 @@ public class FragmentExecutionRequest extends ActionRequest {
 
     public List<PlanAlternative> getPlanAlternatives() {
         return planAlternatives;
+    }
+
+    @Override
+    public Task createTask(long id, String type, String action, TaskId parentTaskId, Map<String, String> headers) {
+        String desc = "queryId[" + queryId + "] stageId[" + stageId + "] shardId[" + shardId + "]";
+        return new AnalyticsShardTask(id, type, action, desc, parentTaskId, headers);
     }
 
     @Override

@@ -11,12 +11,13 @@ package org.opensearch.analytics.exec;
 import org.opensearch.action.ActionListenerResponseHandler;
 import org.opensearch.cluster.node.DiscoveryNode;
 import org.opensearch.core.action.ActionListener;
+import org.opensearch.tasks.Task;
+import org.opensearch.transport.TransportRequestOptions;
 import org.opensearch.transport.TransportService;
 
 import java.util.ArrayDeque;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
-import java.util.function.Supplier;
 
 /**
  * Coordinator-side orchestrator. Manages {@link PlanWalker} lifecycle via a
@@ -26,33 +27,31 @@ import java.util.function.Supplier;
  * data node, which triggers {@link TransportAnalyticsShardAction} on the remote
  * node. For local nodes, the transport layer short-circuits to a direct call.
  *
- * <p>Created in {@code createComponents()} with a {@code Supplier<TransportService>}
- * (since TransportService is not yet available at createComponents time) and
- * {@code maxConcurrentShardRequests}. NOT Guice-injected — must be created
- * before {@code DefaultPlanExecutor} so both can be wired in
- * {@code createComponents()} and {@code AnalyticsEngineService.setInstance()}
- * can be called.
+ * <p>Created by {@link DefaultPlanExecutor} with the Guice-injected
+ * {@link TransportService} and {@code maxConcurrentShardRequests}.
  *
  * @opensearch.internal
  */
 public class Scheduler {
-    private final Supplier<TransportService> transportServiceSupplier;
+    private final TransportService transportService;
     private final int maxConcurrentShardRequests;
     private final ConcurrentMap<String, PlanWalker> walkerPool = new ConcurrentHashMap<>();
     private final ConcurrentMap<String, PendingExecutions> pendingExecutionsPerNode = new ConcurrentHashMap<>();
 
-    public Scheduler(Supplier<TransportService> transportServiceSupplier, int maxConcurrentShardRequests) {
-        this.transportServiceSupplier = transportServiceSupplier;
+    public Scheduler(TransportService transportService, int maxConcurrentShardRequests) {
+        this.transportService = transportService;
         this.maxConcurrentShardRequests = maxConcurrentShardRequests;
     }
 
     /**
      * Executes a PlanWalker asynchronously. Caches the walker during execution
-     * and removes it on completion (success or failure).
+     * and removes it on completion (success or failure). Extracts the
+     * {@link AnalyticsQueryTask} from the walker for parent-child task propagation.
      */
     public void execute(PlanWalker walker, ActionListener<Iterable<Object[]>> listener) {
         walkerPool.put(walker.getQueryId(), walker);
-        walker.walk(this::dispatchTask, ActionListener.wrap(result -> {
+        Task parentTask = walker.getParentTask();
+        walker.walk((req, node, l) -> dispatchTask(req, node, l, parentTask), ActionListener.wrap(result -> {
             walkerPool.remove(walker.getQueryId());
             listener.onResponse(result);
         }, e -> {
@@ -63,40 +62,49 @@ public class Scheduler {
 
     /**
      * Dispatches a task to the target data node with per-node concurrency gating.
-     * If permits are available for the target node, the task dispatches immediately
-     * via {@link TransportService#sendRequest}. Otherwise it is queued and
-     * dispatched when a permit is freed.
+     * If permits are available for the target node, the task dispatches immediately.
+     * Otherwise it is queued and dispatched when a permit is freed.
+     *
+     * <p>When {@code parentTask} is non-null, uses
+     * {@link TransportService#sendChildRequest} to propagate the parent task ID
+     * to data nodes (enabling task cancellation cascading). When null (test mode),
+     * falls back to {@link TransportService#sendRequest}.
      */
     private void dispatchTask(
         FragmentExecutionRequest request,
         DiscoveryNode targetNode,
-        ActionListener<FragmentExecutionResponse> listener
+        ActionListener<FragmentExecutionResponse> listener,
+        Task parentTask
     ) {
         PendingExecutions pending = pendingExecutionsPerNode.computeIfAbsent(
             targetNode.getId(),
             n -> new PendingExecutions(maxConcurrentShardRequests)
         );
 
+        ActionListenerResponseHandler<FragmentExecutionResponse> handler = new ActionListenerResponseHandler<>(
+            ActionListener.wrap(response -> {
+                try {
+                    listener.onResponse(response);
+                } finally {
+                    pending.finishAndRunNext();
+                }
+            }, e -> {
+                try {
+                    listener.onFailure(e);
+                } finally {
+                    pending.finishAndRunNext();
+                }
+            }),
+            FragmentExecutionResponse::new
+        );
+
         pending.tryRun(() -> {
-            transportServiceSupplier.get()
-                .sendRequest(
-                    targetNode,
-                    AnalyticsShardAction.NAME,
-                    request,
-                    new ActionListenerResponseHandler<>(ActionListener.wrap(response -> {
-                        try {
-                            listener.onResponse(response);
-                        } finally {
-                            pending.finishAndRunNext();
-                        }
-                    }, e -> {
-                        try {
-                            listener.onFailure(e);
-                        } finally {
-                            pending.finishAndRunNext();
-                        }
-                    }), FragmentExecutionResponse::new)
-                );
+            if (parentTask != null) {
+                transportService
+                    .sendChildRequest(targetNode, AnalyticsShardAction.NAME, request, parentTask, TransportRequestOptions.EMPTY, handler);
+            } else {
+                transportService.sendRequest(targetNode, AnalyticsShardAction.NAME, request, handler);
+            }
         });
     }
 

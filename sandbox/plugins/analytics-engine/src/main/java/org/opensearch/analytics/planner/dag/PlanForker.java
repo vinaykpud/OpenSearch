@@ -52,11 +52,11 @@ public class PlanForker {
             return;
         }
         List<Resolved> alternatives = resolve(stage.getFragment(), registry);
-        stage.setPlanAlternatives(alternatives.stream()
-            .map(resolved -> new StagePlan(
-                resolved.node,
-                RelNodeUtils.extractLeafBackendFromResolvedFragment(resolved.node)))
-            .toList());
+        stage.setPlanAlternatives(
+            alternatives.stream()
+                .map(resolved -> new StagePlan(resolved.node, RelNodeUtils.extractLeafBackendFromResolvedFragment(resolved.node)))
+                .toList()
+        );
     }
 
     /** Resolved node paired with the backend chosen at this operator level. */

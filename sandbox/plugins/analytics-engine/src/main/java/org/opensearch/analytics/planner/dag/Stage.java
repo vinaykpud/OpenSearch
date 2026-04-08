@@ -9,6 +9,8 @@
 package org.opensearch.analytics.planner.dag;
 
 import org.apache.calcite.rel.RelNode;
+import org.opensearch.analytics.exec.ShardFilterPhase;
+import org.opensearch.analytics.exec.TerminationDecider;
 import org.opensearch.analytics.planner.rel.OpenSearchTableScan;
 import org.opensearch.common.Nullable;
 
@@ -36,6 +38,9 @@ public class Stage {
     private final ExchangeInfo exchangeInfo;
     private final String tableName;
     private List<StagePlan> planAlternatives;
+    private ShardFilterPhase shardFilterPhase = ShardFilterPhase.IDENTITY;
+    private TerminationDecider terminationDecider = TerminationDecider.DISPATCH_ALL;
+    private boolean parallelChildren = false;
 
     public Stage(int stageId, RelNode fragment, List<Stage> childStages, ExchangeInfo exchangeInfo) {
         this.stageId = stageId;
@@ -95,6 +100,30 @@ public class Stage {
 
     public void setPlanAlternatives(List<StagePlan> planAlternatives) {
         this.planAlternatives = planAlternatives;
+    }
+
+    public ShardFilterPhase getShardFilterPhase() {
+        return shardFilterPhase;
+    }
+
+    public void setShardFilterPhase(ShardFilterPhase shardFilterPhase) {
+        this.shardFilterPhase = shardFilterPhase;
+    }
+
+    public TerminationDecider getTerminationDecider() {
+        return terminationDecider;
+    }
+
+    public void setTerminationDecider(TerminationDecider terminationDecider) {
+        this.terminationDecider = terminationDecider;
+    }
+
+    public boolean isParallelChildren() {
+        return parallelChildren;
+    }
+
+    public void setParallelChildren(boolean parallelChildren) {
+        this.parallelChildren = parallelChildren;
     }
 
     /** Walks the fragment tree to find OpenSearchTableScan and extract the table name. */

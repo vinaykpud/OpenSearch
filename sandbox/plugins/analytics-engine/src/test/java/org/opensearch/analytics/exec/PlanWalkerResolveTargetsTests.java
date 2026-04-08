@@ -144,7 +144,7 @@ public class PlanWalkerResolveTargetsTests extends OpenSearchTestCase {
             listener.onResponse(new FragmentExecutionResponse(List.of(), List.of()));
         };
 
-        PlanWalker walker = new PlanWalker(dag, clusterService);
+        PlanWalker walker = new PlanWalker(dag, clusterService, Runnable::run, null);
         walker.walk(submitter, future);
         future.actionGet();
 
@@ -167,7 +167,13 @@ public class PlanWalkerResolveTargetsTests extends OpenSearchTestCase {
         childStage.setPlanAlternatives(List.of(plan));
 
         // Root stage with StageInputScan (coordinator-only)
-        OpenSearchStageInputScan stageInput = new OpenSearchStageInputScan(cluster, RelTraitSet.createEmpty(), 0, rowType, List.of("mock-parquet"));
+        OpenSearchStageInputScan stageInput = new OpenSearchStageInputScan(
+            cluster,
+            RelTraitSet.createEmpty(),
+            0,
+            rowType,
+            List.of("mock-parquet")
+        );
         StagePlan rootPlan = new StagePlan(stageInput, "mock-parquet");
         Stage rootStage = new Stage(1, stageInput, List.of(childStage), null);
         rootStage.setPlanAlternatives(List.of(rootPlan));
@@ -182,7 +188,7 @@ public class PlanWalkerResolveTargetsTests extends OpenSearchTestCase {
             listener.onResponse(new FragmentExecutionResponse(List.of(), List.of()));
         };
 
-        PlanWalker walker = new PlanWalker(dag, clusterService);
+        PlanWalker walker = new PlanWalker(dag, clusterService, Runnable::run, null);
         walker.walk(submitter, future);
         future.actionGet();
 
@@ -200,7 +206,13 @@ public class PlanWalkerResolveTargetsTests extends OpenSearchTestCase {
         // Coordinator-only stage — no routing needed, simple mock ClusterService
         ClusterService clusterService = mock(ClusterService.class);
 
-        OpenSearchStageInputScan stageInput = new OpenSearchStageInputScan(cluster, RelTraitSet.createEmpty(), 0, rowType, List.of("mock-parquet"));
+        OpenSearchStageInputScan stageInput = new OpenSearchStageInputScan(
+            cluster,
+            RelTraitSet.createEmpty(),
+            0,
+            rowType,
+            List.of("mock-parquet")
+        );
         StagePlan plan = new StagePlan(stageInput, "mock-parquet");
         Stage stage = new Stage(1, stageInput, List.of(), null);
         stage.setPlanAlternatives(List.of(plan));
@@ -215,7 +227,7 @@ public class PlanWalkerResolveTargetsTests extends OpenSearchTestCase {
             listener.onResponse(new FragmentExecutionResponse(List.of(), List.of()));
         };
 
-        PlanWalker walker = new PlanWalker(dag, clusterService);
+        PlanWalker walker = new PlanWalker(dag, clusterService, Runnable::run, null);
         walker.walk(submitter, future);
         future.actionGet();
 

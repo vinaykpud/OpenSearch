@@ -155,7 +155,7 @@ public class PlanWalkerAsyncTests extends OpenSearchTestCase {
             listener.onResponse(new FragmentExecutionResponse(fields, rows));
         };
 
-        PlanWalker walker = new PlanWalker(dag, clusterService);
+        PlanWalker walker = new PlanWalker(dag, clusterService, Runnable::run, null);
         walker.walk(submitter, future);
 
         Iterable<Object[]> result = future.actionGet();
@@ -192,7 +192,7 @@ public class PlanWalkerAsyncTests extends OpenSearchTestCase {
             }
         };
 
-        PlanWalker walker = new PlanWalker(dag, clusterService);
+        PlanWalker walker = new PlanWalker(dag, clusterService, Runnable::run, null);
         walker.walk(submitter, future);
 
         RuntimeException ex = expectThrows(RuntimeException.class, future::actionGet);
@@ -203,7 +203,13 @@ public class PlanWalkerAsyncTests extends OpenSearchTestCase {
         // Coordinator-only stage — no routing needed, simple mock ClusterService
         ClusterService clusterService = mock(ClusterService.class);
 
-        OpenSearchStageInputScan stageInput = new OpenSearchStageInputScan(cluster, RelTraitSet.createEmpty(), 0, rowType, List.of("mock-parquet"));
+        OpenSearchStageInputScan stageInput = new OpenSearchStageInputScan(
+            cluster,
+            RelTraitSet.createEmpty(),
+            0,
+            rowType,
+            List.of("mock-parquet")
+        );
         StagePlan plan = new StagePlan(stageInput, "mock-parquet");
         Stage stage = new Stage(1, stageInput, List.of(), null);
         stage.setPlanAlternatives(List.of(plan));
@@ -218,7 +224,7 @@ public class PlanWalkerAsyncTests extends OpenSearchTestCase {
             listener.onResponse(new FragmentExecutionResponse(List.of(), List.of()));
         };
 
-        PlanWalker walker = new PlanWalker(dag, clusterService);
+        PlanWalker walker = new PlanWalker(dag, clusterService, Runnable::run, null);
         walker.walk(submitter, future);
 
         Iterable<Object[]> result = future.actionGet();
@@ -242,7 +248,13 @@ public class PlanWalkerAsyncTests extends OpenSearchTestCase {
         childStage.setPlanAlternatives(List.of(childPlan));
 
         // Root stage (stageId=1): coordinator-only with StageInputScan
-        OpenSearchStageInputScan stageInput = new OpenSearchStageInputScan(cluster, RelTraitSet.createEmpty(), 0, rowType, List.of("mock-parquet"));
+        OpenSearchStageInputScan stageInput = new OpenSearchStageInputScan(
+            cluster,
+            RelTraitSet.createEmpty(),
+            0,
+            rowType,
+            List.of("mock-parquet")
+        );
         StagePlan rootPlan = new StagePlan(stageInput, "mock-parquet");
         Stage rootStage = new Stage(1, stageInput, List.of(childStage), null);
         rootStage.setPlanAlternatives(List.of(rootPlan));
@@ -259,7 +271,7 @@ public class PlanWalkerAsyncTests extends OpenSearchTestCase {
             listener.onResponse(new FragmentExecutionResponse(List.of("field_0"), dataRows));
         };
 
-        PlanWalker walker = new PlanWalker(dag, clusterService);
+        PlanWalker walker = new PlanWalker(dag, clusterService, Runnable::run, null);
         walker.walk(submitter, future);
         future.actionGet();
 
@@ -293,7 +305,7 @@ public class PlanWalkerAsyncTests extends OpenSearchTestCase {
             listener.onResponse(new FragmentExecutionResponse(fields, rows));
         };
 
-        PlanWalker walker = new PlanWalker(dag, clusterService);
+        PlanWalker walker = new PlanWalker(dag, clusterService, Runnable::run, null);
         walker.walk(submitter, future);
 
         Iterable<Object[]> result = future.actionGet();
@@ -352,7 +364,7 @@ public class PlanWalkerAsyncTests extends OpenSearchTestCase {
             listener.onResponse(new FragmentExecutionResponse(metadata));
         };
 
-        PlanWalker walker = new PlanWalker(dag, clusterService);
+        PlanWalker walker = new PlanWalker(dag, clusterService, Runnable::run, null);
         PlainActionFuture<Iterable<Object[]>> future = new PlainActionFuture<>();
         walker.walk(submitter, future);
 
@@ -448,7 +460,7 @@ public class PlanWalkerAsyncTests extends OpenSearchTestCase {
         rootStage.setPlanAlternatives(List.of(new StagePlan(rootInput, "lucene")));
 
         QueryDAG dag = new QueryDAG("test-query", rootStage);
-        PlanWalker walker = new PlanWalker(dag, clusterService);
+        PlanWalker walker = new PlanWalker(dag, clusterService, Runnable::run, null);
 
         // Pre-populate stageOutputs with the PartitionManifest for child stage 0
         Field stageOutputsField = PlanWalker.class.getDeclaredField("stageOutputs");
@@ -502,7 +514,7 @@ public class PlanWalkerAsyncTests extends OpenSearchTestCase {
         rootStage.setPlanAlternatives(List.of(new StagePlan(rootInput, "lucene")));
 
         QueryDAG dag = new QueryDAG("test-query", rootStage);
-        PlanWalker walker = new PlanWalker(dag, clusterService);
+        PlanWalker walker = new PlanWalker(dag, clusterService, Runnable::run, null);
 
         // stageOutputs is empty — no manifest for child stage 0
         IllegalStateException ex = expectThrows(IllegalStateException.class, () -> walker.resolveTargets(parentStage));
@@ -534,7 +546,7 @@ public class PlanWalkerAsyncTests extends OpenSearchTestCase {
             listener.onResponse(new FragmentExecutionResponse(List.of(), List.of()));
         };
 
-        PlanWalker walker = new PlanWalker(dag, clusterService);
+        PlanWalker walker = new PlanWalker(dag, clusterService, Runnable::run, null);
         PlainActionFuture<Iterable<Object[]>> future = new PlainActionFuture<>();
         walker.walk(submitter, future);
 
@@ -589,7 +601,7 @@ public class PlanWalkerAsyncTests extends OpenSearchTestCase {
             }
         };
 
-        PlanWalker walker = new PlanWalker(dag, clusterService);
+        PlanWalker walker = new PlanWalker(dag, clusterService, Runnable::run, null);
         PlainActionFuture<Iterable<Object[]>> future = new PlainActionFuture<>();
         walker.walk(submitter, future);
 
