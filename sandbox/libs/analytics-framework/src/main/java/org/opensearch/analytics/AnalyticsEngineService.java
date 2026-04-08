@@ -38,7 +38,7 @@ public class AnalyticsEngineService {
     }
 
     public static void setInstance(AnalyticsEngineService instance) {
-        INSTANCE.set(instance);
+        INSTANCE.trySet(instance);
     }
 
     public static AnalyticsEngineService getInstance() {
