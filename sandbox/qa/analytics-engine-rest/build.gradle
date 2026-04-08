@@ -19,13 +19,11 @@ repositories {
 
 dependencies {
     testImplementation project(':sandbox:plugins:analytics-engine')
-    testImplementation project(':sandbox:qa:test-ppl-frontend')
     testImplementation project(':sandbox:plugins:analytics-backend-datafusion')
 }
 
 testClusters.integTest {
     plugin ':sandbox:plugins:analytics-engine'
-    plugin ':sandbox:qa:test-ppl-frontend'
     plugin ':sandbox:plugins:analytics-backend-datafusion'
 
     // Arrow/Flight JVM flags for DataFusion native library
