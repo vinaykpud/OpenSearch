@@ -19,10 +19,6 @@ import org.apache.calcite.rel.logical.LogicalTableScan;
 import org.apache.calcite.sql.SqlOperatorTable;
 import org.opensearch.analytics.exec.QueryPlanExecutor;
 import org.opensearch.ppl.planner.rel.OpenSearchBoundaryTableScan;
-import org.opensearch.ppl.planner.rules.AbsorbAggregateRule;
-import org.opensearch.ppl.planner.rules.AbsorbFilterRule;
-import org.opensearch.ppl.planner.rules.AbsorbProjectRule;
-import org.opensearch.ppl.planner.rules.AbsorbSortRule;
 
 /**
  * Produces a mixed plan where supported operators are absorbed into an
@@ -70,11 +66,6 @@ public class PushDownPlanner {
 
         // Phase 2: Absorb supported operators into boundary nodes
         HepProgramBuilder programBuilder = new HepProgramBuilder();
-        programBuilder.addRuleInstance(AbsorbFilterRule.create(operatorTable));
-        programBuilder.addRuleInstance(AbsorbProjectRule.create(operatorTable));
-        programBuilder.addRuleInstance(AbsorbAggregateRule.create(operatorTable));
-        programBuilder.addRuleInstance(AbsorbSortRule.create());
-
         HepPlanner hepPlanner = new HepPlanner(programBuilder.build());
         hepPlanner.setRoot(withBoundary);
         return hepPlanner.findBestExp();
