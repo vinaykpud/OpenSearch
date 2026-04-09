@@ -9,11 +9,15 @@
 opensearchplugin {
   description = 'Parquet data format plugin for OpenSearch.'
   classname = 'org.opensearch.parquet.ParquetDataFormatPlugin'
+  extendedPlugins = ['analytics-engine']
 }
 
 def buildType = project.hasProperty('rustDebug') ? 'debug' : 'release'
 
 dependencies {
+  // Shared data format SPI
+  implementation project(':sandbox:libs:data-format-spi')
+
   // Shared native bridge lib
   implementation project(':sandbox:libs:native-bridge-spi')
 

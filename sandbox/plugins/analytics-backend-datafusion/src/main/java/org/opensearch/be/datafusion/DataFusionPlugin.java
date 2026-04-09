@@ -18,13 +18,8 @@ import org.opensearch.core.common.io.stream.NamedWriteableRegistry;
 import org.opensearch.core.xcontent.NamedXContentRegistry;
 import org.opensearch.env.Environment;
 import org.opensearch.env.NodeEnvironment;
-import org.opensearch.index.IndexSettings;
 import org.opensearch.index.engine.dataformat.DataFormat;
-import org.opensearch.index.engine.dataformat.DataFormatPlugin;
-import org.opensearch.index.engine.dataformat.FieldTypeCapabilities;
-import org.opensearch.index.engine.dataformat.IndexingExecutionEngine;
 import org.opensearch.index.engine.exec.EngineReaderManager;
-import org.opensearch.index.mapper.MapperService;
 import org.opensearch.index.shard.ShardPath;
 import org.opensearch.plugins.Plugin;
 import org.opensearch.plugins.SearchBackEndPlugin;
@@ -35,11 +30,14 @@ import org.opensearch.transport.client.Client;
 import org.opensearch.watcher.ResourceWatcherService;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.function.Supplier;
+import java.util.stream.Collectors;
 
 /**
  * Main plugin class for the DataFusion native engine integration.
@@ -48,7 +46,7 @@ import java.util.function.Supplier;
  * Analytics query capabilities are declared in {@link DataFusionAnalyticsExtension},
  * which is SPI-discovered and receives this plugin instance via its constructor.
  */
-public class DataFusionPlugin extends Plugin implements SearchBackEndPlugin<DatafusionReader>, DataFormatPlugin {
+public class DataFusionPlugin extends Plugin implements SearchBackEndPlugin<DatafusionReader> {
 
     private static final Logger logger = LogManager.getLogger(DataFusionPlugin.class);
 
@@ -68,42 +66,12 @@ public class DataFusionPlugin extends Plugin implements SearchBackEndPlugin<Data
         Setting.Property.NodeScope
     );
 
-    private static final Set<FieldTypeCapabilities.Capability> COLUMNAR_POINT_STORED = Set.of(
-        FieldTypeCapabilities.Capability.COLUMNAR_STORAGE,
-        FieldTypeCapabilities.Capability.POINT_RANGE,
-        FieldTypeCapabilities.Capability.STORED_FIELDS
-    );
-
-    private static final Set<FieldTypeCapabilities.Capability> COLUMNAR_FULLTEXT_STORED = Set.of(
-        FieldTypeCapabilities.Capability.COLUMNAR_STORAGE,
-        FieldTypeCapabilities.Capability.FULL_TEXT_SEARCH,
-        FieldTypeCapabilities.Capability.STORED_FIELDS
-    );
-
-    static final DataFormat PARQUET_FORMAT = new DataFormat() {
-        @Override
-        public String name() {
-            return "parquet";
-        }
-
-        @Override
-        public long priority() {
-            return 0;
-        }
-
-        @Override
-        public Set<FieldTypeCapabilities> supportedFields() {
-            return Set.of(
-                new FieldTypeCapabilities("keyword", COLUMNAR_FULLTEXT_STORED),
-                new FieldTypeCapabilities("short", COLUMNAR_POINT_STORED),
-                new FieldTypeCapabilities("integer", COLUMNAR_POINT_STORED),
-                new FieldTypeCapabilities("long", COLUMNAR_POINT_STORED),
-                new FieldTypeCapabilities("float", COLUMNAR_POINT_STORED),
-                new FieldTypeCapabilities("double", COLUMNAR_POINT_STORED),
-                new FieldTypeCapabilities("date", COLUMNAR_POINT_STORED)
-            );
-        }
-    };
+    /**
+     * Data formats this backend can query — populated by DataFormatExtension callbacks.
+     * Static because analytics-engine's extension loader creates a separate DataFusionPlugin
+     * instance via SPI, which must share the same format list as the real plugin instance.
+     */
+    private static final List<DataFormat> supportedFormats = new ArrayList<>();
 
     private volatile DataFusionService dataFusionService;
 
@@ -154,20 +122,25 @@ public class DataFusionPlugin extends Plugin implements SearchBackEndPlugin<Data
         return new DatafusionReaderManager(format, shardPath, dataFusionService);
     }
 
+    /**
+     * Called by {@link DataFusionDataFormatExtension} when a data format plugin
+     * provides its DataFormat with field capabilities.
+     *
+     * @param format the DataFormat with field type capabilities
+     */
+    void registerDataFormat(DataFormat format) {
+        supportedFormats.add(format);
+        logger.info("DataFusion registered format [{}] with {} field types", format.name(), format.supportedFields().size());
+    }
+
+    /** Returns the set of format names this backend supports. */
+    static Set<String> getSupportedFormatNames() {
+        return supportedFormats.stream().map(DataFormat::name).collect(Collectors.toUnmodifiableSet());
+    }
+
     @Override
     public List<DataFormat> getSupportedFormats() {
-        return List.of(PARQUET_FORMAT);
-    }
-
-    @Override
-    public DataFormat getDataFormat() {
-        return PARQUET_FORMAT;
-    }
-
-    @Override
-    public IndexingExecutionEngine<?, ?> indexingEngine(MapperService mapperService, ShardPath shardPath, IndexSettings indexSettings) {
-        // DataFusion is a read-only query engine; indexing is not supported.
-        return null;
+        return List.copyOf(supportedFormats);
     }
 
     @Override

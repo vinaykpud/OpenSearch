@@ -41,9 +41,6 @@ public class DataFusionAnalyticsExtension implements AnalyticsSearchBackendPlugi
 
     private static final Logger logger = LogManager.getLogger(DataFusionAnalyticsExtension.class);
 
-    private static final String PARQUET_FORMAT_NAME = "parquet";
-    private static final Set<String> DATAFUSION_FORMATS = Set.of(PARQUET_FORMAT_NAME);
-
     private static final Set<OperatorCapability> OPERATOR_CAPS = Set.of(
         OperatorCapability.SCAN,
         OperatorCapability.FILTER,
@@ -90,28 +87,6 @@ public class DataFusionAnalyticsExtension implements AnalyticsSearchBackendPlugi
         AggregateFunction.AVG
     );
 
-    private static final Set<FilterCapability> FILTER_CAPS;
-    static {
-        Set<FilterCapability> caps = new HashSet<>();
-        for (FilterOperator op : STANDARD_FILTER_OPS) {
-            for (FieldType type : SUPPORTED_FIELD_TYPES) {
-                caps.add(new FilterCapability.Standard(op, type, DATAFUSION_FORMATS));
-            }
-        }
-        FILTER_CAPS = caps;
-    }
-
-    private static final Set<AggregateCapability> AGG_CAPS;
-    static {
-        Set<AggregateCapability> caps = new HashSet<>();
-        for (AggregateFunction func : AGG_FUNCTIONS) {
-            for (FieldType type : SUPPORTED_FIELD_TYPES) {
-                caps.add(AggregateCapability.simple(func, type, DATAFUSION_FORMATS));
-            }
-        }
-        AGG_CAPS = caps;
-    }
-
     private final DataFusionPlugin plugin;
     private DatafusionReader mockReader;
 
@@ -131,12 +106,26 @@ public class DataFusionAnalyticsExtension implements AnalyticsSearchBackendPlugi
 
     @Override
     public Set<FilterCapability> filterCapabilities() {
-        return FILTER_CAPS;
+        Set<String> formats = DataFusionPlugin.getSupportedFormatNames();
+        Set<FilterCapability> caps = new HashSet<>();
+        for (FilterOperator op : STANDARD_FILTER_OPS) {
+            for (FieldType type : SUPPORTED_FIELD_TYPES) {
+                caps.add(new FilterCapability.Standard(op, type, formats));
+            }
+        }
+        return Set.copyOf(caps);
     }
 
     @Override
     public Set<AggregateCapability> aggregateCapabilities() {
-        return AGG_CAPS;
+        Set<String> formats = DataFusionPlugin.getSupportedFormatNames();
+        Set<AggregateCapability> caps = new HashSet<>();
+        for (AggregateFunction func : AGG_FUNCTIONS) {
+            for (FieldType type : SUPPORTED_FIELD_TYPES) {
+                caps.add(AggregateCapability.simple(func, type, formats));
+            }
+        }
+        return Set.copyOf(caps);
     }
 
     @Override
