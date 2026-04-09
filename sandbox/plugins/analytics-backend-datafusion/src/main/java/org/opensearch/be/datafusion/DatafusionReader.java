@@ -16,10 +16,6 @@ import org.opensearch.index.engine.exec.WriterFileSet;
 
 import java.io.Closeable;
 import java.io.IOException;
-import java.io.InputStream;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
 import java.util.Collection;
 
 /**
@@ -53,40 +49,13 @@ public class DatafusionReader implements Closeable {
     }
 
     /**
-     * Creates a mock DatafusionReader backed by the bundled parquet resource.
-     * Extracts the resource to a temp directory on first call and reuses it.
+     * [indexing-mock] Creates a DatafusionReader from explicit file names.
+     * Used by DatafusionReaderManager to create readers from mock parquet data
+     * before the indexing pipeline is fully wired. Package-private access.
      */
-    static DatafusionReader createMock() {
-        Path dir = extractMockParquet();
-        logger.info("Creating mock DatafusionReader from resource at [{}]", dir);
-        return new DatafusionReader(dir.toString(), new String[] { MOCK_RESOURCE });
-    }
-
-    private DatafusionReader(String directoryPath, String[] fileNames) {
+    DatafusionReader(String directoryPath, String[] fileNames) {
         this.directoryPath = directoryPath;
         this.readerHandle = new ReaderHandle(directoryPath, fileNames);
-    }
-
-    private static Path mockDir;
-    private static final String MOCK_RESOURCE = "mock_data.parquet";
-
-    private static synchronized Path extractMockParquet() {
-        if (mockDir != null && Files.exists(mockDir.resolve(MOCK_RESOURCE))) {
-            return mockDir;
-        }
-        try {
-            Path tmpDir = Files.createTempDirectory("datafusion-mock");
-            try (InputStream in = DatafusionReader.class.getClassLoader().getResourceAsStream(MOCK_RESOURCE)) {
-                if (in == null) {
-                    throw new IOException("Mock resource not found on classpath: " + MOCK_RESOURCE);
-                }
-                Files.copy(in, tmpDir.resolve(MOCK_RESOURCE), StandardCopyOption.REPLACE_EXISTING);
-            }
-            mockDir = tmpDir;
-            return mockDir;
-        } catch (IOException e) {
-            throw new RuntimeException("Failed to extract mock parquet resource", e);
-        }
     }
 
     /**

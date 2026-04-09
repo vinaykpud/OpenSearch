@@ -88,7 +88,6 @@ public class DataFusionAnalyticsExtension implements AnalyticsSearchBackendPlugi
     );
 
     private final DataFusionPlugin plugin;
-    private DatafusionReader mockReader;
 
     public DataFusionAnalyticsExtension(DataFusionPlugin plugin) {
         this.plugin = plugin;
@@ -147,7 +146,7 @@ public class DataFusionAnalyticsExtension implements AnalyticsSearchBackendPlugi
 
         DatafusionReader dfReader = null;
 
-        // Try to get reader from the execution context (normal path via CatalogSnapshotManager)
+        // Get reader from the execution context (via DataFormatAwareEngine → DatafusionReaderManager)
         if (ctx.getReader() != null) {
             List<DataFormat> formats = plugin.getSupportedFormats();
             if (formats != null) {
@@ -160,17 +159,8 @@ public class DataFusionAnalyticsExtension implements AnalyticsSearchBackendPlugi
             }
         }
 
-        // Fall back to the mock reader (lazily created on first use)
         if (dfReader == null) {
-            if (mockReader == null) {
-                mockReader = DatafusionReader.createMock();
-            }
-            logger.info("Using mock DatafusionReader for query execution");
-            dfReader = mockReader;
-        }
-
-        if (dfReader == null) {
-            throw new IllegalStateException("No DatafusionReader available in the acquired reader");
+            throw new IllegalStateException("No DatafusionReader available — index may not have been refreshed yet");
         }
         DatafusionContext context = new DatafusionContext(ctx.getTask(), dfReader, dataFusionService.getNativeRuntime());
         DatafusionSearchExecEngine engine = new DatafusionSearchExecEngine(context, dataFusionService::newChildAllocator);
