@@ -130,6 +130,9 @@ import org.opensearch.index.cache.request.ShardRequestCache;
 import org.opensearch.index.codec.CodecService;
 import org.opensearch.index.engine.CommitStats;
 import org.opensearch.index.engine.DataFormatAwareEngine;
+import org.opensearch.index.engine.dataformat.DataFormat;
+import org.opensearch.index.engine.exec.EngineReaderManager;
+import org.opensearch.index.engine.exec.coord.CatalogSnapshotManager;
 import org.opensearch.index.engine.Engine;
 import org.opensearch.index.engine.Engine.GetResult;
 import org.opensearch.index.engine.EngineBackedIndexer;
@@ -577,9 +580,17 @@ public class IndexShard extends AbstractIndexShardComponent implements IndicesCl
         }
         this.dataFormatRegistry = dataFormatRegistry;
         if (dataFormatRegistry != null) {
-            // TODO: This should go away and we should use indexer directly.
+            // [indexing-mock] Create CatalogSnapshotManager with empty initial snapshot.
+            // This is needed so acquireReader() works before the indexing pipeline is fully wired.
+            // Once indexing creates real snapshots, this initialization should come from the indexing engine.
+            Map<DataFormat, EngineReaderManager<?>> readerManagers = dataFormatRegistry.getReaderManagers(
+                mapperService, indexSettings, path
+            );
+            CatalogSnapshotManager snapshotManager = new CatalogSnapshotManager(
+                0L, 0L, 0L, java.util.List.of(), 0L, java.util.Map.of()
+            );
             this.currentCompositeEngineReference.set(
-                new DataFormatAwareEngine(dataFormatRegistry.getReaderManagers(mapperService, indexSettings, path))
+                new DataFormatAwareEngine(readerManagers, snapshotManager)
             );
         }
     }
@@ -4380,6 +4391,39 @@ public class IndexShard extends AbstractIndexShardComponent implements IndicesCl
                     remoteStoreSettings
                 )
             );
+        }
+
+        // [indexing-mock] Bridge Lucene refresh to data-format reader managers so they can
+        // create/update readers. This is needed before the indexing pipeline produces real
+        // CatalogSnapshots. Once indexing is wired, this bridge should be replaced by the
+        // proper CompositeIndexingExecutionEngine refresh path.
+        DataFormatAwareEngine compositeEngine = currentCompositeEngineReference.get();
+        if (compositeEngine != null && dataFormatRegistry != null) {
+            Map<DataFormat, EngineReaderManager<?>> readerManagers = compositeEngine.getReaderManagers();
+            internalRefreshListener.add(new ReferenceManager.RefreshListener() {
+                @Override
+                public void beforeRefresh() throws IOException {
+                    for (EngineReaderManager<?> rm : readerManagers.values()) {
+                        rm.beforeRefresh();
+                    }
+                }
+
+                @Override
+                public void afterRefresh(boolean didRefresh) throws IOException {
+                    DataFormatAwareEngine engine = currentCompositeEngineReference.get();
+                    if (engine == null) return;
+                    CatalogSnapshotManager snapshotMgr = engine.getCatalogSnapshotManager();
+                    if (snapshotMgr == null) return;
+                    if (didRefresh) {
+                        snapshotMgr.commitNewSnapshot(java.util.List.of());
+                    }
+                    try (var ref = snapshotMgr.acquireSnapshot()) {
+                        for (EngineReaderManager<?> rm : readerManagers.values()) {
+                            rm.afterRefresh(didRefresh, ref.get());
+                        }
+                    }
+                }
+            });
         }
 
         /*

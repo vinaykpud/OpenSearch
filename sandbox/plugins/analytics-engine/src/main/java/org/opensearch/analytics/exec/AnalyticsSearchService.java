@@ -74,12 +74,9 @@ public class AnalyticsSearchService {
             );
         }
 
-        // TODO: wire CatalogSnapshotManager so compositeEngine.acquireReader() works
-        // GatedCloseable<Reader> gatedReader = compositeEngine.acquireReader();
-        try {
+        try (GatedCloseable<Reader> gatedReader = compositeEngine.acquireReader()) {
             SearchShardTask task = null; // TODO: real task for cancellation
-//            ExecutionContext ctx = new ExecutionContext(request.getShardId().getIndexName(), task, gatedReader.get());
-            ExecutionContext ctx = new ExecutionContext(request.getShardId().getIndexName(), task, null);
+            ExecutionContext ctx = new ExecutionContext(request.getShardId().getIndexName(), task, gatedReader.get());
             ctx.setFragmentBytes(selectedPlan.getFragmentBytes());
 
             AnalyticsSearchBackendPlugin backend = backends.get(selectedPlan.getBackendId());
