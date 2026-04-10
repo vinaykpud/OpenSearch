@@ -40,7 +40,7 @@ public class DatafusionReaderManager implements EngineReaderManager<DatafusionRe
 
     private static final Logger logger = LogManager.getLogger(DatafusionReaderManager.class);
 
-    private static final String MOCK_FILE_NAME = "mock_data.parquet";
+    private static final String MOCK_FILE_NAME = "clickbench_hits_100.parquet";
 
     private final Map<CatalogSnapshot, DatafusionReader> readers = new HashMap<>();
     private final DataFormat dataFormat;
