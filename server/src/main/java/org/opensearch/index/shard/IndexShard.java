@@ -4398,6 +4398,9 @@ public class IndexShard extends AbstractIndexShardComponent implements IndicesCl
         // CatalogSnapshots. Once indexing is wired, this bridge should be replaced by the
         // proper CompositeIndexingExecutionEngine refresh path.
         DataFormatAwareEngine compositeEngine = currentCompositeEngineReference.get();
+        logger.info("[indexing-mock] Wiring refresh bridge: compositeEngine={}, dataFormatRegistry={}",
+            compositeEngine != null ? "present" : "null",
+            dataFormatRegistry != null ? "present" : "null");
         if (compositeEngine != null && dataFormatRegistry != null) {
             Map<DataFormat, EngineReaderManager<?>> readerManagers = compositeEngine.getReaderManagers();
             internalRefreshListener.add(new ReferenceManager.RefreshListener() {
@@ -4410,6 +4413,7 @@ public class IndexShard extends AbstractIndexShardComponent implements IndicesCl
 
                 @Override
                 public void afterRefresh(boolean didRefresh) throws IOException {
+                    logger.debug("[indexing-mock] afterRefresh called: didRefresh={}", didRefresh);
                     DataFormatAwareEngine engine = currentCompositeEngineReference.get();
                     if (engine == null) return;
                     CatalogSnapshotManager snapshotMgr = engine.getCatalogSnapshotManager();
