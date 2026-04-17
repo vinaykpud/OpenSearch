@@ -18,19 +18,12 @@ import java.io.IOException;
  * @opensearch.experimental
  */
 @ExperimentalApi
-public interface SearchExecEngine<T, V> extends Closeable {
-    /**
-     * Creates an execution context from a resolved plan.
-     *
-     * @param context               ExecutionContext
-     */
-    void prepare(T context);
+public interface SearchExecEngine extends Closeable {
 
     /**
-     * Executes the context and returns a result stream.
-     * @param context the execution context
+     * Executes the query and returns a result stream.
      */
-    V execute(T context) throws IOException;
+    EngineResultStream execute() throws IOException;
 
     @Override
     default void close() throws IOException {}

@@ -10,55 +10,87 @@ package org.opensearch.be.datafusion;
 
 import org.apache.arrow.memory.BufferAllocator;
 import org.opensearch.analytics.backend.EngineResultStream;
-import org.opensearch.analytics.backend.ExecutionContext;
 import org.opensearch.analytics.backend.SearchExecEngine;
+import org.opensearch.be.datafusion.nativelib.NativeBridge;
 import org.opensearch.be.datafusion.nativelib.StreamHandle;
 import org.opensearch.common.annotation.ExperimentalApi;
+import org.opensearch.core.action.ActionListener;
 
 import java.io.IOException;
+import java.util.concurrent.CompletableFuture;
 import java.util.function.Supplier;
 
 /**
  * DataFusion-backed search execution engine.
- * <p>
- * Delegates execution to the native DataFusion runtime via {@link DatafusionSearcher}.
  *
  * @opensearch.experimental
  */
 @ExperimentalApi
-public class DatafusionSearchExecEngine implements SearchExecEngine<ExecutionContext, EngineResultStream> {
+public class DatafusionSearchExecEngine implements SearchExecEngine {
 
-    private final DatafusionContext datafusionContext;
+    private final long readerPtr;
+    private final String tableName;
+    private final byte[] substraitBytes;
+    private final NativeRuntimeHandle nativeRuntime;
     private final Supplier<BufferAllocator> allocatorFactory;
 
     /**
-     * Creates an execution engine backed by the given DataFusion context.
-     * @param datafusionContext the DataFusion execution context
-     * @param allocatorFactory factory for creating a child allocator for result stream memory
+     * Creates a fully configured DataFusion execution engine.
+     *
+     * @param readerPtr        native reader pointer (NOT owned — lifecycle managed by DatafusionReaderManager)
+     * @param tableName        target table/index name
+     * @param substraitBytes   serialized Substrait plan bytes
+     * @param nativeRuntime    handle to the native DataFusion runtime
+     * @param allocatorFactory factory for creating Arrow buffer allocators for result streams
      */
-    public DatafusionSearchExecEngine(DatafusionContext datafusionContext, Supplier<BufferAllocator> allocatorFactory) {
-        this.datafusionContext = datafusionContext;
+    public DatafusionSearchExecEngine(
+        long readerPtr,
+        String tableName,
+        byte[] substraitBytes,
+        NativeRuntimeHandle nativeRuntime,
+        Supplier<BufferAllocator> allocatorFactory
+    ) {
+        this.readerPtr = readerPtr;
+        this.tableName = tableName;
+        this.substraitBytes = substraitBytes;
+        this.nativeRuntime = nativeRuntime;
         this.allocatorFactory = allocatorFactory;
     }
 
     @Override
-    public void prepare(ExecutionContext requestContext) {
-        // TODO: wire Substrait conversion (RelNode → Substrait bytes)
-        byte[] substraitBytes = null;
-        datafusionContext.setDatafusionQuery(new DatafusionQuery(requestContext.getTableName(), substraitBytes));
-    }
+    public EngineResultStream execute() throws IOException {
+        CompletableFuture<Long> future = new CompletableFuture<>();
+        NativeBridge.executeQueryAsync(readerPtr, tableName, substraitBytes, nativeRuntime.get(), new ActionListener<>() {
+            @Override
+            public void onResponse(Long streamPtr) {
+                future.complete(streamPtr);
+            }
 
-    @Override
-    public EngineResultStream execute(ExecutionContext requestContext) throws IOException {
-        DatafusionSearcher searcher = datafusionContext.getSearcher();
-        searcher.search(datafusionContext);
-        StreamHandle handle = datafusionContext.takeStreamHandle();
-        BufferAllocator allocator = allocatorFactory.get();
-        return new DatafusionResultStream(handle, allocator);
+            @Override
+            public void onFailure(Exception e) {
+                future.completeExceptionally(e);
+            }
+        });
+
+        long streamPtr;
+        try {
+            streamPtr = future.join();
+        } catch (Exception e) {
+            throw new IOException("Query execution failed", e);
+        }
+
+        StreamHandle handle = new StreamHandle(streamPtr, nativeRuntime);
+        try {
+            return new DatafusionResultStream(handle, allocatorFactory.get());
+        } catch (Exception e) {
+            handle.close();
+            throw e;
+        }
     }
 
     @Override
     public void close() throws IOException {
-        datafusionContext.close();
+        // StreamHandle is owned by DatafusionResultStream — nothing to clean up here.
+        // readerPtr is NOT owned by this engine (managed by DatafusionReaderManager).
     }
 }

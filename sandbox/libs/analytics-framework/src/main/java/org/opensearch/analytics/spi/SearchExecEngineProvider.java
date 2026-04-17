@@ -8,7 +8,6 @@
 
 package org.opensearch.analytics.spi;
 
-import org.opensearch.analytics.backend.EngineResultStream;
 import org.opensearch.analytics.backend.ExecutionContext;
 import org.opensearch.analytics.backend.SearchExecEngine;
 
@@ -24,5 +23,5 @@ public interface SearchExecEngineProvider {
      * Creates a search execution engine bound to the given execution context.
      * The context carries the reader snapshot and task metadata.
      */
-    SearchExecEngine<ExecutionContext, EngineResultStream> createSearchExecEngine(ExecutionContext ctx);
+    SearchExecEngine createSearchExecEngine(ExecutionContext ctx);
 }

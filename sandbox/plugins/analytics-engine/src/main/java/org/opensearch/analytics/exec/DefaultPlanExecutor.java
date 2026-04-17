@@ -81,12 +81,9 @@ public class DefaultPlanExecutor implements QueryPlanExecutor<RelNode, Iterable<
         List<Object[]> rows = new ArrayList<>();
         try (var dataFormatAwareReader = indexReaderProvider.acquireReader()) {
             ExecutionContext ctx = new ExecutionContext(tableName, task, dataFormatAwareReader.get());
-            try (
-                SearchExecEngine<ExecutionContext, EngineResultStream> engine = backendPlugin.getSearchExecEngineProvider()
-                    .createSearchExecEngine(ctx)
-            ) {
+            try (SearchExecEngine engine = backendPlugin.getSearchExecEngineProvider().createSearchExecEngine(ctx)) {
                 logger.info("[DefaultPlanExecutor] Executing via [{}]", backendPlugin.name());
-                try (EngineResultStream resultStream = engine.execute(ctx)) {
+                try (EngineResultStream resultStream = engine.execute()) {
                     Iterator<EngineResultBatch> batchIterator = resultStream.iterator();
                     while (batchIterator.hasNext()) {
                         EngineResultBatch batch = batchIterator.next();

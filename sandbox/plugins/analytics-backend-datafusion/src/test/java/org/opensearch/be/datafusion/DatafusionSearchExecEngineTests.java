@@ -23,8 +23,8 @@ import java.util.List;
 
 /**
  * Tests the plugin-level execution chain:
- * DatafusionReader → DatafusionContext → DatafusionSearchExecEngine → EngineResultStream → EngineResultBatch.
- * Uses sqlToSubstrait to generate plan bytes, then exercises the real plugin classes.
+ * DatafusionSearchExecEngine → NativeBridge → EngineResultStream → EngineResultBatch.
+ * Uses sqlToSubstrait to generate plan bytes, then exercises the real engine.
  */
 @AwaitsFix(bugUrl = "https://github.com/opensearch-project/OpenSearch/issues/21195")
 public class DatafusionSearchExecEngineTests extends OpenSearchTestCase {
@@ -49,7 +49,6 @@ public class DatafusionSearchExecEngineTests extends OpenSearchTestCase {
     @Override
     public void tearDown() throws Exception {
         readerHandle.close();
-        // NativeRuntimeHandle.close() calls closeGlobalRuntime
         runtimeHandle.close();
         super.tearDown();
     }
@@ -62,22 +61,20 @@ public class DatafusionSearchExecEngineTests extends OpenSearchTestCase {
             runtimeHandle.get()
         );
 
-        // Build the plugin-level objects
-        DatafusionReader reader = createReader();
-        DatafusionContext context = new DatafusionContext(null, reader, runtimeHandle);
-        context.setDatafusionQuery(new DatafusionQuery("test_table", substrait));
-
         try (
             DatafusionSearchExecEngine engine = new DatafusionSearchExecEngine(
-                context,
+                readerHandle.getPointer(),
+                "test_table",
+                substrait,
+                runtimeHandle,
                 () -> new org.apache.arrow.memory.RootAllocator(Long.MAX_VALUE)
             )
         ) {
-            try (EngineResultStream stream = engine.execute(null)) {
+            try (EngineResultStream stream = engine.execute()) {
                 List<Object[]> rows = collectRows(stream);
                 assertEquals(2, rows.size());
-                assertEquals(2L, rows.get(0)[0]); // message
-                assertEquals(3L, rows.get(0)[1]); // message2
+                assertEquals(2L, rows.get(0)[0]);
+                assertEquals(3L, rows.get(0)[1]);
                 assertEquals(3L, rows.get(1)[0]);
                 assertEquals(4L, rows.get(1)[1]);
             }
@@ -92,20 +89,19 @@ public class DatafusionSearchExecEngineTests extends OpenSearchTestCase {
             runtimeHandle.get()
         );
 
-        DatafusionReader reader = createReader();
-        DatafusionContext context = new DatafusionContext(null, reader, runtimeHandle);
-        context.setDatafusionQuery(new DatafusionQuery("test_table", substrait));
-
         try (
             DatafusionSearchExecEngine engine = new DatafusionSearchExecEngine(
-                context,
+                readerHandle.getPointer(),
+                "test_table",
+                substrait,
+                runtimeHandle,
                 () -> new org.apache.arrow.memory.RootAllocator(Long.MAX_VALUE)
             )
         ) {
-            try (EngineResultStream stream = engine.execute(null)) {
+            try (EngineResultStream stream = engine.execute()) {
                 List<Object[]> rows = collectRows(stream);
                 assertEquals(1, rows.size());
-                assertEquals(5L, rows.get(0)[0]); // 2 + 3
+                assertEquals(5L, rows.get(0)[0]);
             }
         }
     }
@@ -118,27 +114,21 @@ public class DatafusionSearchExecEngineTests extends OpenSearchTestCase {
             runtimeHandle.get()
         );
 
-        DatafusionReader reader = createReader();
-        DatafusionContext context = new DatafusionContext(null, reader, runtimeHandle);
-        context.setDatafusionQuery(new DatafusionQuery("test_table", substrait));
-
         try (
             DatafusionSearchExecEngine engine = new DatafusionSearchExecEngine(
-                context,
+                readerHandle.getPointer(),
+                "test_table",
+                substrait,
+                runtimeHandle,
                 () -> new org.apache.arrow.memory.RootAllocator(Long.MAX_VALUE)
             )
         ) {
-            try (EngineResultStream stream = engine.execute(null)) {
+            try (EngineResultStream stream = engine.execute()) {
                 List<Object[]> rows = collectRows(stream);
                 assertEquals(1, rows.size());
                 assertEquals(3L, rows.get(0)[0]);
             }
         }
-    }
-
-    private DatafusionReader createReader() {
-        // Wrap the raw pointer in a ReaderHandle via the existing native pointer
-        return new DatafusionReader(readerHandle.getPointer());
     }
 
     private List<Object[]> collectRows(EngineResultStream stream) {

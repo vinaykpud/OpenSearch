@@ -14,18 +14,24 @@ import org.apache.calcite.sql.SqlOperatorTable;
 import org.apache.calcite.sql.util.SqlOperatorTables;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.opensearch.action.ActionRequest;
+import org.opensearch.analytics.exec.AnalyticsSearchService;
+import org.opensearch.analytics.exec.AnalyticsShardAction;
 import org.opensearch.analytics.exec.DefaultPlanExecutor;
 import org.opensearch.analytics.exec.QueryPlanExecutor;
+import org.opensearch.analytics.exec.TransportAnalyticsShardAction;
 import org.opensearch.analytics.schema.OpenSearchSchemaBuilder;
 import org.opensearch.analytics.spi.AnalyticsSearchBackendPlugin;
 import org.opensearch.cluster.metadata.IndexNameExpressionResolver;
 import org.opensearch.cluster.service.ClusterService;
 import org.opensearch.common.inject.Module;
 import org.opensearch.common.inject.TypeLiteral;
+import org.opensearch.core.action.ActionResponse;
 import org.opensearch.core.common.io.stream.NamedWriteableRegistry;
 import org.opensearch.core.xcontent.NamedXContentRegistry;
 import org.opensearch.env.Environment;
 import org.opensearch.env.NodeEnvironment;
+import org.opensearch.plugins.ActionPlugin;
 import org.opensearch.plugins.ExtensiblePlugin;
 import org.opensearch.plugins.Plugin;
 import org.opensearch.repositories.RepositoriesService;
@@ -36,7 +42,9 @@ import org.opensearch.watcher.ResourceWatcherService;
 
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.function.Supplier;
 
 /**
@@ -45,7 +53,7 @@ import java.util.function.Supplier;
  *
  * @opensearch.internal
  */
-public class AnalyticsPlugin extends Plugin implements ExtensiblePlugin {
+public class AnalyticsPlugin extends Plugin implements ExtensiblePlugin, ActionPlugin {
 
     private static final Logger logger = LogManager.getLogger(AnalyticsPlugin.class);
 
@@ -81,9 +89,23 @@ public class AnalyticsPlugin extends Plugin implements ExtensiblePlugin {
         IndexNameExpressionResolver indexNameExpressionResolver,
         Supplier<RepositoriesService> repositoriesServiceSupplier
     ) {
+        Map<String, AnalyticsSearchBackendPlugin> backendsMap = new LinkedHashMap<>();
+        for (AnalyticsSearchBackendPlugin backend : backEnds) {
+            backendsMap.put(backend.name(), backend);
+        }
+        AnalyticsSearchService searchService = new AnalyticsSearchService(backendsMap);
+
         return List.of(
             new DefaultPlanExecutor(backEnds, null/* TODO: pass indices service */, clusterService),
-            new DefaultEngineContext(clusterService, operatorTable)
+            new DefaultEngineContext(clusterService, operatorTable),
+            searchService
+        );
+    }
+
+    @Override
+    public List<ActionHandler<? extends ActionRequest, ? extends ActionResponse>> getActions() {
+        return List.of(
+            new ActionHandler<>(AnalyticsShardAction.INSTANCE, TransportAnalyticsShardAction.class)
         );
     }
 
@@ -94,6 +116,7 @@ public class AnalyticsPlugin extends Plugin implements ExtensiblePlugin {
             b.bind(new TypeLiteral<QueryPlanExecutor<RelNode, Iterable<Object[]>>>() {
             }).to(DefaultPlanExecutor.class);
             b.bind(EngineContext.class).to(DefaultEngineContext.class);
+            b.bind(AnalyticsSearchService.class);
         });
     }
 

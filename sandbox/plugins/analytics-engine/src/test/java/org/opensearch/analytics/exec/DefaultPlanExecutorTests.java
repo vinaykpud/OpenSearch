@@ -358,7 +358,7 @@ public class DefaultPlanExecutorTests extends OpenSearchTestCase {
         protected void closeInternal() {}
     }
 
-    static class MockSearchExecEngine implements SearchExecEngine<ExecutionContext, EngineResultStream> {
+    static class MockSearchExecEngine implements SearchExecEngine {
         private final long totalRows;
 
         MockSearchExecEngine(long totalRows) {
@@ -366,10 +366,7 @@ public class DefaultPlanExecutorTests extends OpenSearchTestCase {
         }
 
         @Override
-        public void prepare(ExecutionContext context) {}
-
-        @Override
-        public EngineResultStream execute(ExecutionContext context) {
+        public EngineResultStream execute() {
             return new MockResultStream(totalRows);
         }
 
@@ -452,7 +449,7 @@ public class DefaultPlanExecutorTests extends OpenSearchTestCase {
         public SearchExecEngineProvider getSearchExecEngineProvider() {
             return new SearchExecEngineProvider() {
                 @Override
-                public SearchExecEngine<ExecutionContext, EngineResultStream> createSearchExecEngine(ExecutionContext ctx) {
+                public SearchExecEngine createSearchExecEngine(ExecutionContext ctx) {
                     Object reader = ctx.getReader().reader(format);
                     long rows = reader instanceof Long ? (Long) reader : 0L;
                     return new MockSearchExecEngine(rows);
