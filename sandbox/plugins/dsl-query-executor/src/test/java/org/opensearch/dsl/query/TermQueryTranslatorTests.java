@@ -54,6 +54,16 @@ public class TermQueryTranslatorTests extends OpenSearchTestCase {
         assertEquals(1, ((RexInputRef) call.getOperands().get(0)).getIndex());
     }
 
+    public void testDateStringValue() throws ConversionException {
+        RexNode result = translator.convert(QueryBuilders.termQuery("created", "2013-07-15"), ctx);
+
+        assertTrue(result instanceof RexCall);
+        RexCall call = (RexCall) result;
+        assertEquals(SqlKind.EQUALS, call.getKind());
+        // created is the 5th field (index 4) in TestUtils schema: name, price, brand, rating, created
+        assertEquals(4, ((RexInputRef) call.getOperands().get(0)).getIndex());
+    }
+
     public void testThrowsForUnknownField() {
         expectThrows(ConversionException.class, () -> translator.convert(QueryBuilders.termQuery("nonexistent", "value"), ctx));
     }

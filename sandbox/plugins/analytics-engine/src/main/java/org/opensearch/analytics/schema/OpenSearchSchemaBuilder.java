@@ -76,39 +76,43 @@ public class OpenSearchSchemaBuilder {
      *   <li>double -> DOUBLE</li>
      *   <li>float -> FLOAT</li>
      *   <li>boolean -> BOOLEAN</li>
-     *   <li>date -> TIMESTAMP</li>
-     *   <li>ip -> VARCHAR</li>
+     *   <li>half_float -> FLOAT</li>
+     *   <li>unsigned_long/scaled_float -> BIGINT</li>
+     *   <li>token_count -> INTEGER</li>
      *   <li>nested/object -> skip (not mapped)</li>
+     *   <li>date/date_nanos/ip/binary -> UDT (see {@link #mapFieldTypeToUdt})</li>
      *   <li>unknown -> VARCHAR (default)</li>
      * </ul>
      *
      * @param opensearchType the OpenSearch field type string
      */
     public static SqlTypeName mapFieldType(String opensearchType) {
-        switch (opensearchType) {
-            case "keyword":
-            case "text":
-            case "ip":
-                return SqlTypeName.VARCHAR;
-            case "long":
-                return SqlTypeName.BIGINT;
-            case "integer":
-                return SqlTypeName.INTEGER;
-            case "short":
-                return SqlTypeName.SMALLINT;
-            case "byte":
-                return SqlTypeName.TINYINT;
-            case "double":
-                return SqlTypeName.DOUBLE;
-            case "float":
-                return SqlTypeName.FLOAT;
-            case "boolean":
-                return SqlTypeName.BOOLEAN;
-            case "date":
-                return SqlTypeName.TIMESTAMP;
-            default:
-                return SqlTypeName.VARCHAR;
-        }
+        return switch (opensearchType) {
+            case "keyword", "text" -> SqlTypeName.VARCHAR;
+            case "long", "unsigned_long", "scaled_float" -> SqlTypeName.BIGINT;
+            case "integer", "token_count" -> SqlTypeName.INTEGER;
+            case "short" -> SqlTypeName.SMALLINT;
+            case "byte" -> SqlTypeName.TINYINT;
+            case "double" -> SqlTypeName.DOUBLE;
+            case "float", "half_float" -> SqlTypeName.FLOAT;
+            case "boolean" -> SqlTypeName.BOOLEAN;
+            default -> throw new IllegalArgumentException("Unsupported field type: " + opensearchType);
+        };
+    }
+
+    /**
+     * Returns an {@link OpenSearchFieldUDT} tag for types that need custom
+     * VARCHAR-backed UDT handling, or {@code null} for types that map directly
+     * to native Calcite types.
+     */
+    public static OpenSearchFieldUDT mapFieldTypeToUdt(String opensearchType) {
+        return switch (opensearchType) {
+            case "date" -> OpenSearchFieldUDT.TIMESTAMP;
+            case "date_nanos" -> OpenSearchFieldUDT.TIMESTAMP_NANOS;
+            case "ip" -> OpenSearchFieldUDT.IP;
+            case "binary" -> OpenSearchFieldUDT.BINARY;
+            default -> null;
+        };
     }
 
     private static AbstractTable buildTable(Map<String, Object> properties) {
@@ -124,12 +128,17 @@ public class OpenSearchSchemaBuilder {
                     if (fieldType == null) {
                         continue;
                     }
-                    // Skip nested and object types
                     if ("nested".equals(fieldType) || "object".equals(fieldType)) {
                         continue;
                     }
-                    SqlTypeName sqlType = mapFieldType(fieldType);
-                    builder.add(fieldName, typeFactory.createTypeWithNullability(typeFactory.createSqlType(sqlType), true));
+                    OpenSearchFieldUDT udt = mapFieldTypeToUdt(fieldType);
+                    if (udt != null && typeFactory instanceof OpenSearchTypeFactory osTypeFactory) {
+                        String format = (String) fieldProps.get("format");
+                        builder.add(fieldName, osTypeFactory.createFieldType(udt, true, format));
+                    } else {
+                        SqlTypeName sqlType = mapFieldType(fieldType);
+                        builder.add(fieldName, typeFactory.createTypeWithNullability(typeFactory.createSqlType(sqlType), true));
+                    }
                 }
                 return builder.build();
             }

@@ -14,7 +14,10 @@ import org.apache.calcite.schema.SchemaPlus;
 import org.apache.calcite.schema.Table;
 import org.apache.calcite.sql.type.SqlTypeName;
 import org.opensearch.Version;
+import org.opensearch.analytics.schema.OpenSearchFieldType;
+import org.opensearch.analytics.schema.OpenSearchFieldUDT;
 import org.opensearch.analytics.schema.OpenSearchSchemaBuilder;
+import org.opensearch.analytics.schema.OpenSearchTypeFactory;
 import org.opensearch.cluster.ClusterName;
 import org.opensearch.cluster.ClusterState;
 import org.opensearch.cluster.metadata.IndexMetadata;
@@ -66,6 +69,7 @@ public class OpenSearchSchemaBuilderTests extends OpenSearchTestCase {
 
     /**
      * Test date, ip, text, short, byte type mappings.
+     * With OpenSearchTypeFactory, date and ip fields become VARCHAR-backed UDTs.
      */
     public void testBuildSchemaWithDateIpTextShortByte() throws Exception {
         ClusterState clusterState = buildClusterState(
@@ -77,12 +81,48 @@ public class OpenSearchSchemaBuilderTests extends OpenSearchTestCase {
         Table table = schema.getTable("more_types");
         assertNotNull("Table more_types should exist in schema", table);
 
-        RelDataType rowType = table.getRowType(new org.apache.calcite.jdbc.JavaTypeFactoryImpl());
-        assertFieldType(rowType, "created", SqlTypeName.TIMESTAMP);
-        assertFieldType(rowType, "address", SqlTypeName.VARCHAR);
+        RelDataType rowType = table.getRowType(OpenSearchTypeFactory.INSTANCE);
+        assertUdtField(rowType, "created", OpenSearchFieldUDT.TIMESTAMP);
+        assertUdtField(rowType, "address", OpenSearchFieldUDT.IP);
         assertFieldType(rowType, "content", SqlTypeName.VARCHAR);
         assertFieldType(rowType, "small_num", SqlTypeName.SMALLINT);
         assertFieldType(rowType, "tiny_num", SqlTypeName.TINYINT);
+    }
+
+    /**
+     * Test UDT types: date_nanos, binary.
+     */
+    public void testBuildSchemaWithDateNanosAndBinary() throws Exception {
+        ClusterState clusterState = buildClusterState(
+            Map.of("udt_types", Map.of("ts_nanos", "date_nanos", "data", "binary"))
+        );
+
+        SchemaPlus schema = OpenSearchSchemaBuilder.buildSchema(clusterState);
+        Table table = schema.getTable("udt_types");
+        assertNotNull(table);
+
+        RelDataType rowType = table.getRowType(OpenSearchTypeFactory.INSTANCE);
+        assertUdtField(rowType, "ts_nanos", OpenSearchFieldUDT.TIMESTAMP_NANOS);
+        assertUdtField(rowType, "data", OpenSearchFieldUDT.BINARY);
+    }
+
+    /**
+     * Test additional native types: half_float, unsigned_long, scaled_float, token_count.
+     */
+    public void testBuildSchemaWithAdditionalNativeTypes() throws Exception {
+        ClusterState clusterState = buildClusterState(
+            Map.of("native_types", Map.of("hf", "half_float", "ul", "unsigned_long", "sf", "scaled_float", "tc", "token_count"))
+        );
+
+        SchemaPlus schema = OpenSearchSchemaBuilder.buildSchema(clusterState);
+        Table table = schema.getTable("native_types");
+        assertNotNull(table);
+
+        RelDataType rowType = table.getRowType(OpenSearchTypeFactory.INSTANCE);
+        assertFieldType(rowType, "hf", SqlTypeName.FLOAT);
+        assertFieldType(rowType, "ul", SqlTypeName.BIGINT);
+        assertFieldType(rowType, "sf", SqlTypeName.BIGINT);
+        assertFieldType(rowType, "tc", SqlTypeName.INTEGER);
     }
 
     /**
@@ -138,22 +178,37 @@ public class OpenSearchSchemaBuilderTests extends OpenSearchTestCase {
         assertEquals(SqlTypeName.VARCHAR, OpenSearchSchemaBuilder.mapFieldType("keyword"));
         assertEquals(SqlTypeName.VARCHAR, OpenSearchSchemaBuilder.mapFieldType("text"));
         assertEquals(SqlTypeName.BIGINT, OpenSearchSchemaBuilder.mapFieldType("long"));
+        assertEquals(SqlTypeName.BIGINT, OpenSearchSchemaBuilder.mapFieldType("unsigned_long"));
+        assertEquals(SqlTypeName.BIGINT, OpenSearchSchemaBuilder.mapFieldType("scaled_float"));
         assertEquals(SqlTypeName.INTEGER, OpenSearchSchemaBuilder.mapFieldType("integer"));
+        assertEquals(SqlTypeName.INTEGER, OpenSearchSchemaBuilder.mapFieldType("token_count"));
         assertEquals(SqlTypeName.SMALLINT, OpenSearchSchemaBuilder.mapFieldType("short"));
         assertEquals(SqlTypeName.TINYINT, OpenSearchSchemaBuilder.mapFieldType("byte"));
         assertEquals(SqlTypeName.DOUBLE, OpenSearchSchemaBuilder.mapFieldType("double"));
         assertEquals(SqlTypeName.FLOAT, OpenSearchSchemaBuilder.mapFieldType("float"));
+        assertEquals(SqlTypeName.FLOAT, OpenSearchSchemaBuilder.mapFieldType("half_float"));
         assertEquals(SqlTypeName.BOOLEAN, OpenSearchSchemaBuilder.mapFieldType("boolean"));
-        assertEquals(SqlTypeName.TIMESTAMP, OpenSearchSchemaBuilder.mapFieldType("date"));
-        assertEquals(SqlTypeName.VARCHAR, OpenSearchSchemaBuilder.mapFieldType("ip"));
     }
 
     /**
-     * Test that unknown field types default to VARCHAR.
+     * Test mapFieldTypeToUdt returns correct UDT for supported types, null for others.
      */
-    public void testUnknownFieldTypeDefaultsToVarchar() {
-        assertEquals(SqlTypeName.VARCHAR, OpenSearchSchemaBuilder.mapFieldType("unknown_type"));
-        assertEquals(SqlTypeName.VARCHAR, OpenSearchSchemaBuilder.mapFieldType("geo_point"));
+    public void testMapFieldTypeToUdt() {
+        assertEquals(OpenSearchFieldUDT.TIMESTAMP, OpenSearchSchemaBuilder.mapFieldTypeToUdt("date"));
+        assertEquals(OpenSearchFieldUDT.TIMESTAMP_NANOS, OpenSearchSchemaBuilder.mapFieldTypeToUdt("date_nanos"));
+        assertEquals(OpenSearchFieldUDT.IP, OpenSearchSchemaBuilder.mapFieldTypeToUdt("ip"));
+        assertEquals(OpenSearchFieldUDT.BINARY, OpenSearchSchemaBuilder.mapFieldTypeToUdt("binary"));
+        assertNull(OpenSearchSchemaBuilder.mapFieldTypeToUdt("keyword"));
+        assertNull(OpenSearchSchemaBuilder.mapFieldTypeToUdt("long"));
+        assertNull(OpenSearchSchemaBuilder.mapFieldTypeToUdt("unknown"));
+    }
+
+    /**
+     * Test that unknown field types throw.
+     */
+    public void testUnknownFieldTypeThrows() {
+        expectThrows(IllegalArgumentException.class, () -> OpenSearchSchemaBuilder.mapFieldType("unknown_type"));
+        expectThrows(IllegalArgumentException.class, () -> OpenSearchSchemaBuilder.mapFieldType("geo_point"));
     }
 
     // --- helpers ---
@@ -162,6 +217,14 @@ public class OpenSearchSchemaBuilderTests extends OpenSearchTestCase {
         RelDataTypeField field = rowType.getField(fieldName, true, false);
         assertNotNull("Field '" + fieldName + "' should exist", field);
         assertEquals("Field '" + fieldName + "' should have type " + expectedType, expectedType, field.getType().getSqlTypeName());
+    }
+
+    private void assertUdtField(RelDataType rowType, String fieldName, OpenSearchFieldUDT expectedUdt) {
+        RelDataTypeField field = rowType.getField(fieldName, true, false);
+        assertNotNull("Field '" + fieldName + "' should exist", field);
+        assertTrue("Field '" + fieldName + "' should be OpenSearchFieldType", field.getType() instanceof OpenSearchFieldType);
+        assertEquals(expectedUdt, ((OpenSearchFieldType) field.getType()).getUdt());
+        assertEquals("UDT should be VARCHAR-backed", SqlTypeName.VARCHAR, field.getType().getSqlTypeName());
     }
 
     private ClusterState buildClusterState(Map<String, Map<String, String>> indices) throws Exception {

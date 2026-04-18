@@ -24,6 +24,8 @@ import org.apache.calcite.schema.SchemaPlus;
 import org.apache.calcite.schema.impl.AbstractTable;
 import org.apache.calcite.sql.type.SqlTypeFactoryImpl;
 import org.apache.calcite.sql.type.SqlTypeName;
+import org.opensearch.analytics.schema.OpenSearchFieldUDT;
+import org.opensearch.analytics.schema.OpenSearchTypeFactory;
 import org.opensearch.dsl.converter.ConversionContext;
 import org.opensearch.search.builder.SearchSourceBuilder;
 
@@ -61,7 +63,7 @@ public class TestUtils {
     }
 
     private static Infra buildInfra() {
-        RelDataTypeFactory typeFactory = new SqlTypeFactoryImpl(RelDataTypeSystem.DEFAULT);
+        OpenSearchTypeFactory typeFactory = OpenSearchTypeFactory.INSTANCE;
         HepPlanner planner = new HepPlanner(HepProgram.builder().build());
         RelOptCluster cluster = RelOptCluster.create(planner, new RexBuilder(typeFactory));
 
@@ -69,12 +71,13 @@ public class TestUtils {
         schema.add("test", new AbstractTable() {
             @Override
             public RelDataType getRowType(RelDataTypeFactory tf) {
-                // Nullable fields — matches OpenSearchSchemaBuilder behavior
+                OpenSearchTypeFactory osFactory = (OpenSearchTypeFactory) tf;
                 return tf.builder()
                     .add("name", tf.createTypeWithNullability(tf.createSqlType(SqlTypeName.VARCHAR), true))
                     .add("price", tf.createTypeWithNullability(tf.createSqlType(SqlTypeName.INTEGER), true))
                     .add("brand", tf.createTypeWithNullability(tf.createSqlType(SqlTypeName.VARCHAR), true))
                     .add("rating", tf.createTypeWithNullability(tf.createSqlType(SqlTypeName.DOUBLE), true))
+                    .add("created", osFactory.createFieldType(OpenSearchFieldUDT.TIMESTAMP, true))
                     .build();
             }
         });
