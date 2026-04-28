@@ -17,8 +17,6 @@ import org.opensearch.analytics.spi.FieldType;
 import org.opensearch.analytics.spi.FilterCapability;
 import org.opensearch.analytics.spi.FilterOperator;
 import org.opensearch.analytics.spi.FragmentConvertor;
-import org.opensearch.analytics.spi.ProjectCapability;
-import org.opensearch.analytics.spi.ScalarFunction;
 import org.opensearch.analytics.spi.ScanCapability;
 import org.opensearch.analytics.spi.SearchExecEngineProvider;
 import org.opensearch.index.engine.dataformat.DataFormatRegistry;
@@ -71,8 +69,6 @@ public class DataFusionAnalyticsBackendPlugin implements AnalyticsSearchBackendP
         AggregateFunction.AVG
     );
 
-    private static final Set<ScalarFunction> SCALAR_FUNCTIONS = Set.of(ScalarFunction.CAST);
-
     private final DataFusionPlugin plugin;
 
     public DataFusionAnalyticsBackendPlugin(DataFusionPlugin plugin) {
@@ -118,16 +114,6 @@ public class DataFusionAnalyticsBackendPlugin implements AnalyticsSearchBackendP
                     for (FieldType type : SUPPORTED_FIELD_TYPES) {
                         caps.add(AggregateCapability.simple(func, Set.of(type), formats));
                     }
-                }
-                return Set.copyOf(caps);
-            }
-
-            @Override
-            public Set<ProjectCapability> projectCapabilities() {
-                Set<String> formats = Set.copyOf(plugin.getSupportedFormats());
-                Set<ProjectCapability> caps = new HashSet<>();
-                for (ScalarFunction func : SCALAR_FUNCTIONS) {
-                    caps.add(new ProjectCapability.Scalar(func, Set.copyOf(SUPPORTED_FIELD_TYPES), formats, true));
                 }
                 return Set.copyOf(caps);
             }
