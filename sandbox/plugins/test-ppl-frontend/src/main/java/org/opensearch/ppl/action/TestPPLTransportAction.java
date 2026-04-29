@@ -18,6 +18,7 @@ import org.opensearch.analytics.exec.QueryPlanExecutor;
 import org.opensearch.common.inject.Inject;
 import org.opensearch.core.action.ActionListener;
 import org.opensearch.tasks.Task;
+import org.opensearch.threadpool.ThreadPool;
 import org.opensearch.transport.TransportService;
 
 /**
@@ -31,6 +32,7 @@ public class TestPPLTransportAction extends HandledTransportAction<PPLRequest, P
     private static final Logger logger = LogManager.getLogger(TestPPLTransportAction.class);
 
     private final UnifiedQueryService unifiedQueryService;
+    private final ThreadPool threadPool;
 
     @Inject
     public TestPPLTransportAction(
@@ -41,22 +43,26 @@ public class TestPPLTransportAction extends HandledTransportAction<PPLRequest, P
     ) {
         super(UnifiedPPLExecuteAction.NAME, transportService, actionFilters, PPLRequest::new);
         this.unifiedQueryService = new UnifiedQueryService(executor, engineContext);
+        this.threadPool = transportService.getThreadPool();
     }
 
     /** Test-only constructor that accepts a pre-built {@link UnifiedQueryService}. */
     public TestPPLTransportAction(TransportService transportService, ActionFilters actionFilters, UnifiedQueryService unifiedQueryService) {
         super(UnifiedPPLExecuteAction.NAME, transportService, actionFilters, PPLRequest::new);
         this.unifiedQueryService = unifiedQueryService;
+        this.threadPool = transportService.getThreadPool();
     }
 
     @Override
     protected void doExecute(Task task, PPLRequest request, ActionListener<PPLResponse> listener) {
-        try {
-            PPLResponse response = unifiedQueryService.execute(request.getPplText());
-            listener.onResponse(response);
-        } catch (Exception e) {
-            logger.error("[UNIFIED_PPL] execution failed", e);
-            listener.onFailure(e);
-        }
+        threadPool.generic().execute(() -> {
+            try {
+                PPLResponse response = unifiedQueryService.execute(request.getPplText());
+                listener.onResponse(response);
+            } catch (Exception e) {
+                logger.error("[UNIFIED_PPL] execution failed", e);
+                listener.onFailure(e);
+            }
+        });
     }
 }
