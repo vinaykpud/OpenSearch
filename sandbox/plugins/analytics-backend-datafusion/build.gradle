@@ -14,12 +14,15 @@ opensearchplugin {
 
 java { sourceCompatibility = JavaVersion.toVersion(25); targetCompatibility = JavaVersion.toVersion(25) }
 
-// Guava is forbidden on compile classpaths by OpenSearch. Calcite's TableScan
-// references ImmutableList, so tests need it. Bypass via custom configuration.
+// Guava is forbidden on compile classpaths by OpenSearch. Calcite's RelShuttleImpl
+// references TableFunctionScan which needs ImmutableSet. Bypass via custom configuration.
 configurations {
+  calciteCompile
   calciteTestCompile
+  compileClasspath { exclude group: 'com.google.guava' }
   testCompileClasspath { exclude group: 'com.google.guava' }
 }
+sourceSets.main.compileClasspath += configurations.calciteCompile
 sourceSets.test.compileClasspath += configurations.calciteTestCompile
 
 dependencies {
@@ -51,10 +54,11 @@ dependencies {
   compileOnly "com.fasterxml.jackson.core:jackson-databind:${versions.jackson_databind}"
 
   // Substrait — Calcite RelNode to Substrait plan conversion for DataFusion native runtime
-  implementation "io.substrait:isthmus:0.67.0"
-  implementation "io.substrait:core:0.67.0"
+  implementation "io.substrait:isthmus:0.89.1"
+  implementation "io.substrait:core:0.89.1"
   implementation "com.fasterxml.jackson.datatype:jackson-datatype-jdk8:${versions.jackson}"
 
+  calciteCompile "com.google.guava:guava:${versions.guava}"
   calciteTestCompile "com.google.guava:guava:${versions.guava}"
 }
 
@@ -72,8 +76,9 @@ tasks.withType(JavaCompile).configureEach {
 
 tasks.named('thirdPartyAudit').configure {
   ignoreMissingClasses(
-    // Optional Calcite DDL parser — lives in calcite-server module, not needed at runtime
-    'org.apache.calcite.sql.parser.ddl.SqlDdlParserImpl'
+    // Optional Calcite DDL/server classes — live in calcite-server module, not needed at runtime
+    'org.apache.calcite.sql.parser.ddl.SqlDdlParserImpl',
+    'org.apache.calcite.server.ServerDdlExecutor'
   )
 }
 

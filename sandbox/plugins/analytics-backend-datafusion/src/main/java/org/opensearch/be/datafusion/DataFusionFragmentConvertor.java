@@ -16,23 +16,14 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.opensearch.analytics.spi.FragmentConvertor;
 
-import java.util.ArrayList;
 import java.util.List;
-import java.util.Optional;
 
 import io.substrait.extension.SimpleExtension;
-import io.substrait.isthmus.ImmutableFeatureBoard;
+import io.substrait.isthmus.ConverterProvider;
 import io.substrait.isthmus.SubstraitRelVisitor;
-import io.substrait.isthmus.TypeConverter;
-import io.substrait.isthmus.expression.AggregateFunctionConverter;
-import io.substrait.isthmus.expression.ScalarFunctionConverter;
-import io.substrait.isthmus.expression.WindowFunctionConverter;
 import io.substrait.plan.Plan;
 import io.substrait.plan.PlanProtoConverter;
-import io.substrait.relation.NamedScan;
 import io.substrait.relation.Rel;
-import io.substrait.relation.RelCopyOnWriteVisitor;
-import io.substrait.util.EmptyVisitationContext;
 
 /**
  * Converts Calcite RelNode fragments to Substrait protobuf bytes
@@ -81,7 +72,7 @@ public class DataFusionFragmentConvertor implements FragmentConvertor {
         Plan.Root substraitRoot = Plan.Root.builder().input(substraitRel).names(fieldNames).build();
         Plan plan = Plan.builder().addRoots(substraitRoot).build();
 
-        plan = new TableNameModifier().modifyTableNames(plan);
+        plan = SubstraitPlanRewriter.rewrite(plan);
 
         io.substrait.proto.Plan protoPlan = new PlanProtoConverter().toProto(plan);
         byte[] bytes = protoPlan.toByteArray();
@@ -91,51 +82,7 @@ public class DataFusionFragmentConvertor implements FragmentConvertor {
 
     private SubstraitRelVisitor createVisitor(RelNode relNode) {
         RelDataTypeFactory typeFactory = relNode.getCluster().getTypeFactory();
-        TypeConverter typeConverter = TypeConverter.DEFAULT;
-
-        AggregateFunctionConverter aggConverter = new AggregateFunctionConverter(extensions.aggregateFunctions(), typeFactory);
-        ScalarFunctionConverter scalarConverter = new ScalarFunctionConverter(
-            extensions.scalarFunctions(),
-            List.of(),
-            typeFactory,
-            typeConverter
-        );
-        WindowFunctionConverter windowConverter = new WindowFunctionConverter(extensions.windowFunctions(), typeFactory);
-
-        return new SubstraitRelVisitor(
-            typeFactory,
-            scalarConverter,
-            aggConverter,
-            windowConverter,
-            typeConverter,
-            ImmutableFeatureBoard.builder().build()
-        );
-    }
-
-    private static class TableNameModifier {
-        Plan modifyTableNames(Plan plan) {
-            TableNameVisitor visitor = new TableNameVisitor();
-            List<Plan.Root> modifiedRoots = new ArrayList<>();
-            for (Plan.Root root : plan.getRoots()) {
-                Optional<Rel> modifiedRel = root.getInput().accept(visitor, null);
-                if (modifiedRel.isPresent()) {
-                    modifiedRoots.add(Plan.Root.builder().from(root).input(modifiedRel.get()).build());
-                } else {
-                    modifiedRoots.add(root);
-                }
-            }
-            return Plan.builder().from(plan).roots(modifiedRoots).build();
-        }
-
-        private static class TableNameVisitor extends RelCopyOnWriteVisitor<RuntimeException> {
-            @Override
-            public Optional<Rel> visit(NamedScan namedScan, EmptyVisitationContext context) {
-                List<String> names = namedScan.getNames();
-                if (names.size() > 1) {
-                    return Optional.of(NamedScan.builder().from(namedScan).names(List.of(names.get(names.size() - 1))).build());
-                }
-                return super.visit(namedScan, context);
-            }
-        }
+        ConverterProvider converterProvider = new ConverterProvider(extensions, typeFactory);
+        return new SubstraitRelVisitor(converterProvider);
     }
 }
