@@ -55,7 +55,7 @@ public class TestPPLTransportAction extends HandledTransportAction<PPLRequest, P
 
     @Override
     protected void doExecute(Task task, PPLRequest request, ActionListener<PPLResponse> listener) {
-        threadPool.generic().execute(() -> {
+        Runnable work = () -> {
             try {
                 PPLResponse response = unifiedQueryService.execute(request.getPplText());
                 listener.onResponse(response);
@@ -63,6 +63,11 @@ public class TestPPLTransportAction extends HandledTransportAction<PPLRequest, P
                 logger.error("[UNIFIED_PPL] execution failed", e);
                 listener.onFailure(e);
             }
-        });
+        };
+        if (threadPool != null) {
+            threadPool.generic().execute(work);
+        } else {
+            work.run();
+        }
     }
 }
