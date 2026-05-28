@@ -15,6 +15,8 @@ import org.apache.calcite.rel.RelNode;
 import org.apache.calcite.rel.core.AggregateCall;
 import org.apache.calcite.rel.core.Project;
 import org.apache.calcite.rel.type.RelDataType;
+import org.apache.calcite.rex.RexBuilder;
+import org.apache.calcite.rex.RexInputRef;
 import org.apache.calcite.rex.RexLiteral;
 import org.apache.calcite.rex.RexNode;
 import org.apache.calcite.sql.type.SqlTypeFamily;
@@ -22,8 +24,11 @@ import org.apache.calcite.util.ImmutableBitSet;
 import org.opensearch.analytics.planner.PlannerContext;
 import org.opensearch.analytics.planner.RelNodeUtils;
 import org.opensearch.analytics.planner.rel.AggregateMode;
+import org.opensearch.analytics.planner.rel.CallDecomposition;
+import org.opensearch.analytics.planner.rel.FinalAggCallBuilder;
 import org.opensearch.analytics.planner.rel.OpenSearchAggregate;
 import org.opensearch.analytics.planner.rel.OpenSearchConvention;
+import org.opensearch.analytics.planner.rel.OpenSearchProject;
 import org.opensearch.analytics.spi.AggregateFunction;
 
 import java.util.ArrayList;
@@ -32,11 +37,13 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Volcano rule that splits an {@link OpenSearchAggregate} into PARTIAL + FINAL when the
- * input is partitioned. Both halves carry the original aggCall list — actual aggregate-call
- * rewriting (arg rebasing, COUNT→SUM, engine-native merge) runs post-Volcano in
- * {@link org.opensearch.analytics.planner.dag.DistributedAggregateRewriter}. The exchange
- * is inserted automatically via the SINGLETON trait request on partial's output.
+ * Volcano rule that splits an {@link OpenSearchAggregate} into PARTIAL + FINAL when the input
+ * is partitioned. PARTIAL carries the original aggCalls (with lossy-array repair for
+ * LIST/VALUES); FINAL is built with rebased aggCalls via {@link FinalAggCallBuilder}. The
+ * exchange between them is inserted automatically by the SINGLETON trait request on PARTIAL.
+ *
+ * <p>Any input-chain adaptation that needs to happen after Volcano runs in
+ * {@code DistributedAggregateRewriter}.
  *
  * @opensearch.internal
  */
@@ -180,21 +187,82 @@ public class OpenSearchAggregateSplitRule extends RelOptRule {
         RelNode gathered = convert(partial, finalTraits);
         Map<Integer, List<RexLiteral>> finalExtraLiterals = captureLiteralArgsForFinal(aggregate.getAggCallList(), child);
 
+        // Classify ORIGINAL aggCalls once. Stashed on FINAL for post-Volcano adapters to read,
+        // so they don't have to re-classify post-swap calls.
+        List<CallDecomposition> decompositions = FinalAggCallBuilder.classify(aggregate.getAggCallList());
+
+        // Build FINAL's aggCalls bound against `gathered` (PARTIAL's output schema). Required
+        // up-front so Volcano's Aggregate.<init> typeMatchesInferred check passes. Any literal
+        // forwarding for STATE_EXPANDING aggregates is added post-Volcano.
+        List<AggregateCall> finalAggCalls = FinalAggCallBuilder.buildFinalCalls(
+            aggregate.getAggCallList(),
+            decompositions,
+            aggregate.getGroupSet().cardinality(),
+            gathered,
+            aggregate.getGroupSet().isEmpty()
+        );
+
         OpenSearchAggregate finalAggregate = new OpenSearchAggregate(
             aggregate.getCluster(),
             finalTraits,
             gathered,
             aggregate.getGroupSet(),
             aggregate.getGroupSets(),
-            aggregate.getAggCallList(),
+            finalAggCalls,
             AggregateMode.FINAL,
             aggregate.getViableBackends(),
             aggregate.getCallAnnotations(),
-            finalExtraLiterals
+            finalExtraLiterals,
+            decompositions
         );
 
+        // For empty-group queries, FINAL's output type may disagree with SINGLE's on
+        // nullability (e.g. COUNT→SUM swap: COUNT is BIGINT NOT NULL, SUM-over-empty-group
+        // is nullable). Wrap FINAL in a CAST-projection that restores SINGLE's row type so
+        // Volcano's RelSubset equivalence check passes.
+        RelNode finalAlternative = wrapWithCastIfNeeded(finalAggregate, aggregate);
+
         call.getPlanner().ensureRegistered(singleOnSingleton, aggregate);
-        call.transformTo(finalAggregate);
+        call.transformTo(finalAlternative);
+    }
+
+    /**
+     * If any of {@code finalAggregate}'s output column types differs from the corresponding
+     * column on {@code expected}'s row type (e.g. nullability gap from a COUNT→SUM swap),
+     * wraps it in an {@link OpenSearchProject} that casts the differing columns to the
+     * expected type. Returns {@code finalAggregate} unchanged when every column type matches
+     * — name differences alone don't trigger a wrap.
+     */
+    private static RelNode wrapWithCastIfNeeded(OpenSearchAggregate finalAggregate, OpenSearchAggregate expected) {
+        RelDataType actualType = finalAggregate.getRowType();
+        RelDataType expectedType = expected.getRowType();
+        if (!anyColumnTypeDiffers(actualType, expectedType)) return finalAggregate;
+
+        RexBuilder rexBuilder = finalAggregate.getCluster().getRexBuilder();
+        List<RexNode> projects = new ArrayList<>(actualType.getFieldCount());
+        for (int idx = 0; idx < actualType.getFieldCount(); idx++) {
+            RelDataType columnType = actualType.getFieldList().get(idx).getType();
+            RelDataType targetType = expectedType.getFieldList().get(idx).getType();
+            RexNode ref = new RexInputRef(idx, columnType);
+            projects.add(columnType.equals(targetType) ? ref : rexBuilder.makeCast(targetType, ref));
+        }
+        return new OpenSearchProject(
+            finalAggregate.getCluster(),
+            finalAggregate.getTraitSet(),
+            finalAggregate,
+            projects,
+            expectedType,
+            finalAggregate.getViableBackends()
+        );
+    }
+
+    private static boolean anyColumnTypeDiffers(RelDataType actual, RelDataType expected) {
+        for (int idx = 0; idx < actual.getFieldCount(); idx++) {
+            if (!actual.getFieldList().get(idx).getType().equals(expected.getFieldList().get(idx).getType())) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**

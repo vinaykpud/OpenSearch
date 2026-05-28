@@ -36,11 +36,14 @@ public class AggregatePlanShapeTests extends PlanShapeTestBase {
     }
 
     public void testStatsCountStar_2shard() {
+        // FINAL's COUNT is rebuilt as SUM($1) at split-rule time (FinalAggCallBuilder applies
+        // the IntermediateField reducer swap so Volcano's typeMatchesInferred passes against
+        // gathered's row type). PARTIAL keeps the original COUNT().
         RelNode plan = makeAggregate(stubScan(mockTable("test_index", "status", "size")), countStarCall());
         RelNode result = runPlanner(plan, multiShardContext());
         assertPlanShape(
             """
-                OpenSearchAggregate(group=[{0}], cnt=[COUNT()], mode=[FINAL], viableBackends=[[mock-parquet]])
+                OpenSearchAggregate(group=[{0}], cnt=[SUM($1)], mode=[FINAL], viableBackends=[[mock-parquet]])
                   OpenSearchExchangeReducer(viableBackends=[[mock-parquet]], exchange=[ExchangeInfo[distributionType=SINGLETON, partitionKeyIndices=[]]])
                     OpenSearchAggregate(group=[{0}], cnt=[COUNT()], mode=[PARTIAL], viableBackends=[[mock-parquet]])
                       OpenSearchTableScan(table=[[test_index]], viableBackends=[[mock-parquet]])
@@ -96,13 +99,14 @@ public class AggregatePlanShapeTests extends PlanShapeTestBase {
         RelNode plan = LogicalAggregate.create(scan, List.of(), ImmutableBitSet.of(0), null, List.of(avg));
         RelNode result = runPlanner(plan, multiShardContext());
         // Project on top performs CAST(SUM(x) / COUNT()) back to AVG's declared return type.
-        // COUNT here has no field operand because the inferred AVG decomposition produces a
-        // bare COUNT (counts all rows in the group, equivalent to COUNT(x) when x is not nullable).
-        // Skeleton: Project ← FINAL(SUM,COUNT) ← ER ← PARTIAL(SUM,COUNT) ← Scan.
+        // FINAL re-aggregates: SUM stays SUM (engine-native merge), COUNT swaps to SUM($2)
+        // via FinalAggCallBuilder's IntermediateField reducer rewrite. PARTIAL keeps both
+        // primitives unchanged (SUM, COUNT).
+        // Skeleton: Project ← FINAL(SUM,SUM) ← ER ← PARTIAL(SUM,COUNT) ← Scan.
         assertPlanShape(
             """
                 OpenSearchProject(status=[$0], avg_size=[ANNOTATED_PROJECT_EXPR(id=3, backends=[mock-parquet], CAST(ANNOTATED_PROJECT_EXPR(id=2, backends=[mock-parquet], /($1, $2))):INTEGER NOT NULL)], viableBackends=[[mock-parquet]])
-                  OpenSearchAggregate(group=[{0}], agg#0=[SUM($1)], agg#1=[COUNT()], mode=[FINAL], viableBackends=[[mock-parquet]])
+                  OpenSearchAggregate(group=[{0}], $f1=[SUM($1)], $f2=[SUM($2)], mode=[FINAL], viableBackends=[[mock-parquet]])
                     OpenSearchExchangeReducer(viableBackends=[[mock-parquet]], exchange=[ExchangeInfo[distributionType=SINGLETON, partitionKeyIndices=[]]])
                       OpenSearchAggregate(group=[{0}], agg#0=[SUM($1)], agg#1=[COUNT()], mode=[PARTIAL], viableBackends=[[mock-parquet]])
                         OpenSearchTableScan(table=[[test_index]], viableBackends=[[mock-parquet]])
@@ -135,9 +139,10 @@ public class AggregatePlanShapeTests extends PlanShapeTestBase {
         );
         RelNode plan = LogicalAggregate.create(scan, List.of(), ImmutableBitSet.of(0), null, List.of(sum, cnt));
         RelNode result = runPlanner(plan, multiShardContext());
+        // FINAL: SUM stays (engine-native merge), COUNT→SUM($2) via FinalAggCallBuilder.
         assertPlanShape(
             """
-                OpenSearchAggregate(group=[{0}], sum_size=[SUM($1)], cnt=[COUNT()], mode=[FINAL], viableBackends=[[mock-parquet]])
+                OpenSearchAggregate(group=[{0}], sum_size=[SUM($1)], cnt=[SUM($2)], mode=[FINAL], viableBackends=[[mock-parquet]])
                   OpenSearchExchangeReducer(viableBackends=[[mock-parquet]], exchange=[ExchangeInfo[distributionType=SINGLETON, partitionKeyIndices=[]]])
                     OpenSearchAggregate(group=[{0}], sum_size=[SUM($1)], cnt=[COUNT()], mode=[PARTIAL], viableBackends=[[mock-parquet]])
                       OpenSearchTableScan(table=[[test_index]], viableBackends=[[mock-parquet]])

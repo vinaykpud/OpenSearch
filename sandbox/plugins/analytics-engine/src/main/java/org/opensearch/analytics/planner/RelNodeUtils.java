@@ -72,7 +72,8 @@ public class RelNodeUtils {
                 aggregate.getMode(),
                 aggregate.getViableBackends(),
                 aggregate.getCallAnnotations(),
-                aggregate.getFinalExtraLiteralArgs()
+                aggregate.getFinalExtraLiteralArgs(),
+                aggregate.getDecompositions()
             );
         } else if (node instanceof OpenSearchSort sort) {
             return new OpenSearchSort(
