@@ -489,6 +489,18 @@ public class DataFusionAnalyticsBackendPlugin implements AnalyticsSearchBackendP
      */
     private static final Set<ScalarFunction> POLYMORPHIC_RETURN_PROJECT_OPS = Set.of(ScalarFunction.CAST, ScalarFunction.SAFE_CAST);
 
+    /**
+     * Project-side scalar functions whose return type is a struct (Calcite {@code ROW} →
+     * {@link FieldType#OBJECT}). Registered separately for the same reason as
+     * {@link #MAP_RETURNING_PROJECT_OPS}: the capability lookup in
+     * {@code OpenSearchProjectRule.resolveScalarViableBackends} keys on the call's return type.
+     *
+     * <p>{@code MAKE_STRUCT} materializes an OpenSearch {@code object} field from the flat dotted
+     * leaf columns the parquet scan produces (see {@code ObjectStructMaterializer}); it executes as
+     * DataFusion's {@code named_struct}, emitted by {@code MakeStructCallConverter}.
+     */
+    private static final Set<ScalarFunction> OBJECT_RETURNING_PROJECT_OPS = Set.of(ScalarFunction.MAKE_STRUCT);
+
     private static final Set<AggregateFunction> AGG_FUNCTIONS = Set.of(
         AggregateFunction.SUM,
         AggregateFunction.SUM0,
@@ -656,6 +668,9 @@ public class DataFusionAnalyticsBackendPlugin implements AnalyticsSearchBackendP
                 for (ScalarFunction op : MAP_RETURNING_PROJECT_OPS) {
                     caps.add(new ProjectCapability.Scalar(op, Set.of(FieldType.MAP), formats, true));
                 }
+                for (ScalarFunction op : OBJECT_RETURNING_PROJECT_OPS) {
+                    caps.add(new ProjectCapability.Scalar(op, Set.of(FieldType.OBJECT), formats, true));
+                }
                 for (ScalarFunction op : POLYMORPHIC_RETURN_PROJECT_OPS) {
                     for (FieldType ft : FieldType.values()) {
                         caps.add(new ProjectCapability.Scalar(op, Set.of(ft), formats, true));
@@ -668,6 +683,18 @@ public class DataFusionAnalyticsBackendPlugin implements AnalyticsSearchBackendP
             public Set<AggregateCapability> aggregateCapabilities() {
                 Set<String> formats = Set.copyOf(plugin.getSupportedFormats());
                 Set<AggregateCapability> caps = new HashSet<>();
+                // Aggregates over a struct-typed (object) column. Registered separately because
+                // FieldType.OBJECT is deliberately NOT in SUPPORTED_FIELD_TYPES — most aggregates
+                // are meaningless on a struct (no ordering ⇒ MIN/MAX, no arithmetic ⇒ SUM/AVG),
+                // and adding OBJECT there would also wrongly claim filter/sort support.
+                //
+                // COUNT is the meaningful one (non-null count) and is what the SQL plugin's
+                // Lucene path supports today, i.e. `stats count(<object>)`. Without this the
+                // capability lookup for (COUNT, OBJECT) misses and the query fails at plan time
+                // with "Function [COUNT] is not currently supported as an aggregate function".
+                for (FieldType objectType : Set.of(FieldType.OBJECT)) {
+                    caps.add(new AggregateCapability(AggregateFunction.COUNT, Set.of(objectType), formats));
+                }
                 for (AggregateFunction func : AGG_FUNCTIONS) {
                     for (FieldType type : SUPPORTED_FIELD_TYPES) {
                         // 3-arg constructor leaves decomposition=null so the

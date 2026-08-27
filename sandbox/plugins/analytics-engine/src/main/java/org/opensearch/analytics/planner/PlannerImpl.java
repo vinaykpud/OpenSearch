@@ -134,6 +134,17 @@ public class PlannerImpl {
 
         RelNode modifiedRelNode = rawRelNode;
         modifiedRelNode = removeSubQueries(modifiedRelNode, listener);
+        // Materialize `object` fields into structs in a project directly above each scan.
+        // Runs BEFORE trimFields on purpose: the pass emits one make_struct per object column
+        // the scan declares, and the field trimmer then deletes the ones this query never
+        // references (a query filtering only on a leaf must not pay for — or fail on — an
+        // unrelated object). Leaf predicates still push down afterwards, since the leaves stay
+        // in the project's output and FILTER_PROJECT_TRANSPOSE moves filters through it.
+        Optional<RelNode> objectStructs = ObjectStructMaterializer.rewrite(modifiedRelNode);
+        if (objectStructs.isPresent()) {
+            modifiedRelNode = objectStructs.get();
+            RelNodeUtils.logPlan(LOGGER, "After object-struct materialization", modifiedRelNode);
+        }
         modifiedRelNode = trimFields(modifiedRelNode);
         modifiedRelNode = extractLiteralAgg(modifiedRelNode, listener);
         modifiedRelNode = reduceExpressions(modifiedRelNode, listener);

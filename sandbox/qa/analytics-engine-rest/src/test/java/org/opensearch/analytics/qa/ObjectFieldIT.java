@@ -102,18 +102,14 @@ public class ObjectFieldIT extends AnalyticsRestTestCase {
         );
     }
 
-    // ── Object-parent projection (gated on query-then-fetch) ──────────────────
+    // ── Object-parent projection ───────────────────────────────────────────────
     //
     // Projecting an object parent (top-level "city" or intermediate "city.location")
-    // returns a nested JSON value reconstructed from _source. Analytics-engine emits
-    // only flat leaves into the Calcite row type today, so parent references fall
-    // through QualifiedNameResolver and throw "Field [city.location] not found".
-    //
-    // Support requires query-then-fetch (QTF): coordinator returns docIds post-filter,
-    // a fetch stage pulls the doc from the shard, and the parent sub-object is
-    // reconstructed from _source or from parquet rows. QTF is tracked separately.
+    // returns the nested object. No query-then-fetch / _source read is needed: the
+    // schema exposes the object as a struct (ROW) column and ObjectStructMaterializer
+    // re-assembles it with make_struct over the flat leaf columns the scan already
+    // produces, in a project directly above the scan.
 
-    @AwaitsFix(bugUrl = "Object parent projection requires query-then-fetch (QTF) for source-based materialization")
     public void testSelectIntermediateObjectField() throws IOException {
         assertRowsEqual(
             "source=" + DATASET.indexName + " | fields city.location | head 1",
@@ -121,7 +117,6 @@ public class ObjectFieldIT extends AnalyticsRestTestCase {
         );
     }
 
-    @AwaitsFix(bugUrl = "Object parent projection requires query-then-fetch (QTF) for source-based materialization")
     public void testSelectTopLevelObjectField() throws IOException {
         assertRowsEqual(
             "source=" + DATASET.indexName + " | fields city | head 1",
@@ -129,7 +124,6 @@ public class ObjectFieldIT extends AnalyticsRestTestCase {
         );
     }
 
-    @AwaitsFix(bugUrl = "Object parent projection requires query-then-fetch (QTF) for source-based materialization")
     public void testSelectTopLevelObjectFieldWithSiblings() throws IOException {
         assertRowsEqual(
             "source=" + DATASET.indexName + " | fields city, account | head 1",
@@ -140,7 +134,6 @@ public class ObjectFieldIT extends AnalyticsRestTestCase {
         );
     }
 
-    @AwaitsFix(bugUrl = "Object parent projection requires query-then-fetch (QTF) for source-based materialization")
     public void testSelectParentAndLeafMixed() throws IOException {
         assertRowsEqual(
             "source=" + DATASET.indexName + " | fields city.name, city.location | head 1",
@@ -148,7 +141,37 @@ public class ObjectFieldIT extends AnalyticsRestTestCase {
         );
     }
 
+    // ── Aggregation involving object fields ───────────────────────────────────
+    //
+    // Leaf aggregations (min/max/sum on city.population, city.location.latitude, …) are covered
+    // above. These cover aggregating on the OBJECT VALUE itself — the group key is a struct
+    // materialized by ObjectStructMaterializer, so the aggregate receives an assembled object.
+
+    /** Group by an intermediate object ({@code city.location}) — 3 distinct locations. */
+    public void testGroupByIntermediateObjectField() throws IOException {
+        assertRowCount("source=" + DATASET.indexName + " | stats count() by city.location", 3);
+    }
+
+    /** Group by a top-level object ({@code city}) — 3 distinct cities. */
+    public void testGroupByTopLevelObjectField() throws IOException {
+        assertRowCount("source=" + DATASET.indexName + " | stats count() by city", 3);
+    }
+
+    /** Aggregate a leaf while grouping by an object value. */
+    public void testAggregateLeafGroupedByObjectField() throws IOException {
+        assertRowCount("source=" + DATASET.indexName + " | stats max(city.population) by city.location", 3);
+    }
+
     // ── helpers (mirrored from FieldsCommandIT) ────────────────────────────────
+
+    /** Asserts only the row count — group order is not deterministic for a struct key. */
+    private void assertRowCount(String ppl, int expected) throws IOException {
+        Map<String, Object> response = executePpl(ppl);
+        @SuppressWarnings("unchecked")
+        List<List<Object>> actualRows = (List<List<Object>>) response.get("datarows");
+        assertNotNull("Response missing 'datarows' for query: " + ppl, actualRows);
+        assertEquals("Row count mismatch for query: " + ppl, expected, actualRows.size());
+    }
 
     private static List<Object> row(Object... values) {
         return Arrays.asList(values);

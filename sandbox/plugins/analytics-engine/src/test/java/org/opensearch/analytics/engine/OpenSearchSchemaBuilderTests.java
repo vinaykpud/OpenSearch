@@ -259,10 +259,22 @@ public class OpenSearchSchemaBuilderTests extends OpenSearchTestCase {
         assertNotNull(table);
 
         RelDataType rowType = table.getRowType(new org.apache.calcite.jdbc.JavaTypeFactoryImpl());
-        assertEquals("Only 2 supported nested leaves should remain", 2, rowType.getFieldCount());
+        // 2 supported leaves + the struct-typed `customer` parent column (the object itself is
+        // now addressable; ObjectStructMaterializer assembles it from these leaves).
+        assertEquals("2 supported nested leaves plus the object parent", 3, rowType.getFieldCount());
         assertFieldType(rowType, "customer.id", SqlTypeName.VARCHAR);
         assertFieldType(rowType, "customer.age", SqlTypeName.INTEGER);
         assertNull("nested geo_point leaf must be dropped", rowType.getField("customer.home", true, false));
+
+        // The unsupported sub-field is dropped from the struct too, for the same reason it is
+        // dropped from the flat columns.
+        RelDataTypeField parent = rowType.getField("customer", true, false);
+        assertNotNull("object parent must be exposed as a column", parent);
+        assertEquals(SqlTypeName.ROW, parent.getType().getSqlTypeName());
+        assertEquals("struct carries only the supported sub-fields", 2, parent.getType().getFieldCount());
+        assertNotNull(parent.getType().getField("id", true, false));
+        assertNotNull(parent.getType().getField("age", true, false));
+        assertNull("geo_point sub-field must be dropped from the struct", parent.getType().getField("home", true, false));
     }
 
     /**

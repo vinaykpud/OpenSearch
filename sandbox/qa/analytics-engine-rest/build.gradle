@@ -129,6 +129,31 @@ testClusters.integTest {
     setting 'analytics.delegation.lucene.blocked_predicates', '[]'
 }
 
+// ── Interactive cluster for manual queries ──────────────────────────────────
+// Foreground 1-node cluster with the SAME plugin set / feature flags / native-lib wiring the
+// ITs use, so hand-run queries behave identically to the test suite:
+//
+//   ./gradlew -Dsandbox.enabled=true :sandbox:qa:analytics-engine-rest:runAnalytics
+//
+// Then POST PPL to http://localhost:9200/_plugins/_ppl. Ctrl-C to stop.
+// Requires the Rust native lib: :sandbox:libs:dataformat-native:buildRustLibrary (PROTOC must
+// point at protoc 3+; the system protoc may be 2.x and fails on proto3 syntax).
+testClusters {
+    runAnalytics {
+        // 1 node is the default; setting it explicitly throws "Cannot shrink cluster".
+        configureAnalyticsCluster(delegate)
+        setting 'analytics.delegation.lucene.blocked_predicates', '[]'
+        // NOTE: RunTask hardcodes http 9200 / transport 9300 and testclusters rejects an
+        // 'http.port' override, so port 9200 must be free before starting.
+    }
+}
+
+task runAnalytics(type: org.opensearch.gradle.testclusters.RunTask) {
+    description = 'Runs a 1-node analytics-engine cluster in the foreground for manual queries'
+    group = 'Verification'
+    useCluster testClusters.runAnalytics
+}
+
 integTest {
     systemProperty 'tests.security.manager', 'false'
     // Forward plan-shape harness props to the forked test JVM (see PlanShapeGoldenTestBase):

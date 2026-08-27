@@ -27,9 +27,9 @@ import org.opensearch.common.util.concurrent.ThreadContext;
 import org.opensearch.core.common.Strings;
 import org.opensearch.index.IndexNotFoundException;
 
-import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.logging.Level;
@@ -343,9 +343,6 @@ public class OpenSearchSchemaBuilder {
         Map<String, Object> properties,
         String pathPrefix
     ) {
-        if (pathPrefix.isEmpty()) {
-            System.out.println("[NESTED-POC] OpenSearchSchemaBuilder.addLeafFields called, properties: " + properties.keySet());
-        }
         for (Map.Entry<String, Object> fieldEntry : properties.entrySet()) {
             String fieldName = pathPrefix.isEmpty() ? fieldEntry.getKey() : pathPrefix + "." + fieldEntry.getKey();
             Map<String, Object> fieldProps = (Map<String, Object>) fieldEntry.getValue();
@@ -356,32 +353,35 @@ public class OpenSearchSchemaBuilder {
                 Map<String, Object> nested = (Map<String, Object>) fieldProps.get("properties");
                 if (nested != null) {
                     addLeafFields(builder, typeFactory, nested, fieldName);
+                    // Also expose the object itself as a struct (ROW) column, so a query can
+                    // address the whole object (`fields nested_metadata`, `stats … by obj`) and
+                    // not just its leaves. The object has no physical storage — the scan reads
+                    // the leaves — so ObjectStructMaterializer strips this column from the scan
+                    // and re-assembles it with make_struct in a project directly above it.
+                    RelDataType structType = buildObjectType(typeFactory, nested, fieldName);
+                    if (structType != null) {
+                        builder.add(fieldName, structType);
+                    }
                 }
+                continue;
+            }
+            // flat_object: the open key space is a MAP<VARCHAR,VARCHAR> column (matches the parquet
+            // MAP<Utf8,Utf8> written on ingest — design/nested-map-attributes M1/M2).
+            if ("flat_object".equals(fieldType)) {
+                builder.add(fieldName, varcharMap(typeFactory));
                 continue;
             }
             // POC nested (N1): expose nested fields as ARRAY<ROW<leaf children...>>
             // so Calcite can see them. Mirrors the LIST<STRUCT> Arrow schema that
             // ArrowSchemaBuilder produces on the write side.
-            // flat_object: the open key space is a MAP<VARCHAR,VARCHAR> column (matches the parquet
-            // MAP<Utf8,Utf8> written on ingest — design/nested-map-attributes M1/M2).
-            if ("flat_object".equals(fieldType)) {
-                builder.add(fieldName, varcharMap(typeFactory));
-                System.out.println("[NESTED-POC] OpenSearchSchemaBuilder: ADDED flat_object field '" + fieldName + "' as MAP(VARCHAR,VARCHAR)");
-                continue;
-            }
             if ("nested".equals(fieldType)) {
-                System.out.println("[NESTED-POC] OpenSearchSchemaBuilder: HANDLING nested field '" + fieldName + "'");
                 Map<String, Object> nestedProps = (Map<String, Object>) fieldProps.get("properties");
                 if (nestedProps != null) {
-                    System.out.println("[NESTED-POC]   Sub-properties: " + nestedProps.keySet());
                     RelDataType structType = buildNestedStructType(typeFactory, nestedProps);
                     if (structType != null) {
                         RelDataType arrayType = typeFactory.createArrayType(structType, -1);
                         builder.add(fieldName, typeFactory.createTypeWithNullability(arrayType, true));
-                        System.out.println("[NESTED-POC] OpenSearchSchemaBuilder: ADDED nested field '" + fieldName + "' as ARRAY(ROW(" + structType.getFieldNames() + "))");
                     }
-                } else {
-                    System.out.println("[NESTED-POC] OpenSearchSchemaBuilder: SKIPPING nested field '" + fieldName + "' — no sub-properties");
                 }
                 continue;
             }
@@ -392,12 +392,58 @@ public class OpenSearchSchemaBuilder {
                 // Unsupported (geo_point/shape/completion/…) or unknown plugin type. Drop the
                 // column; a query referencing it surfaces a Calcite "column not found" via the
                 // validator rather than a planning-time IllegalArgumentException.
-                System.out.println("[NESTED-POC] OpenSearchSchemaBuilder: SKIPPING unsupported field '" + fieldName + "' type='" + fieldType + "'");
                 continue;
             }
-            System.out.println("[NESTED-POC] OpenSearchSchemaBuilder: ADDED field '" + fieldName + "' type='" + fieldType + "' → " + columnType.getSqlTypeName());
             builder.add(fieldName, columnType);
         }
+    }
+
+    /**
+     * Builds the struct (ROW) type for an {@code object} mapping: one struct field per supported
+     * sub-field, recursing for sub-objects. Field names are the <em>local</em> names (the struct
+     * nesting already carries the path), while the flat leaf columns added by
+     * {@link #addLeafFields} keep their dotted paths — that dotted convention is how
+     * {@code ObjectStructMaterializer} pairs a struct field back to its backing column.
+     *
+     * <p>Returns {@code null} when the object contributes no supported field, so callers omit the
+     * column entirely rather than declaring an empty struct.
+     */
+    @SuppressWarnings("unchecked")
+    private static RelDataType buildObjectType(RelDataTypeFactory typeFactory, Map<String, Object> properties, String pathPrefix) {
+        List<RelDataType> types = new ArrayList<>();
+        List<String> names = new ArrayList<>();
+        for (Map.Entry<String, Object> fieldEntry : properties.entrySet()) {
+            String localName = fieldEntry.getKey();
+            Map<String, Object> fieldProps = (Map<String, Object>) fieldEntry.getValue();
+            String fieldType = (String) fieldProps.get("type");
+            RelDataType childType;
+            if (fieldType == null || "object".equals(fieldType)) {
+                Map<String, Object> nested = (Map<String, Object>) fieldProps.get("properties");
+                childType = nested == null ? null : buildObjectType(typeFactory, nested, pathPrefix + "." + localName);
+            } else if ("nested".equals(fieldType)) {
+                // Array-of-sub-docs needs LIST<STRUCT> + UNNEST; out of scope here.
+                childType = null;
+            } else {
+                // An ordinary scalar leaf (keyword, long, date_nanos, …). Typed exactly as
+                // addLeafFields types the equivalent flat column — including `scaling_factor`,
+                // the mapping parameter of `scaled_float` (a float persisted as a scaled long),
+                // which buildLeafType needs to type that field. parseScalingFactor yields NaN
+                // when absent, which buildLeafType treats as "not a scaled_float".
+                double scalingFactor = parseScalingFactor(fieldProps.get(SCALING_FACTOR_FIELD));
+                childType = buildLeafType(fieldType, (String) fieldProps.get("format"), scalingFactor, typeFactory);
+            }
+            if (childType == null) {
+                // Unsupported sub-field (geo_point, nested, …) — dropped from the struct for the
+                // same reason it is dropped from the flat columns.
+                continue;
+            }
+            names.add(localName);
+            types.add(childType);
+        }
+        if (names.isEmpty()) {
+            return null;
+        }
+        return typeFactory.createTypeWithNullability(typeFactory.createStructType(types, names), true);
     }
 
     /**
@@ -422,15 +468,14 @@ public class OpenSearchSchemaBuilder {
 
     /**
      * POC nested (N1): builds a Calcite ROW type for the struct inside a nested LIST&lt;STRUCT&gt;
-     * column. Recursively handles nested-in-nested (becomes ARRAY&lt;ROW&gt; inside the struct).
+     * column. Recursively handles nested-in-nested (becomes ARRAY&lt;ROW&gt; inside the struct) and
+     * flat_object children (become MAP&lt;VARCHAR,VARCHAR&gt; inside the struct — see M1/M2).
      */
     @SuppressWarnings("unchecked")
     private static RelDataType buildNestedStructType(RelDataTypeFactory typeFactory, Map<String, Object> properties) {
         // Struct fields are matched BY POSITION downstream (Substrait / DataFusion), so the
         // order here MUST match the Parquet write side (ArrowSchemaBuilder). Both sides order
         // struct children deterministically by field name (natural String order) via a TreeMap.
-        System.out.println("[NESTED-POC] buildNestedStructType called, sub-properties: " + properties.keySet()
-            + " (struct children sorted BY NAME so read schema matches the Parquet write order — DataFusion matches struct fields by POSITION)");
         java.util.TreeMap<String, RelDataType> sorted = new java.util.TreeMap<>();
         for (Map.Entry<String, Object> entry : properties.entrySet()) {
             Map<String, Object> fieldProps = (Map<String, Object>) entry.getValue();
@@ -443,7 +488,6 @@ public class OpenSearchSchemaBuilder {
                     if (innerStruct != null) {
                         RelDataType innerArray = typeFactory.createArrayType(innerStruct, -1);
                         sorted.put(entry.getKey(), typeFactory.createTypeWithNullability(innerArray, true));
-                        System.out.println("[NESTED-POC]   Nested sub-field (nested-in-nested): '" + entry.getKey() + "' -> ARRAY(ROW(" + innerStruct.getFieldNames() + "))");
                     }
                 }
             } else if (fieldType == null || "object".equals(fieldType)) {
@@ -453,32 +497,26 @@ public class OpenSearchSchemaBuilder {
                     RelDataType subStruct = buildNestedStructType(typeFactory, subProps);
                     if (subStruct != null) {
                         sorted.put(entry.getKey(), subStruct);
-                        System.out.println("[NESTED-POC]   Nested sub-field (object): '" + entry.getKey() + "' -> ROW(" + subStruct.getFieldNames() + ")");
                     }
                 }
             } else if ("flat_object".equals(fieldType)) {
                 // flat_object inside a nested field -> MAP<VARCHAR,VARCHAR> struct child (the open
                 // attribute key space), matching the parquet MAP<Utf8,Utf8> written on ingest.
                 sorted.put(entry.getKey(), varcharMap(typeFactory));
-                System.out.println("[NESTED-POC]   Nested sub-field (flat_object): '" + entry.getKey() + "' -> MAP(VARCHAR,VARCHAR)");
             } else {
                 String format = (String) fieldProps.get("format");
                 RelDataType leafType = buildLeafType(fieldType, format, typeFactory);
                 if (leafType != null) {
                     sorted.put(entry.getKey(), leafType);
-                    System.out.println("[NESTED-POC]   Nested sub-field (leaf): '" + entry.getKey() + "' type='" + fieldType + "' -> " + leafType.getSqlTypeName());
                 }
             }
         }
         if (sorted.isEmpty()) {
-            System.out.println("[NESTED-POC] buildNestedStructType: no valid fields found, returning null");
             return null;
         }
         List<String> fieldNames = new ArrayList<>(sorted.keySet());
         List<RelDataType> fieldTypes = new ArrayList<>(sorted.values());
-        RelDataType struct = typeFactory.createStructType(fieldTypes, fieldNames);
-        System.out.println("[NESTED-POC] buildNestedStructType: built ROW(" + fieldNames + ") (name-sorted)");
-        return struct;
+        return typeFactory.createStructType(fieldTypes, fieldNames);
     }
 
     /**
