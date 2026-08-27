@@ -963,7 +963,14 @@ public final class KeywordFieldMapper extends ParametrizedFieldMapper {
         if (textValue == null) {
             return;
         }
-        String value = parseKeyword(textValue);
+        // Store the value regardless of ignore_above (normalizeKeyword, not parseKeyword). The parquet
+        // primary is the storage layer (the _source stand-in on the pluggable path), not an inverted
+        // index, so ignore_above's index-time term-size cap must not drop the value here — otherwise an
+        // over-length keyword (e.g. a 72-char instrumentationScope.version under ignore_above:64) would
+        // be silently absent from the response, unlike vanilla which keeps it in _source. The Lucene
+        // secondary still enforces ignore_above in parseCreateField, so delegated term filters are
+        // unchanged. See design/nested-map-attributes/03-response-shape-parity-PLAN.md (M4.2c, Option 1).
+        String value = normalizeKeyword(textValue);
         if (value != null) {
             context.documentInput().addField(fieldType(), value);
         }
@@ -998,7 +1005,21 @@ public final class KeywordFieldMapper extends ParametrizedFieldMapper {
         if (value == null || value.length() > ignoreAbove) {
             return null;
         }
+        return normalizeKeyword(value);
+    }
 
+    /**
+     * Applies the field's normalizer (if any) but does <b>not</b> enforce {@code ignore_above}. Used by
+     * the pluggable/columnar (parquet) write path, where {@code ignore_above} — an index-time term-size
+     * guard for the Lucene inverted index — must not drop the value: the parquet primary is the storage
+     * layer standing in for {@code _source}, so over-length keywords must be retained and retrievable
+     * (vanilla keeps them in {@code _source}). The Lucene secondary still applies {@code ignore_above}
+     * via {@link #parseCreateField}, so delegated term filters stay vanilla-consistent.
+     */
+    private String normalizeKeyword(String value) throws IOException {
+        if (value == null) {
+            return null;
+        }
         NamedAnalyzer normalizer = fieldType().normalizer();
         if (normalizer != null) {
             value = normalizeValue(normalizer, name(), value);
