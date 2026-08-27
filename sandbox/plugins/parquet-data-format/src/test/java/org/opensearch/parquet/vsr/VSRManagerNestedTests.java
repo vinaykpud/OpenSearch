@@ -17,6 +17,7 @@ import org.apache.arrow.vector.Float8Vector;
 import org.apache.arrow.vector.IntVector;
 import org.apache.arrow.vector.VarCharVector;
 import org.apache.arrow.vector.complex.ListVector;
+import org.apache.arrow.vector.complex.MapVector;
 import org.apache.arrow.vector.complex.StructVector;
 import org.apache.arrow.vector.types.pojo.ArrowType;
 import org.apache.arrow.vector.types.pojo.Field;
@@ -312,11 +313,77 @@ public class VSRManagerNestedTests extends ParquetBaseTests {
         }
     }
 
+    /**
+     * MAP-in-STRUCT (design/nested-map-attributes M1): three events whose {@code attributes} flat_object
+     * carries DIFFERENT dynamic keys — plus one event with NO attributes. Every key of every element must
+     * survive (the anti-regression for the old frozen-schema drop), and the empty-attributes element must
+     * write an empty, non-null map with contiguous offsets.
+     */
+    public void testWriteChildListMapPreservesAllDynamicKeys() throws Exception {
+        KeywordFieldMapper.KeywordFieldType name = new KeywordFieldMapper.KeywordFieldType("events.name");
+        // addMapEntry only reads mapField.name(); any MappedFieldType named "events.attributes" stands in
+        // for the flat_object field here (the flat_object parse itself is covered in FlatObjectFieldMapper).
+        KeywordFieldMapper.KeywordFieldType attrs = new KeywordFieldMapper.KeywordFieldType("events.attributes");
+
+        ParquetDocumentInput doc = new ParquetDocumentInput();
+        // event 0: http.* keys
+        doc.startNestedChild("events");
+        doc.addField(name, "http");
+        doc.addMapEntry(attrs, "http.method", "POST");
+        doc.addMapEntry(attrs, "http.status_code", "500");
+        doc.endNestedChild();
+        // event 1: db.* keys (disjoint from event 0)
+        doc.startNestedChild("events");
+        doc.addField(name, "db");
+        doc.addMapEntry(attrs, "db.system", "postgresql");
+        doc.endNestedChild();
+        // event 2: NO attributes at all
+        doc.startNestedChild("events");
+        doc.addField(name, "empty");
+        doc.endNestedChild();
+
+        try (ListVector list = newListOfStruct("events", List.of(utf8("name"), mapField("attributes")))) {
+            invokeWriteChildList(list, 0, "events", doc.getNestedChildren());
+            list.setValueCount(1);
+
+            assertEquals(3, list.getObject(0).size());
+            StructVector struct = (StructVector) list.getDataVector();
+            MapVector map = (MapVector) struct.getChild("attributes");
+
+            assertEquals("event 0 map: {http.method=POST, http.status_code=500}", java.util.Map.of("http.method", "POST", "http.status_code", "500"), readMap(map, 0));
+            assertEquals("event 1 map: {db.system=postgresql}", java.util.Map.of("db.system", "postgresql"), readMap(map, 1));
+            assertEquals("event 2 map: empty (present, not null)", java.util.Map.of(), readMap(map, 2));
+            assertFalse("empty map is non-null", map.isNull(2));
+        }
+    }
+
     // --- helpers ---
 
     private void invokeWriteChildList(ListVector list, int rowIndex, String path, List<ParquetDocumentInput.NestedChild> children)
         throws Exception {
         writeChildList.invoke(manager, list, rowIndex, path, children);
+    }
+
+    /** Reads a MapVector element back into a plain {@code Map<String,String>} for assertions. */
+    private static java.util.Map<String, String> readMap(MapVector map, int elemIndex) {
+        java.util.Map<String, String> out = new java.util.LinkedHashMap<>();
+        int start = map.getElementStartIndex(elemIndex);
+        int end = map.getElementEndIndex(elemIndex);
+        StructVector entries = (StructVector) map.getDataVector();
+        VarCharVector keyVec = (VarCharVector) entries.getChild(MapVector.KEY_NAME);
+        VarCharVector valVec = (VarCharVector) entries.getChild(MapVector.VALUE_NAME);
+        for (int i = start; i < end; i++) {
+            out.put(keyVec.getObject(i).toString(), valVec.isNull(i) ? null : valVec.getObject(i).toString());
+        }
+        return out;
+    }
+
+    /** Arrow {@code MAP<Utf8,Utf8>} field mirroring ArrowSchemaBuilder.buildMapField. */
+    private static Field mapField(String name) {
+        Field key = new Field("key", new FieldType(false, new ArrowType.Utf8(), null), null);
+        Field value = new Field("value", FieldType.nullable(new ArrowType.Utf8()), null);
+        Field entries = new Field("key_value", new FieldType(false, ArrowType.Struct.INSTANCE, null), List.of(key, value));
+        return new Field(name, FieldType.nullable(new ArrowType.Map(false)), List.of(entries));
     }
 
     private static Field utf8(String name) {

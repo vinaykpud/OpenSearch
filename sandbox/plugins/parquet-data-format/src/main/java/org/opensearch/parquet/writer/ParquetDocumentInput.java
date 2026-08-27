@@ -50,14 +50,24 @@ public class ParquetDocumentInput implements DocumentInput<List<FieldValuePair>>
     private final List<NestedChild> topLevelChildren = new ArrayList<>();
     private final ArrayDeque<NestedChild> childStack = new ArrayDeque<>();
 
+    // Map support: entries of map-typed fields (e.g. flat_object attributes) emitted at the document
+    // root (not inside any nested element). Keyed by the map field's full name; each entry is one
+    // (key,value) pair, preserved in parse order.
+    private final java.util.LinkedHashMap<String, List<java.util.Map.Entry<String, Object>>> topLevelMapEntries =
+        new java.util.LinkedHashMap<>();
+
     /**
      * One nested array element: its full dotted path (e.g. "comments"), its leaf field
-     * values in parse order, and any deeper nested elements it contains (e.g. replies).
+     * values in parse order, any deeper nested elements it contains (e.g. replies), and any
+     * map-typed fields (e.g. a flat_object {@code attributes}) buffered as key/value entries.
      */
     public static class NestedChild {
         public final String path;
         public final List<FieldValuePair> fields = new ArrayList<>();
         public final List<NestedChild> children = new ArrayList<>();
+        // map field full name -> its (key,value) entries in parse order (one MAP<Utf8,Utf8> per key).
+        public final java.util.LinkedHashMap<String, List<java.util.Map.Entry<String, Object>>> mapEntries =
+            new java.util.LinkedHashMap<>();
 
         NestedChild(String path) {
             this.path = path;
@@ -84,6 +94,23 @@ public class ParquetDocumentInput implements DocumentInput<List<FieldValuePair>>
     /** Returns the buffered top-level nested elements in parse order (POC). */
     public List<NestedChild> getNestedChildren() {
         return topLevelChildren;
+    }
+
+    @Override
+    public void addMapEntry(MappedFieldType mapField, String key, Object value) {
+        ensureOpen();
+        java.util.Map.Entry<String, Object> entry = new java.util.AbstractMap.SimpleEntry<>(key, value);
+        // Inside a nested element the map lives in that element's struct; otherwise it is a
+        // document-root map column.
+        java.util.LinkedHashMap<String, List<java.util.Map.Entry<String, Object>>> target = childStack.isEmpty()
+            ? topLevelMapEntries
+            : childStack.peek().mapEntries;
+        target.computeIfAbsent(mapField.name(), k -> new ArrayList<>()).add(entry);
+    }
+
+    /** Returns the document-root map fields (name -> entries), for MAP columns not inside a nested field. */
+    public java.util.LinkedHashMap<String, List<java.util.Map.Entry<String, Object>>> getTopLevelMapEntries() {
+        return topLevelMapEntries;
     }
 
     @Override
@@ -141,6 +168,7 @@ public class ParquetDocumentInput implements DocumentInput<List<FieldValuePair>>
         collectedFields.clear();
         topLevelChildren.clear();
         childStack.clear();
+        topLevelMapEntries.clear();
         rowId = -1;
     }
 

@@ -11,6 +11,7 @@ package org.opensearch.parquet.fields.plugins;
 import org.opensearch.index.mapper.BinaryFieldMapper;
 import org.opensearch.index.mapper.BooleanFieldMapper;
 import org.opensearch.index.mapper.DateFieldMapper;
+import org.opensearch.index.mapper.FlatObjectFieldMapper;
 import org.opensearch.index.mapper.IpFieldMapper;
 import org.opensearch.index.mapper.KeywordFieldMapper;
 import org.opensearch.index.mapper.MatchOnlyTextFieldMapper;
@@ -19,6 +20,7 @@ import org.opensearch.index.mapper.TextFieldMapper;
 import org.opensearch.parquet.fields.ParquetField;
 import org.opensearch.parquet.fields.core.data.BinaryParquetField;
 import org.opensearch.parquet.fields.core.data.BooleanParquetField;
+import org.opensearch.parquet.fields.core.data.FlatObjectParquetField;
 import org.opensearch.parquet.fields.core.data.date.DateNanosParquetField;
 import org.opensearch.parquet.fields.core.data.date.DateParquetField;
 import org.opensearch.parquet.fields.core.data.number.ByteParquetField;
@@ -83,6 +85,10 @@ public class CoreDataFieldPlugin implements ParquetFieldPlugin {
         fieldMap.put(KeywordFieldMapper.CONTENT_TYPE, new KeywordParquetField());
         fieldMap.put(IpFieldMapper.CONTENT_TYPE, new IpParquetField());
         fieldMap.put(MatchOnlyTextFieldMapper.CONTENT_TYPE, new TextParquetField());
+        // flat_object: open key space stored as one MAP<Utf8,Utf8> column (design/nested-map-attributes).
+        // Registered so the parquet format advertises coverage; the Arrow schema is built specially by
+        // ArrowSchemaBuilder.buildMapField (which bypasses this registry).
+        fieldMap.put(FlatObjectFieldMapper.CONTENT_TYPE, new FlatObjectParquetField());
     }
 
     private static void registerBinaryFields(Map<String, ParquetField> fieldMap) {

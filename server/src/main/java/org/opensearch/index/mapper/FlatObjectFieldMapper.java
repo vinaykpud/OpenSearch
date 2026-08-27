@@ -213,6 +213,14 @@ public final class FlatObjectFieldMapper extends DynamicKeyFieldMapper {
             return CONTENT_TYPE;
         }
 
+        // flat_object is stored/indexed as UTF-8 terms (keyword-like), so it declares the same search
+        // capability as keyword. Required for pluggable data formats: without it the default throws and
+        // the field is rejected at mapping build (see design/nested-map-attributes M1-T01).
+        @Override
+        protected org.opensearch.index.engine.dataformat.FieldTypeCapabilities.Capability searchCapability() {
+            return org.opensearch.index.engine.dataformat.FieldTypeCapabilities.Capability.FULL_TEXT_SEARCH;
+        }
+
         NamedAnalyzer normalizer() {
             return indexAnalyzer();
         }
@@ -570,6 +578,75 @@ public final class FlatObjectFieldMapper extends DynamicKeyFieldMapper {
     }
 
     /**
+     * Pluggable-data-format path (e.g. parquet composite): instead of exploding the object into
+     * per-key leaf columns, emit each leaf as one {@code (key, value)} map entry via
+     * {@link ParseContext#documentInput()}. Downstream this becomes a single {@code MAP<Utf8,Utf8>}
+     * column (see design/nested-map-attributes), so the open attribute key space is stored losslessly
+     * with a static schema. The key is the flattened dotted path relative to this field
+     * (e.g. {@code http.method}); values are stringified.
+     */
+    @Override
+    protected void parseCreateFieldForPluggableFormat(ParseContext context) throws IOException {
+        XContentParser ctxParser = context.parser();
+        if (fieldType().isSearchable() == false && fieldType().isStored() == false && fieldType().hasDocValues() == false) {
+            ctxParser.skipChildren();
+            return;
+        }
+        if (ctxParser.currentToken() == XContentParser.Token.VALUE_NULL) {
+            return;
+        }
+        if (ctxParser.currentToken() != XContentParser.Token.START_OBJECT) {
+            throw new ParsingException(
+                ctxParser.getTokenLocation(),
+                "[" + this.name() + "] unexpected token [" + ctxParser.currentToken() + "] in flat_object field value"
+            );
+        }
+        ctxParser.nextToken();
+        LinkedList<String> path = new LinkedList<>(Collections.singleton(fieldType().name()));
+        while (ctxParser.currentToken() != XContentParser.Token.END_OBJECT) {
+            emitMapEntries(ctxParser, context, path);
+        }
+    }
+
+    /** Recursively walks the object (mirroring {@link #parseToken}) and emits one map entry per leaf. */
+    private void emitMapEntries(XContentParser parser, ParseContext context, Deque<String> path) throws IOException {
+        if (parser.currentToken() == XContentParser.Token.FIELD_NAME) {
+            final String currentFieldName = parser.currentName();
+            path.addLast(currentFieldName);
+            parser.nextToken();
+            emitMapEntries(parser, context, path);
+            path.removeLast();
+        } else if (parser.currentToken() == XContentParser.Token.START_ARRAY) {
+            parser.nextToken();
+            while (parser.currentToken() != XContentParser.Token.END_ARRAY) {
+                emitMapEntries(parser, context, path);
+            }
+            parser.nextToken();
+        } else if (parser.currentToken() == XContentParser.Token.START_OBJECT) {
+            parser.nextToken();
+            while (parser.currentToken() != XContentParser.Token.END_OBJECT) {
+                emitMapEntries(parser, context, path);
+            }
+            parser.nextToken();
+        } else {
+            String value = parseValue(parser);
+            if (value == null || value.length() > fieldType().ignoreAbove) {
+                parser.nextToken();
+                return;
+            }
+            NamedAnalyzer normalizer = fieldType().normalizer();
+            if (normalizer != null) {
+                value = normalizeValue(normalizer, name(), value);
+            }
+            final String leafPath = Strings.collectionToDelimitedString(path, ".");
+            // Key relative to this flat_object field: strip the "<fieldName>." prefix.
+            final String key = leafPath.substring(name().length() + 1);
+            context.documentInput().addMapEntry(fieldType(), key, value);
+            parser.nextToken();
+        }
+    }
+
+    /**
      * Parses the flat_object field value and returns the collected path parts,
      * or {@code null} if the field should be skipped (null value or not searchable/stored/docvalues).
      */
@@ -696,5 +773,25 @@ public final class FlatObjectFieldMapper extends DynamicKeyFieldMapper {
     @Override
     protected String contentType() {
         return CONTENT_TYPE;
+    }
+
+    // Pluggable-dataformat indices force derived source on (IndexSettings: derivedSourceEnabled ||
+    // pluggableDataFormatEnabled), so every field must satisfy the derive-source create-time contract or
+    // the index cannot be created. flat_object is keyword-like (UTF-8 term storage), so it derives like
+    // keyword. NOTE (design/nested-map-attributes): correct reconstruction of the object from the parquet
+    // MAP<Utf8,Utf8> column is a read-path concern deferred to M2; this satisfies the create-time contract.
+    // The translog derived-source setting defaults off, so this generator does not run during ingest.
+    @Override
+    protected void canDeriveSourceInternal() {
+        // flat_object has no ignore_above/normalizer restrictions that would block derivation.
+    }
+
+    @Override
+    protected DerivedFieldGenerator derivedFieldGenerator() {
+        return new DerivedFieldGenerator(
+            mappedFieldType,
+            new SortedSetDocValuesFetcher(mappedFieldType, simpleName()),
+            new StoredFieldFetcher(mappedFieldType, simpleName())
+        );
     }
 }

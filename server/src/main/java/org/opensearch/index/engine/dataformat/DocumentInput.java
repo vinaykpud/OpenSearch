@@ -77,6 +77,23 @@ public interface DocumentInput<T> extends AutoCloseable {
     default void endNestedChild() {}
 
     /**
+     * Adds one key/value entry of a map-typed field (e.g. an OTel {@code attributes} object mapped as
+     * {@code flat_object}) to the document. Unlike {@link #addField}, which takes one value per field, a
+     * map field emits many entries under the same {@code mapField} — one call per leaf key/value — so the
+     * open key space is stored as a single {@code MAP} column instead of exploding into per-key leaf columns.
+     *
+     * <p>If emitted between {@link #startNestedChild}/{@link #endNestedChild}, the entry belongs to the
+     * innermost open nested element (the map lives inside that element's struct). Formats that materialize
+     * maps (e.g. Parquet {@code MAP<Utf8,Utf8>}) buffer these; the default is a no-op so formats with no map
+     * notion are unaffected.
+     *
+     * @param mapField the mapped field type of the map field (its {@code name()} is the full dotted path)
+     * @param key      the flattened dotted key relative to the map field (e.g. {@code http.method})
+     * @param value    the entry value
+     */
+    default void addMapEntry(MappedFieldType mapField, String key, Object value) {}
+
+    /**
      * Given a field name, returns the number of values associated with that field in the document.
      * @param fieldName name of the field to lookup
      * @return count of field values
