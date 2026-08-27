@@ -18,6 +18,7 @@ import org.apache.calcite.plan.volcano.VolcanoPlanner;
 import org.apache.calcite.rel.RelHomogeneousShuttle;
 import org.apache.calcite.rel.RelNode;
 import org.apache.calcite.rel.RelShuttle;
+import org.apache.calcite.rel.core.Aggregate;
 import org.apache.calcite.rel.core.Filter;
 import org.apache.calcite.rel.core.Join;
 import org.apache.calcite.rel.core.Project;
@@ -25,11 +26,14 @@ import org.apache.calcite.rel.core.Sort;
 import org.apache.calcite.rel.rules.CoreRules;
 import org.apache.calcite.rel.rules.FilterProjectTransposeRule;
 import org.apache.calcite.rel.rules.ReduceExpressionsRule;
+import org.apache.calcite.rel.type.RelDataType;
+import org.apache.calcite.rel.type.RelDataTypeField;
 import org.apache.calcite.rex.RexNode;
 import org.apache.calcite.rex.RexShuttle;
 import org.apache.calcite.rex.RexSubQuery;
 import org.apache.calcite.rex.RexUtil;
 import org.apache.calcite.sql.SqlKind;
+import org.apache.calcite.sql.type.SqlTypeName;
 import org.apache.calcite.sql2rel.RelDecorrelator;
 import org.apache.calcite.sql2rel.RelFieldTrimmer;
 import org.apache.calcite.tools.RelBuilder;
@@ -195,6 +199,7 @@ public class PlannerImpl {
             context.recordProfilingResults(profile);
             LOGGER.info("Planner profile for raw RelNode is :\n{}", profile.format());
         }
+        rejectMapInGroupKeys(modifiedRelNode);
         return modifiedRelNode;
     }
 
@@ -268,6 +273,61 @@ public class PlannerImpl {
             LOGGER.debug("Join reorder skipped (fell back to as-written order): {}", e.toString());
             return input;
         }
+    }
+
+    /**
+     * Guardrail: reject a GROUP BY whose key is (or transitively contains) a {@code MAP} at PLANNING time
+     * with a clear message, instead of letting it reach the engine and fail deep in execution with the
+     * opaque arrow-row error {@code Row format support not yet implemented for: ... Map(...)} (arrow's
+     * RowConverter has no encoder for Map — see design/nested-map-attributes and doc 05). This covers
+     * {@code stats ... by <flat_object>} (the map itself) and {@code by <nestedField>} (a LIST&lt;STRUCT&gt;
+     * whose struct contains a map). Grouping by a map <em>value</em> ({@code by field.<key>}) is a scalar
+     * and is unaffected.
+     */
+    private static void rejectMapInGroupKeys(RelNode plan) {
+        plan.accept(new RelHomogeneousShuttle() {
+            @Override
+            public RelNode visit(RelNode other) {
+                if (other instanceof Aggregate agg) {
+                    List<RelDataTypeField> inputFields = agg.getInput().getRowType().getFieldList();
+                    for (int i : agg.getGroupSet()) {
+                        RelDataTypeField field = inputFields.get(i);
+                        if (containsMap(field.getType())) {
+                            throw new IllegalArgumentException(
+                                "Cannot GROUP BY ["
+                                    + field.getName()
+                                    + "]: grouping by a MAP field (or a value that contains a MAP, such as a whole "
+                                    + "nested field) is not supported by the execution engine. Group by a specific map "
+                                    + "value instead, e.g. `... by <field>.<key>`."
+                            );
+                        }
+                    }
+                }
+                return super.visit(other);
+            }
+        });
+    }
+
+    /** True if {@code type} is a MAP or transitively contains one (inside an ARRAY/MULTISET or a struct). */
+    private static boolean containsMap(RelDataType type) {
+        if (type == null) {
+            return false;
+        }
+        SqlTypeName sqlType = type.getSqlTypeName();
+        if (sqlType == SqlTypeName.MAP) {
+            return true;
+        }
+        if (sqlType == SqlTypeName.ARRAY || sqlType == SqlTypeName.MULTISET) {
+            return containsMap(type.getComponentType());
+        }
+        if (type.isStruct()) {
+            for (RelDataTypeField f : type.getFieldList()) {
+                if (containsMap(f.getType())) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     /**
