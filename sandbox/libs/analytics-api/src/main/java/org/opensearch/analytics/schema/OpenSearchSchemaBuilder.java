@@ -362,6 +362,13 @@ public class OpenSearchSchemaBuilder {
             // POC nested (N1): expose nested fields as ARRAY<ROW<leaf children...>>
             // so Calcite can see them. Mirrors the LIST<STRUCT> Arrow schema that
             // ArrowSchemaBuilder produces on the write side.
+            // flat_object: the open key space is a MAP<VARCHAR,VARCHAR> column (matches the parquet
+            // MAP<Utf8,Utf8> written on ingest — design/nested-map-attributes M1/M2).
+            if ("flat_object".equals(fieldType)) {
+                builder.add(fieldName, varcharMap(typeFactory));
+                System.out.println("[NESTED-POC] OpenSearchSchemaBuilder: ADDED flat_object field '" + fieldName + "' as MAP(VARCHAR,VARCHAR)");
+                continue;
+            }
             if ("nested".equals(fieldType)) {
                 System.out.println("[NESTED-POC] OpenSearchSchemaBuilder: HANDLING nested field '" + fieldName + "'");
                 Map<String, Object> nestedProps = (Map<String, Object>) fieldProps.get("properties");
@@ -449,6 +456,11 @@ public class OpenSearchSchemaBuilder {
                         System.out.println("[NESTED-POC]   Nested sub-field (object): '" + entry.getKey() + "' -> ROW(" + subStruct.getFieldNames() + ")");
                     }
                 }
+            } else if ("flat_object".equals(fieldType)) {
+                // flat_object inside a nested field -> MAP<VARCHAR,VARCHAR> struct child (the open
+                // attribute key space), matching the parquet MAP<Utf8,Utf8> written on ingest.
+                sorted.put(entry.getKey(), varcharMap(typeFactory));
+                System.out.println("[NESTED-POC]   Nested sub-field (flat_object): '" + entry.getKey() + "' -> MAP(VARCHAR,VARCHAR)");
             } else {
                 String format = (String) fieldProps.get("format");
                 RelDataType leafType = buildLeafType(fieldType, format, typeFactory);
@@ -467,5 +479,18 @@ public class OpenSearchSchemaBuilder {
         RelDataType struct = typeFactory.createStructType(fieldTypes, fieldNames);
         System.out.println("[NESTED-POC] buildNestedStructType: built ROW(" + fieldNames + ") (name-sorted)");
         return struct;
+    }
+
+    /**
+     * Builds the Calcite {@code MAP<VARCHAR, VARCHAR>} type used for a {@code flat_object} field's open
+     * key space. Key is NOT NULL, value is nullable, and the map itself is nullable — matching the parquet
+     * {@code MAP<Utf8,Utf8>} (key non-null, value nullable) written on ingest, so the scan schema validates
+     * against the table schema in DataFusion.
+     */
+    private static RelDataType varcharMap(RelDataTypeFactory typeFactory) {
+        RelDataType key = typeFactory.createSqlType(SqlTypeName.VARCHAR);
+        RelDataType value = typeFactory.createTypeWithNullability(typeFactory.createSqlType(SqlTypeName.VARCHAR), true);
+        RelDataType map = typeFactory.createMapType(key, value);
+        return typeFactory.createTypeWithNullability(map, true);
     }
 }
