@@ -66,6 +66,11 @@ dependencies {
     // resolves on the javadoc classpath — without this, javadoc -Werror fails on unknown
     // enum-constant warnings in transitive Arrow types.
     compileOnly "com.fasterxml.jackson.core:jackson-annotations:${versions.jackson_annotations}"
+    // jackson-core no longer comes transitively from core (upstream #22704 removed Jackson 2.x from
+    // OpenSearch core); NestedAnyMatchExprSerializer uses the databind tree model, whose base types
+    // (ObjectCodec/TreeNode/Versioned) live in jackson-core. compileOnly — Jackson is provided at
+    // runtime by the distribution (same as databind above).
+    compileOnly "com.fasterxml.jackson.core:jackson-core:${versions.jackson}"
     compileOnly "com.fasterxml.jackson.core:jackson-databind:${versions.jackson_databind}"
 
     implementation "org.apache.logging.log4j:log4j-api:${versions.log4j}"
