@@ -13,6 +13,7 @@ import org.apache.arrow.vector.VarCharVector;
 import org.apache.arrow.vector.VectorSchemaRoot;
 import org.apache.arrow.vector.complex.ListVector;
 import org.apache.arrow.vector.complex.MapVector;
+import org.apache.arrow.vector.complex.NonNullableStructVector;
 import org.apache.arrow.vector.types.TimeUnit;
 import org.apache.arrow.vector.types.pojo.ArrowType;
 import org.apache.arrow.vector.types.pojo.Field;
@@ -138,10 +139,37 @@ public final class ArrowValues {
             }
             return map;
         }
+        // A top-level `object` field is materialized as a struct (make_struct → named_struct). Read its
+        // children DIRECTLY off the child vectors — NOT via getObject, which coalesces a null keyword
+        // child to "" and thereby loses the absent-vs-genuinely-empty distinction. Reading the vectors
+        // keeps that distinction: an absent leaf's VarChar child is null (isNull → omit, matching
+        // vanilla's sparse _source), while a real empty string (e.g. status.message="") stays "" and is
+        // kept (vanilla keeps it). A sub-object whose leaves are all absent collapses to {} and is also
+        // omitted (R1b — vanilla omits the parent). NonNullableStructVector is the base of StructVector,
+        // so this catches both. See design/nested-map-attributes/03-...-PLAN.md (R1/R1b).
+        if (vector instanceof NonNullableStructVector sv) {
+            LinkedHashMap<String, Object> obj = new LinkedHashMap<>();
+            for (FieldVector child : sv.getChildrenFromFields()) {
+                Object cv = toJavaValue(child, index);
+                if (cv == null || (cv instanceof Map<?, ?> cm && cm.isEmpty())) {
+                    continue;
+                }
+                obj.put(child.getField().getName(), cv);
+            }
+            return obj;
+        }
         Object value = vector.getObject(index);
         if (vector instanceof ListVector lv && value instanceof List<?> raw) {
+            Field element = lv.getDataVector().getField();
+            // A nested field (LIST<STRUCT>, e.g. `events`) whose element carries a MAP child (a
+            // flat_object like `events.attributes`) must render that child as a nested OBJECT to match
+            // vanilla — Arrow's getObject flattens the MAP into an entry-list, and we'd otherwise emit
+            // `[{"key":..,"value":..}, …]` instead of `{k:{…}}`. Field-aware rebuild handles it.
+            if (element.getType() instanceof ArrowType.Struct) {
+                return normalizeStructList(raw, element);
+            }
             // child Arrow type drives temporal element formatting
-            return normalizeList(raw, lv.getDataVector().getField());
+            return normalizeList(raw, element);
         }
         Object temporal = formatTemporal(vector.getField().getType(), value);
         if (temporal != null) {
@@ -238,6 +266,11 @@ public final class ArrowValues {
             return normalizeList(list, null);
         }
         if (value instanceof Map<?, ?> m) {
+            // Faithful pass-through. The top-level `object`→struct sparse-shaping (omit absent leaves /
+            // empty sub-objects, keep genuine "") is handled up front in the NonNullableStructVector
+            // branch of toJavaValue, which reads child vectors and preserves the null-vs-"" distinction
+            // getObject would lose — so this generic Map path must NOT prune, or it would drop a genuine
+            // empty string in any residual map cell.
             LinkedHashMap<String, Object> out = new LinkedHashMap<>(m.size());
             for (Map.Entry<?, ?> entry : m.entrySet()) {
                 Object k = entry.getKey();
@@ -256,5 +289,90 @@ public final class ArrowValues {
             out.add(formatted != null ? formatted : normalize(element));
         }
         return out;
+    }
+
+    /**
+     * Field-aware normalization of a nested LIST&lt;STRUCT&gt; element list (e.g. {@code events}).
+     * Each element is Arrow-materialized as a {@code Map}; we rebuild it using the element struct's
+     * child fields so a MAP-typed child (a {@code flat_object} like {@code events.attributes}) becomes
+     * a nested OBJECT (see {@link #mapEntriesToNestedObject}) rather than the raw
+     * {@code [{"key":..,"value":..}, …]} entry-list Arrow produces. Non-map children keep their
+     * existing normalization. All element fields are retained (vanilla keeps {@code attributes:{}} on
+     * an event with no attributes), so no pruning here.
+     */
+    @SuppressWarnings("unchecked")
+    private static List<Object> normalizeStructList(List<?> raw, Field structField) {
+        LinkedHashMap<String, Field> childByName = new LinkedHashMap<>();
+        for (Field c : structField.getChildren()) {
+            childByName.put(c.getName(), c);
+        }
+        List<Object> out = new ArrayList<>(raw.size());
+        for (Object element : raw) {
+            if (!(element instanceof Map<?, ?> em)) {
+                out.add(normalize(element));
+                continue;
+            }
+            LinkedHashMap<String, Object> obj = new LinkedHashMap<>();
+            for (Map.Entry<?, ?> e : em.entrySet()) {
+                String name = e.getKey() instanceof Text t ? t.toString() : String.valueOf(e.getKey());
+                Field cf = childByName.get(name);
+                if (cf != null && cf.getType() instanceof ArrowType.Map) {
+                    obj.put(name, mapEntriesToNestedObject(e.getValue()));
+                } else {
+                    obj.put(name, normalize(e.getValue()));
+                }
+            }
+            out.add(obj);
+        }
+        return out;
+    }
+
+    /**
+     * Converts an Arrow MAP value (materialized by {@code getObject} as a list of {@code {key,value}}
+     * entries) into a nested object, <b>unflattening dotted keys</b> so
+     * {@code feature_flag.result.reason} becomes {@code {feature_flag:{result:{reason:…}}}} — matching
+     * vanilla OpenSearch's object-shaped {@code events[*].attributes}. An empty/absent map yields an
+     * empty object {@code {}} (vanilla emits {@code {}} for an event with no attributes). Values stay
+     * as stored (the parquet MAP is {@code MAP<Utf8,Utf8>}, so they are strings — type restoration is a
+     * separate, storage-level concern; see design/nested-map-attributes R1/D2).
+     */
+    private static Object mapEntriesToNestedObject(Object raw) {
+        LinkedHashMap<String, Object> nested = new LinkedHashMap<>();
+        if (raw instanceof List<?> entries) {
+            for (Object entry : entries) {
+                if (!(entry instanceof Map<?, ?> e)) {
+                    continue;
+                }
+                Object k = e.get(MapVector.KEY_NAME);
+                Object v = e.get(MapVector.VALUE_NAME);
+                String key = k instanceof Text t ? t.toString() : String.valueOf(k);
+                insertDotted(nested, key, normalize(v));
+            }
+        }
+        return nested;
+    }
+
+    /** Inserts {@code value} at a dotted {@code path} into {@code root}, creating intermediate objects. */
+    @SuppressWarnings("unchecked")
+    private static void insertDotted(Map<String, Object> root, String path, Object value) {
+        int dot = path.indexOf('.');
+        if (dot < 0) {
+            root.put(path, value);
+            return;
+        }
+        Map<String, Object> cur = root;
+        int start = 0;
+        while (dot >= 0) {
+            String seg = path.substring(start, dot);
+            Object next = cur.get(seg);
+            if (!(next instanceof Map)) {
+                next = new LinkedHashMap<String, Object>();
+                cur.put(seg, next);
+            }
+            cur = (Map<String, Object>) next;
+            start = dot + 1;
+            dot = path.indexOf('.', start);
+        }
+        cur.put(path.substring(start), value);
     }
 }
