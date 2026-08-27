@@ -156,7 +156,10 @@ public final class ArrowValues {
                 }
                 obj.put(child.getField().getName(), cv);
             }
-            return obj;
+            // A wholly-empty object → null, not {}: vanilla renders an object with no populated leaves as
+            // null (both as a nested child — where the parent's own null/empty-map check then drops it —
+            // and as a top-level column cell, e.g. an empty traceGroupFields comes back null on Lucene).
+            return obj.isEmpty() ? null : obj;
         }
         Object value = vector.getObject(index);
         if (vector instanceof ListVector lv && value instanceof List<?> raw) {
