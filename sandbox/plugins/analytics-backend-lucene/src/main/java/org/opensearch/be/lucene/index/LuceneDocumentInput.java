@@ -9,10 +9,8 @@
 package org.opensearch.be.lucene.index;
 
 import org.apache.lucene.document.Document;
-import org.apache.lucene.document.Field;
 import org.apache.lucene.document.FieldType;
 import org.apache.lucene.document.SortedNumericDocValuesField;
-import org.apache.lucene.document.StringField;
 import org.apache.lucene.index.DocValuesType;
 import org.opensearch.be.lucene.LuceneFieldFactory;
 import org.opensearch.be.lucene.LuceneFieldFactoryRegistry;
@@ -22,9 +20,7 @@ import org.opensearch.index.engine.dataformat.DocumentInput;
 import org.opensearch.index.engine.dataformat.FieldTypeCapabilities;
 import org.opensearch.index.mapper.MappedFieldType;
 
-import java.util.ArrayDeque;
 import java.util.ArrayList;
-import java.util.Deque;
 import java.util.List;
 import java.util.Set;
 
@@ -51,20 +47,23 @@ public class LuceneDocumentInput implements DocumentInput<Document> {
     private final LuceneFieldFactoryRegistry fieldFactoryRegistry;
     private long rowId = -1L;
 
-    // ── Nested block support ──
-    // Vanilla OpenSearch materializes each nested object as its OWN Lucene document, laid out
-    // children-first / root-last in one contiguous block (added via IndexWriter.addDocuments). We reproduce
-    // that here from the parser's startNestedChild/endNestedChild signals:
-    //   - `childDocStack` holds the currently-OPEN child docs (innermost on top). A field added while a
-    //     child is open lands on the innermost open child (that child's own leaf), not the root.
-    //   - `endNestedChild` pops the innermost open child and appends it to `childDocs`. Because inner
-    //     children close before their enclosing element, `childDocs` ends up in POST-ORDER (descendants
-    //     first, enclosing element after) — exactly vanilla's nested block order.
-    //   - `getDocumentBlock()` returns [ childDocs (post-order)..., root ] with the root LAST.
-    // A flat (non-nested) doc never calls startNestedChild, so childDocs stays empty and the writer uses
-    // the single-document path unchanged.
-    private final Deque<Document> childDocStack = new ArrayDeque<>();
-    private final List<Document> childDocs = new ArrayList<>();
+    // ── Nested fields are NOT indexed in Lucene (parquet-only storage) ──
+    // A `nested` field is stored solely in the parquet primary; the Lucene secondary neither indexes its
+    // leaf fields nor builds document blocks for it. This is a deliberate design decision — see
+    // design/nested-field-recovery/. Two reasons:
+    // 1. Correctness/recovery: block-join nested docs write a `__nested_parent` field into the segment.
+    // On store recovery the SafeBootstrapCommitter's trim writer opens the directory WITHOUT that
+    // parent field configured and Lucene throws "can't add field [__nested_parent] as parent document
+    // field" (IllegalArgumentException), failing recovery. No nested blocks ⇒ no parent field ⇒ the
+    // shard recovers cleanly.
+    // 2. Redundant: nested predicates are served correctly by DataFusion over the parquet primary
+    // (OpenSearchNestedFieldRewriter → UNNEST + NESTED_ANY_MATCH_EXPR). The Lucene block-join was only
+    // a performance pushdown, now disabled at NestedAnyMatchExprSerializer#canServe.
+    // We track only the open-nested-scope DEPTH: while depth > 0, addField is a no-op for Lucene (the field
+    // still reaches the parquet primary via CompositeDocumentInput's broadcast). No child Document is
+    // created and no `_nested_path` term is written, so every logical row is a single flat Lucene doc
+    // (docCount == logicalRowCount) and nestedChildDocCount(segment) stays 0.
+    private int nestedDepth = 0;
 
     /**
      * Creates a new LuceneDocumentInput with the default field factory registry.
@@ -108,6 +107,12 @@ public class LuceneDocumentInput implements DocumentInput<Document> {
      */
     @Override
     public void addField(MappedFieldType fieldType, Object value) {
+        // Inside an open nested scope: skip for Lucene entirely. The field belongs to a `nested` object,
+        // which the Lucene secondary does not index (parquet-only). The parquet primary still receives it
+        // via CompositeDocumentInput's broadcast, so no data is lost — it just isn't indexed here.
+        if (nestedDepth > 0) {
+            return;
+        }
         Set<FieldTypeCapabilities.Capability> capabilities = fieldType.getCapabilityMap().getOrDefault(LucenePlugin.DATA_FORMAT, Set.of());
         if (capabilities.isEmpty()) {
             // nothing to support on this format for this field.
@@ -126,15 +131,9 @@ public class LuceneDocumentInput implements DocumentInput<Document> {
             );
         }
         FieldType luceneFieldType = getFieldType(fieldType, capabilities);
-        // Route to the innermost OPEN nested child if one is open, else the root document. This is what
-        // puts a nested object's leaf fields on that object's own child doc (e.g. comments.author on the
-        // comment child), while root/metadata fields — added outside any nested scope — land on the root.
-        factory.addField(currentTarget(), fieldType, value, luceneFieldType);
-    }
-
-    /** The document currently receiving fields: the innermost open nested child, or the root if none. */
-    private Document currentTarget() {
-        return childDocStack.isEmpty() ? document : childDocStack.peek();
+        // Only fields outside any nested scope reach here (nested-scope fields returned early above), so
+        // they always land on the root document.
+        factory.addField(document, fieldType, value, luceneFieldType);
     }
 
     private static FieldType getFieldType(MappedFieldType fieldType, Set<FieldTypeCapabilities.Capability> capabilities) {
@@ -178,45 +177,41 @@ public class LuceneDocumentInput implements DocumentInput<Document> {
     }
 
     /**
-     * Opens a new nested child document for {@code nestedPath}. The child carries a {@code _nested_path}
-     * term (its level marker, matching vanilla) and becomes the target for subsequent {@link #addField}
-     * calls until its {@link #endNestedChild()}. Pushed onto the open-child stack so nesting composes to
-     * arbitrary depth (a deeper startNestedChild opens a child of this child).
+     * Enters a nested scope for {@code nestedPath}. Lucene does NOT index nested fields (parquet-only),
+     * so no child {@link Document} is created and no {@code _nested_path} term is written — we only bump
+     * the scope depth so {@link #addField} knows to skip the leaves of this nested object. Composes to
+     * arbitrary depth (a deeper startNestedChild just increments further).
      */
     @Override
     public void startNestedChild(String nestedPath) {
-        Document child = new Document();
-        // Postings-only term identifying the nested level; not stored, not tokenized (StringField default).
-        child.add(new StringField(DocumentInput.NESTED_PATH_FIELD, nestedPath, Field.Store.NO));
-        childDocStack.push(child);
+        nestedDepth++;
     }
 
-    /**
-     * Closes the innermost open nested child and appends it to the block. Because inner children close
-     * before their enclosing element, {@code childDocs} accumulates in post-order (descendants first).
-     */
+    /** Exits the innermost nested scope. */
     @Override
     public void endNestedChild() {
-        if (childDocStack.isEmpty()) {
-            throw new IllegalStateException("endNestedChild called with no open nested child");
+        if (nestedDepth <= 0) {
+            throw new IllegalStateException("endNestedChild called with no open nested scope");
         }
-        childDocs.add(childDocStack.pop());
-    }
-
-    /** Whether this input produced any nested child docs (i.e. the doc must be written as a block). */
-    public boolean hasNestedChildren() {
-        return childDocs.isEmpty() == false;
+        nestedDepth--;
     }
 
     /**
-     * The full nested block to hand to {@code IndexWriter.addDocuments}: every child doc in post-order
-     * (descendants first, enclosing element after), followed by the ROOT document last — the vanilla
-     * nested block layout. For a flat doc (no nested children) this is just {@code [root]}.
+     * Always {@code false}: nested fields are not indexed in Lucene, so this input never produces child
+     * docs and every logical row is written as a single flat {@link #getFinalInput() root} document.
+     */
+    public boolean hasNestedChildren() {
+        return false;
+    }
+
+    /**
+     * The document(s) to write. Since nested fields are not indexed in Lucene there are never child docs,
+     * so this is always the single root document. Retained for API compatibility with the writer, which
+     * only consults it when {@link #hasNestedChildren()} is true (i.e. never for this input).
      */
     public List<Document> getDocumentBlock() {
-        List<Document> block = new ArrayList<>(childDocs.size() + 1);
-        block.addAll(childDocs);
-        block.add(document); // root is LAST
+        List<Document> block = new ArrayList<>(1);
+        block.add(document);
         return block;
     }
 

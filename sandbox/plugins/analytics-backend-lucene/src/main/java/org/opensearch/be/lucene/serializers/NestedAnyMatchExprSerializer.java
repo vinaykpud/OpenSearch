@@ -10,6 +10,7 @@ package org.opensearch.be.lucene.serializers;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.json.JsonMapper;
+
 import org.apache.calcite.rex.RexCall;
 import org.apache.calcite.rex.RexInputRef;
 import org.apache.calcite.rex.RexLiteral;
@@ -57,7 +58,15 @@ public class NestedAnyMatchExprSerializer extends AbstractQuerySerializer {
 
     @Override
     public boolean canServe(RexCall call, List<FieldStorageInfo> fieldStorage) {
-        return parseEqualityLeaf(call) != null;
+        // Nested fields are no longer indexed in the Lucene secondary (parquet-only storage — see
+        // design/nested-field-recovery/ and LuceneDocumentInput). There are no nested child docs and no
+        // __nested_parent blocks to run a block-join against, so this serializer must NOT claim any nested
+        // predicate: doing so would produce a ToParentBlockJoinQuery that matches zero docs and silently
+        // return empty results. Returning false makes OpenSearchFilterRule route the predicate to
+        // DataFusion, which evaluates NESTED_ANY_MATCH_EXPR over the parquet primary and serves every
+        // shape correctly. The block-join builder below is retained (dead for now) so re-enabling the
+        // Lucene pushdown is a one-line change if nested indexing is ever restored.
+        return false;
     }
 
     @Override
@@ -104,7 +113,8 @@ public class NestedAnyMatchExprSerializer extends AbstractQuerySerializer {
 
     /** {@code hops} is the ordered list of intermediate nested-array field names crossed BELOW the
      *  array column, before reaching {@code field} — empty for the pre-existing single-level shape. */
-    private record EqualityLeaf(List<String> hops, String field, String value) {}
+    private record EqualityLeaf(List<String> hops, String field, String value) {
+    }
 
     /**
      * Returns the single equality leaf this call's JSON tree describes — possibly nested inside 1+
@@ -158,7 +168,8 @@ public class NestedAnyMatchExprSerializer extends AbstractQuerySerializer {
         return fv == null ? null : new EqualityLeaf(hopsSoFar, fv.field(), fv.value());
     }
 
-    private record FieldAndValue(String field, String value) {}
+    private record FieldAndValue(String field, String value) {
+    }
 
     private static FieldAndValue fieldAndLiteral(JsonNode maybeField, JsonNode maybeLiteral) {
         if (!maybeField.isObject() || !maybeField.has("field") || !maybeLiteral.isObject() || !maybeLiteral.has("lit")) {

@@ -443,6 +443,16 @@ public class LuceneCommitter extends SafeBootstrapCommitter {
             .setCommitOnClose(false)
             .setIndexCommit(targetCommit)
             .setMergePolicy(NoMergePolicy.INSTANCE);
+        // Declare the same block-join parent field the main committer writer uses
+        // (createIndexWriterConfig, line ~390). A secondary Lucene segment records __nested_parent in its
+        // FieldInfos whenever the writer that produced it had setParentField configured — and it does so
+        // even for a flat, block-less segment. Lucene then refuses to open such a directory with an
+        // IndexWriter that has NO parent field configured ("can't add field [__nested_parent] as parent
+        // document field ..."), which is exactly what fails store recovery here. This trim writer only
+        // re-anchors the safe commit (no addDocument), so declaring the parent field is a no-op on content
+        // and safe when segments lack it (Lucene permits introducing a parent field); it just lets the
+        // directory open. See design/nested-field-recovery/.
+        iwc.setParentField(LuceneWriter.NESTED_PARENT_FIELD);
         try (IndexWriter tempWriter = new IndexWriter(store.directory(), iwc)) {
             tempWriter.setLiveCommitData(targetCommit.getUserData().entrySet());
             tempWriter.commit();
